@@ -13,32 +13,6 @@ namespace net.vieapps.Services.Files
 	public static class Utility
 	{
 
-		#region Get setting/parameter of the app
-		public static string GetAppSetting(string name, string defaultValue = null)
-		{
-			var value = string.IsNullOrEmpty(name)
-				? null
-				: ConfigurationManager.AppSettings["vieapps:" + name.Trim()];
-			return string.IsNullOrEmpty(value)
-				? defaultValue
-				: value;
-		}
-
-		public static string GetAppParameter(string name, NameValueCollection header, NameValueCollection query, string defaultValue = null)
-		{
-			var value = string.IsNullOrWhiteSpace(name)
-				? null
-				: header?[name];
-			if (value == null)
-				value = string.IsNullOrWhiteSpace(name)
-				? null
-				: query?[name];
-			return string.IsNullOrEmpty(value)
-				? defaultValue
-				: value;
-		}
-		#endregion
-
 		#region Caching mechanism
 		static int _CacheTime = 0;
 
@@ -52,7 +26,7 @@ namespace net.vieapps.Services.Files
 				if (Utility._CacheTime < 1)
 					try
 					{
-						Utility._CacheTime = Utility.GetAppSetting("CacheTime", "30").CastAs<int>();
+						Utility._CacheTime = UtilityService.GetAppSetting("CacheTime", "30").CastAs<int>();
 					}
 					catch
 					{
