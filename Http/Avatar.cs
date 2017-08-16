@@ -36,57 +36,37 @@ namespace net.vieapps.Services.Files
 		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			// prepare
-			var request = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
-			if (request.StartsWith("/"))
-				request = request.Right(request.Length - 1);
-			if (request.IndexOf("?") > 0)
-				request = request.Left(request.IndexOf("?"));
-			var info = request.ToArray('/', true);
-
-			var filePath = Global.UserAvatarFilesPath + "nothing";
-			var eTag = "";
+			FileInfo fileInfo = null;
 			try
 			{
-				info = info[1].Url64Decode().ToArray('|');
-				filePath = Global.UserAvatarFilesPath + info[1] + ".png";
-				eTag = "Avatar#" + info[1].ToLower();
+				var info = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
+				while (info.StartsWith("/"))
+					info = info.Right(info.Length - 1);
+				if (info.IndexOf("?") > 0)
+					info = info.Left(info.IndexOf("?"));
+
+				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true).RemoveAt(0).First().Url64Decode().ToArray('|').Last() + ".png");
 			}
 			catch { }
+			if (fileInfo == null || !fileInfo.Exists)
+				fileInfo = new FileInfo(Global.UserAvatarFilesPath + Global.DefaultUserAvatarFilename);
 
-			var fileInfo = new FileInfo(filePath);
-			if (!fileInfo.Exists)
-			{
-				filePath = Global.UserAvatarFilesPath + Global.DefaultUserAvatarFilename;
-				fileInfo = new FileInfo(filePath);
-				eTag = "Avatar#Default";
-			}
+			var eTag = "Avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GetMD5();
 
 			// check request headers to reduce traffict
-			if (!string.IsNullOrWhiteSpace(eTag) && context.Request.Headers["If-Modified-Since"] != null)
+			if (context.Request.Headers["If-Modified-Since"] != null && eTag.Equals(context.Request.Headers["If-None-Match"]))
 			{
-				var modifiedSince = context.Request.Headers["If-Modified-Since"].FromHttpDateTime();
-				var diffSeconds = 1.0d;
-				if (!modifiedSince.Equals(DateTimeService.CheckingDateTime))
-					diffSeconds = (fileInfo.LastWriteTime - modifiedSince).TotalSeconds;
-				var isNotModified = diffSeconds < 1.0d;
-
-				var isMatched = true;
-				if (context.Request.Headers["If-None-Match"] != null)
-					isMatched = context.Request.Headers["If-None-Match"].Equals(eTag);
-
-				if (isNotModified && isMatched)
-				{
-					context.Response.Cache.SetCacheability(HttpCacheability.Public);
-					context.Response.StatusCode = (int)HttpStatusCode.NotModified;
-					context.Response.StatusDescription = "Not Modified";
-					context.Response.AppendHeader("ETag", "\"" + eTag + "\"");
-					return;
-				}
+				context.Response.Cache.SetCacheability(HttpCacheability.Public);
+				context.Response.StatusCode = (int)HttpStatusCode.NotModified;
+				context.Response.StatusDescription = "Not Modified";
+				context.Response.Headers.Add("ETag", "\"" + eTag + "\"");
+				return;
 			}
 
-			// update cache policy of client
-			if (!string.IsNullOrWhiteSpace(eTag))
+			// show
+			try
 			{
+				// update cache policy of client
 				context.Response.Cache.SetCacheability(HttpCacheability.Public);
 				context.Response.Cache.SetExpires(DateTime.Now.AddDays(7));
 				context.Response.Cache.SetSlidingExpiration(true);
@@ -94,16 +74,13 @@ namespace net.vieapps.Services.Files
 				context.Response.Cache.SetValidUntilExpires(true);
 				context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
 				context.Response.Cache.SetETag(eTag);
-			}
 
-			// flush the file to output
-			try
-			{
-				await context.WriteFileToOutputAsync(fileInfo, "image/png", eTag);
+				// flush the file to output
+				await context.WriteFileToOutputAsync(fileInfo, "image/png", eTag, null, cancellationToken);
 			}
 			catch (FileNotFoundException ex)
 			{
-				Global.ShowError(context, 404, "Not Found [" + context.Request.RawUrl + "]", "FileNotFoundException", ex.StackTrace, ex.InnerException);
+				Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", ex.StackTrace, ex.InnerException);
 			}
 			catch (Exception)
 			{

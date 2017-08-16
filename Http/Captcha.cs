@@ -16,20 +16,21 @@ namespace net.vieapps.Services.Files
 			if (!context.Request.HttpMethod.IsEquals("GET"))
 				throw new InvalidRequestException();
 
-			var request = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
-			if (request.StartsWith("/"))
-				request = request.Right(request.Length - 1);
-			if (request.IndexOf("?") > 0)
-				request = request.Left(request.IndexOf("?"));
-			var info = request.ToArray('/', true);
+			var requestUrl = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
+			while (requestUrl.StartsWith("/"))
+				requestUrl = requestUrl.Right(requestUrl.Length - 1);
+			if (requestUrl.IndexOf("?") > 0)
+				requestUrl = requestUrl.Left(requestUrl.IndexOf("?"));
+
+			var requestInfo = requestUrl.ToArray('/', true).RemoveAt(0);
 			var useSmallImage = true;
-			if (info.Length > 2)
+			if (requestInfo.Length > 1)
 				try
 				{
-					useSmallImage = !info[2].Url64Decode().IsEquals("big");
+					useSmallImage = !requestInfo[1].Url64Decode().IsEquals("big");
 				}
 				catch { }
-			CaptchaHelper.GenerateCaptchaImage(context.Response, info[1].Url64Decode(), useSmallImage);
+			CaptchaHelper.GenerateCaptchaImage(context.Response, requestInfo[0].Url64Decode(), useSmallImage);
 			return Task.CompletedTask;
 		}
 	}

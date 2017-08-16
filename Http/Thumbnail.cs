@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (!context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg");
+					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
 				return;
 			}
 
@@ -41,39 +41,20 @@ namespace net.vieapps.Services.Files
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = "Thumbnail#" + context.Request.RawUrl.Trim().ToLower().GetMD5();
-			FileInfo fileInfo = null;
-			if (context.Request.Headers["If-Modified-Since"] != null)
+			if (context.Request.Headers["If-Modified-Since"] != null && eTag.Equals(context.Request.Headers["If-None-Match"]))
 			{
-				// get file information
-				fileInfo = new FileInfo(info.FilePath);
-
-				// compare time of modification
-				DateTime modifiedSince = context.Request.Headers["If-Modified-Since"].FromHttpDateTime();
-				double diffSeconds = 1.0d;
-				if (!modifiedSince.Equals(DateTimeService.CheckingDateTime))
-					diffSeconds = (fileInfo.LastWriteTime - modifiedSince).TotalSeconds;
-				bool isNotModified = diffSeconds < 1.0d;
-
-				// compare entity tag
-				bool isMatched = true;
-				if (context.Request.Headers["If-None-Match"] != null)
-					isMatched = context.Request.Headers["If-None-Match"].Equals(eTag);
-
-				// add 304 (not modified) code to tell browser that the content is not modified
-				if (isNotModified && isMatched)
-				{
-					context.Response.Cache.SetCacheability(HttpCacheability.Public);
-					context.Response.StatusCode = (int)HttpStatusCode.NotModified;
-					context.Response.StatusDescription = "Not Modified";
-					context.Response.AppendHeader("ETag", "\"" + eTag + "\"");
-					return;
-				}
+				context.Response.Cache.SetCacheability(HttpCacheability.Public);
+				context.Response.StatusCode = (int)HttpStatusCode.NotModified;
+				context.Response.StatusDescription = "Not Modified";
+				context.Response.Headers.Add("ETag", "\"" + eTag + "\"");
+				return;
 			}
 
 			// check exist
-			if (!File.Exists(info.FilePath))
+			var fileInfo = new FileInfo(info.FilePath);
+			if (!fileInfo.Exists)
 			{
-				Global.ShowError(context, 404, "Not Found", "FileNotFoundException", null, new FileNotFoundException(info.FilePath));
+				Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null, new FileNotFoundException(info.FilePath));
 				return;
 			}
 
@@ -108,7 +89,7 @@ namespace net.vieapps.Services.Files
 
 				// generate thumbnail with error message
 				else
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg");
+					await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken);
 			}
 
 			// can view
@@ -129,9 +110,6 @@ namespace net.vieapps.Services.Files
 					return;
 
 				// set cache policy at client-side
-				if (fileInfo == null)
-					fileInfo = new FileInfo(info.FilePath);
-
 				context.Response.Cache.SetCacheability(HttpCacheability.Public);
 				context.Response.Cache.SetExpires(DateTime.Now.AddDays(365));
 				context.Response.Cache.SetSlidingExpiration(true);
@@ -149,7 +127,7 @@ namespace net.vieapps.Services.Files
 				context.Response.Cache.SetETag(eTag);
 
 				// flush thumbnail image to output stream
-				await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString());
+				await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken);
 			}
 		}
 
@@ -157,7 +135,7 @@ namespace net.vieapps.Services.Files
 		ThumbnailInfo Prepare(HttpContext context)
 		{
 			var requestUrl = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
-			if (requestUrl.StartsWith("/"))
+			while (requestUrl.StartsWith("/"))
 				requestUrl = requestUrl.Right(requestUrl.Length - 1);
 			if (requestUrl.IndexOf("?") > 0)
 				requestUrl = requestUrl.Left(requestUrl.IndexOf("?"));
@@ -174,17 +152,21 @@ namespace net.vieapps.Services.Files
 			};
 
 			info.Filename = info.Identifier
-				+ (info.IsAttachment ? "-" + requestInfo[6] : (requestInfo.Length > 6 && requestInfo[6].Length.Equals(1) && !requestInfo[6].Equals("0") ? "-" + requestInfo[6] : "") + ".jpg");
+				+ (info.IsAttachment
+					? "-" + requestInfo[6]
+					: (requestInfo.Length > 6 && requestInfo[6].Length.Equals(1) && !requestInfo[6].Equals("0") ? "-" + requestInfo[6] : "") + ".jpg");
 			info.FilePath = Global.AttachmentFilesPath + info.SystemID + @"\" + info.Filename;
 
 			info.Cropped = requestUrl.IsContains("--crop") || context.Request.QueryString["crop"] != null;
-			info.CroppedPosition = requestUrl.IsContains("--crop-top") || (context.Request.QueryString["cropPos"] != null && context.Request.QueryString["cropPos"].IsEquals("top"))
+			info.CroppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.Request.QueryString["cropPos"])
 				? "top"
-				: requestUrl.IsContains("--crop-bottom") || (context.Request.QueryString["cropPos"] != null && context.Request.QueryString["cropPos"].IsEquals("bottom"))
+				: requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.Request.QueryString["cropPos"])
 					? "bottom"
 					: "auto";
 
-			info.UseAdditionalWatermark = requestUrl.IsContains("--btwm");
+			info.UseAdditionalWatermark = context.Request.QueryString["nw"] != null
+				? false
+				: requestUrl.IsContains("--btwm");
 
 			return info;
 		}
@@ -205,7 +187,7 @@ namespace net.vieapps.Services.Files
 		{
 			try
 			{
-				using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.AsPng, info.Cropped, info.CroppedPosition))
+				using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.Cropped, info.CroppedPosition))
 				{
 					// add watermark
 					cancellationToken.ThrowIfCancellationRequested();
@@ -229,7 +211,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		Bitmap GenerateThumbnail(string filePath, int width, int height, bool asBig, bool asPng, bool isCropped, string cropPosition)
+		Bitmap GenerateThumbnail(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
 		{
 			using (var image = Image.FromFile(filePath) as Bitmap)
 			{
@@ -237,50 +219,41 @@ namespace net.vieapps.Services.Files
 				if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
 					return image.Clone() as Bitmap;
 
-				// calculate width & height of the thumbnail image
-				int thumbnailWidth = width, thumbnailHeight = height;
-
 				// calculate size depend on width
-				if (thumbnailHeight.Equals(0))
+				if (height < 1)
 				{
-					thumbnailHeight = (int)((image.Height * thumbnailWidth) / image.Width);
-					if (thumbnailHeight < 1)
-						thumbnailHeight = image.Height;
+					height = (int)((image.Height * width) / image.Width);
+					if (height < 1)
+						height = image.Height;
 				}
 
 				// calculate size depend on height
-				else
+				else if (width < 1)
 				{
-					if (thumbnailWidth.Equals(0))
-					{
-						thumbnailWidth = (int)((image.Width * thumbnailHeight) / image.Height);
-						if (thumbnailWidth < 1)
-							thumbnailWidth = image.Width;
-					}
+					width = (int)((image.Width * height) / image.Height);
+					if (width < 1)
+						width = image.Width;
 				}
 
-				// generate cropped thumbnail
-				if (isCropped)
-					return this.GenerateCroppedThumbnail(image, thumbnailWidth, thumbnailHeight, cropPosition, asBig, asPng);
-
-				// generate fixed thumbnail
-				else
-					return this.GenerateFixedThumbnail(image, thumbnailWidth, thumbnailHeight, asBig, asPng);
+				// generate thumbnail
+				return isCropped
+					? this.GenerateThumbnail(image, width, height, asBig, cropPosition)
+					: this.GenerateThumbnail(image, width, height, asBig);
 			}
 		}
 
-		Bitmap GenerateCroppedThumbnail(Bitmap image, int width, int height, string position, bool asBig, bool asPng)
+		Bitmap GenerateThumbnail(Bitmap image, int width, int height, bool asBig, string cropPosition)
 		{
-			using (var thumbnail = this.GenerateFixedThumbnail(image, width, (image.Height * width) / image.Width, asBig, asPng))
+			using (var thumbnail = this.GenerateThumbnail(image, width, (image.Height * width) / image.Width, asBig))
 			{
 				// if height is less than thumbnail image's height, then return thumbnail image
 				if (thumbnail.Height <= height)
 					return thumbnail.Clone() as Bitmap;
 
 				// crop image
-				int top = position.IsEquals("auto")
+				int top = cropPosition.IsEquals("auto")
 					? (thumbnail.Height - height) / 2
-					: position.IsEquals("bottom")
+					: cropPosition.IsEquals("bottom")
 						? thumbnail.Height - height
 						: 0;
 				using (var cropped = new Bitmap(width, height))
@@ -294,7 +267,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		Bitmap GenerateFixedThumbnail(Bitmap image, int width, int height, bool asBig, bool asPng)
+		Bitmap GenerateThumbnail(Bitmap image, int width, int height, bool asBig)
 		{
 			// get and return normal thumbnail
 			if (!asBig)
@@ -408,7 +381,7 @@ namespace net.vieapps.Services.Files
 		public string Data { get; set; }
 
 		/// <summary>
-		/// Gets or sets position of the watermark (possible values: auto, top, left)
+		/// Gets or sets position of the watermark (possible values: auto, top, bottom)
 		/// </summary>
 		public string Position { get; set; }
 
