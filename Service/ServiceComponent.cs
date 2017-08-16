@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 using net.vieapps.Components.Utility;
+using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
 
@@ -80,6 +81,9 @@ namespace net.vieapps.Services.Files
 					case "attachment":
 						await Task.Delay(0);
 						break;
+
+					case "captcha":
+						return await this.GenerateCaptchaAsync(requestInfo, cancellationToken);
 				}
 
 				// unknown
@@ -95,12 +99,30 @@ namespace net.vieapps.Services.Files
 			} 
 		}
 
-		#region Update with inter-communicate messages
-		void OnInterCommunicateMessageReceived(BaseMessage message)
+		Task<JObject> GenerateCaptchaAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException();
+
+			try
+			{
+				var code = CaptchaHelper.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+				return Task.FromResult(new JObject()
+				{
+					{ "Code", code },
+					{ "Uri", UtilityService.GetAppSetting("HttpUri", "https://apis-fs-01.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+				});
+			}
+			catch (Exception ex)
+			{
+				return Task.FromException<JObject>(ex);
+			}
+		}
+
+		void OnInterCommunicateMessageReceived(CommunicateMessage message)
 		{
 
 		}
-		#endregion
 
 		~ServiceComponent()
 		{

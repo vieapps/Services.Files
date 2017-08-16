@@ -724,17 +724,23 @@ namespace net.vieapps.Services.Files
 			// add execution times
 			if (app != null && app.Context != null && app.Context.Request != null
 				&& !app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Context.Items != null && app.Context.Items.Contains("StopWatch"))
-			{
-				(app.Context.Items["StopWatch"] as Stopwatch).Stop();
-				var executionTimes = (app.Context.Items["StopWatch"] as Stopwatch).GetElapsedTimes();
-				Global.WriteLogs("End process - Execution times: " + executionTimes);
-				app.Response.Headers.Add("x-execution-times", executionTimes);
-			}
+				try
+				{
+					(app.Context.Items["StopWatch"] as Stopwatch).Stop();
+					var executionTimes = (app.Context.Items["StopWatch"] as Stopwatch).GetElapsedTimes();
+					Global.WriteLogs("End process - Execution times: " + executionTimes);
+					app.Response.Headers.Add("x-execution-times", executionTimes);
+				}
+				catch { }
 #endif
 
 			// add correlation identity
 			if (app != null && app.Response != null && !app.Context.Request.HttpMethod.Equals("OPTIONS"))
-				app.Response.Headers.Add("x-correlation-id", Global.GetCorrelationID(app.Context.Items));
+				try
+				{
+					app.Response.Headers.Add("x-correlation-id", Global.GetCorrelationID(app.Context.Items));
+				}
+				catch { }
 		}
 		#endregion
 

@@ -215,6 +215,7 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Captcha.cs" />
     <Compile Include="Avatar.cs" />
     <Compile Include="Global.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
