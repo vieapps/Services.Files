@@ -14,7 +14,7 @@ namespace net.vieapps.Services.Files
 		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (!context.Request.HttpMethod.IsEquals("GET"))
-				throw new InvalidRequestException("Method is not supported");
+				throw new InvalidRequestException();
 
 			var request = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
 			if (request.StartsWith("/"))

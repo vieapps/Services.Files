@@ -32,40 +32,6 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		#region Configuration
-		static string _FilesPath = null, _DefaultAvatarFilename = null;
-
-		static string FilesPath
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(AvatarHandler._FilesPath))
-				{
-					AvatarHandler._FilesPath = UtilityService.GetAppSetting("UserAvatarsPath");
-					if (string.IsNullOrWhiteSpace(AvatarHandler._FilesPath))
-						AvatarHandler._FilesPath = HttpRuntime.AppDomainAppPath + @"\data-files\user-avatars";
-					if (!AvatarHandler._FilesPath.EndsWith(@"\"))
-						AvatarHandler._FilesPath += @"\";
-				}
-				return AvatarHandler._FilesPath;
-			}
-		}
-
-		static string DefaultAvatarFilename
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(AvatarHandler._DefaultAvatarFilename))
-				{
-					AvatarHandler._DefaultAvatarFilename = UtilityService.GetAppSetting("DefaultUserAvatarFilename");
-					if (string.IsNullOrWhiteSpace(AvatarHandler._DefaultAvatarFilename))
-						AvatarHandler._DefaultAvatarFilename = "@default.png";
-				}
-				return AvatarHandler._DefaultAvatarFilename;
-			}
-		}
-		#endregion
-
 		#region Show avatar image
 		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
@@ -77,12 +43,12 @@ namespace net.vieapps.Services.Files
 				request = request.Left(request.IndexOf("?"));
 			var info = request.ToArray('/', true);
 
-			var filePath = AvatarHandler.FilesPath + "nothing";
+			var filePath = Global.UserAvatarFilesPath + "nothing";
 			var eTag = "";
 			try
 			{
 				info = info[1].Url64Decode().ToArray('|');
-				filePath = AvatarHandler.FilesPath + info[1] + ".png";
+				filePath = Global.UserAvatarFilesPath + info[1] + ".png";
 				eTag = "Avatar#" + info[1].ToLower();
 			}
 			catch { }
@@ -90,7 +56,7 @@ namespace net.vieapps.Services.Files
 			var fileInfo = new FileInfo(filePath);
 			if (!fileInfo.Exists)
 			{
-				filePath = AvatarHandler.FilesPath + AvatarHandler.DefaultAvatarFilename;
+				filePath = Global.UserAvatarFilesPath + Global.DefaultUserAvatarFilename;
 				fileInfo = new FileInfo(filePath);
 				eTag = "Avatar#Default";
 			}

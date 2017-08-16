@@ -110,9 +110,13 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
+		static string _PublicJWTKey = null;
+
 		internal static string GenerateJWTKey()
 		{
-			return Global.JWTKey.GetHMACSHA512(Global.AESKey).ToBase64Url(false, true);
+			if (Global._PublicJWTKey == null)
+				Global._PublicJWTKey = Global.JWTKey.GetHMACSHA512(Global.AESKey).ToBase64Url(false, true);
+			return Global._PublicJWTKey;
 		}
 
 		static string _RSAKey = null;
@@ -173,7 +177,7 @@ namespace net.vieapps.Services.Files
 			{
 				if (Global._RSAModulus == null)
 				{
-					var xmlDoc = new System.Xml.XmlDocument();
+					var xmlDoc = new XmlDocument();
 					xmlDoc.LoadXml(Global.RSA.ToXmlString(false));
 					Global._RSAModulus = xmlDoc.DocumentElement.ChildNodes[0].InnerText.ToHexa(true);
 				}
@@ -208,6 +212,7 @@ namespace net.vieapps.Services.Files
 		internal static IWampChannel IncommingChannel = null, OutgoingChannel = null;
 		internal static long IncommingChannelSessionID = 0, OutgoingChannelSessionID = 0;
 		internal static bool ChannelAreClosedBySystem = false;
+		internal static IDisposable InterCommunicationMessageUpdater = null;
 
 		static Tuple<string, string, bool> GetLocationInfo()
 		{
@@ -234,6 +239,12 @@ namespace net.vieapps.Services.Files
 			Global.IncommingChannel.RealmProxy.Monitor.ConnectionEstablished += (sender, arguments) =>
 			{
 				Global.IncommingChannelSessionID = arguments.SessionId;
+				var subject = Global.IncommingChannel?.RealmProxy.Services.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages");
+				if (subject != null)
+					Global.InterCommunicationMessageUpdater = subject.Subscribe(
+						msg => Global.ProcessInterCommunicateMessage(msg),
+						ex =>  Global.WriteLogs(UtilityService.BlankUID, "Error occurred while fetching inter-communicate message", ex)
+					);
 			};
 
 			if (onConnectionEstablished != null)
@@ -435,26 +446,30 @@ namespace net.vieapps.Services.Files
 		internal static async Task WriteLogsAsync(string correlationID, List<string> logs, Exception exception = null)
 		{
 			// prepare
-			var stack = "";
+			var simpleStack = exception != null
+				? exception.StackTrace
+				: "";
+
+			var fullStack = "";
 			if (exception != null)
 			{
-				stack = exception.StackTrace;
+				fullStack = exception.StackTrace;
 				var inner = exception.InnerException;
-				int counter = 0;
+				var counter = 0;
 				while (inner != null)
 				{
 					counter++;
-					stack += "\r\n" + "-> Inner (" + counter.ToString() + "): ---->>>>" + "\r\n" + inner.StackTrace;
+					fullStack += "\r\n" + "-> Inner (" + counter.ToString() + "): ---->>>>" + "\r\n" + inner.StackTrace;
 					inner = inner.InnerException;
 				}
-				stack += "\r\n" + "-------------------------------------" + "\r\n";
+				fullStack += "\r\n" + "-------------------------------------" + "\r\n";
 			}
 
 			// write logs
 			try
 			{
 				await Global.InitializeManagementServiceAsync();
-				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, stack);
+				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, simpleStack, fullStack);
 			}
 			catch { }
 		}
@@ -580,6 +595,8 @@ namespace net.vieapps.Services.Files
 		internal static void OnAppEnd()
 		{
 			Global.CancellationTokenSource.Cancel();
+			if (Global.InterCommunicationMessageUpdater != null)
+				Global.InterCommunicationMessageUpdater.Dispose();
 			Global.ChannelAreClosedBySystem = true;
 			Global.CloseIncomingChannel();
 			Global.CloseOutgoingChannel();
@@ -591,16 +608,17 @@ namespace net.vieapps.Services.Files
 		{
 			// update default headers to allow access from everywhere
 			app.Context.Response.HeaderEncoding = Encoding.UTF8;
-			app.Context.Response.AddHeader("access-control-allow-origin", "*");
+			app.Context.Response.Headers.Add("access-control-allow-origin", "*");
+			app.Context.Response.Headers.Add("x-correlation-id", Global.GetCorrelationID(app.Context.Items));
 
 			// update special headers on OPTIONS request
 			if (app.Context.Request.HttpMethod.Equals("OPTIONS"))
 			{
-				app.Context.Response.AddHeader("access-control-allow-methods", "HEAD,GET,POST,OPTIONS");
+				app.Context.Response.Headers.Add("access-control-allow-methods", "HEAD,GET,POST,OPTIONS");
 
 				var allowHeaders = app.Context.Request.Headers.Get("access-control-request-headers");
 				if (!string.IsNullOrWhiteSpace(allowHeaders))
-					app.Context.Response.AddHeader("access-control-allow-headers", allowHeaders);
+					app.Context.Response.Headers.Add("access-control-allow-headers", allowHeaders);
 
 				return;
 			}
@@ -646,15 +664,11 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-#if DEBUG || REQUESTLOGS || REWRITELOGS
-			var requestUrl = app.Context.Request.Url.Scheme + "://" + app.Context.Request.Url.Host + app.Context.Request.RawUrl;
-#endif
-
 #if DEBUG || REQUESTLOGS
 			var appInfo = app.Context.GetAppInfo();
 
 			Global.WriteLogs(new List<string>() {
-					"Begin process [" + app.Context.Request.HttpMethod + "]: " + requestUrl,
+					"Begin process [" + app.Context.Request.HttpMethod + "]: " + app.Context.Request.Url.Scheme + "://" + app.Context.Request.Url.Host + app.Context.Request.RawUrl,
 					"- Origin: " + appInfo.Item1 + " / " + appInfo.Item2 + " - " + appInfo.Item3,
 					"- IP: " + app.Context.Request.UserHostAddress,
 					"- Agent: " + app.Context.Request.UserAgent,
@@ -671,13 +685,6 @@ namespace net.vieapps.Services.Files
 					query += (query.Equals("") ? "" : "&") + key + "=" + app.Request.QueryString[key].UrlEncode();
 
 			app.Context.RewritePath(app.Request.ApplicationPath + "Global.ashx", null, query);
-
-#if DEBUG || REWRITELOGS
-			Global.WriteLogs(new List<string>() {
-					"Rewrite: " + requestUrl,
-					"=> " + app.Request.ApplicationPath + "Global.ashx" + (!string.IsNullOrWhiteSpace(query) ? "?" + query : "")
-				});
-#endif
 
 			// decrypt session cookie
 			HttpCookie sessionCookie = null;
@@ -707,7 +714,7 @@ namespace net.vieapps.Services.Files
 		{
 			// encrypt session cookie
 			HttpCookie sessionCookie = null;
-			if (app != null && app.Response != null && app.Response.Cookies != null)
+			if (!app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Response.Cookies != null)
 				for (int index = 0; index < app.Response.Cookies.Count; index++)
 					if (app.Response.Cookies[index].Name.IsEquals(".VIEApps-Session-ID"))
 					{
@@ -715,32 +722,27 @@ namespace net.vieapps.Services.Files
 						break;
 					}
 			if (sessionCookie != null)
-			{
-				sessionCookie.Value = "VIEApps|" + Global.AESEncrypt(sessionCookie.Value) + "|" + sessionCookie.Value.GetHMACSHA256(Global.AESKey, false);
-				sessionCookie.HttpOnly = true;
-			}
+				try
+				{
+					sessionCookie.Value = "VIEApps|" + Global.AESEncrypt(sessionCookie.Value) + "|" + sessionCookie.Value.GetHMACSHA256(Global.AESKey, false);
+					sessionCookie.HttpOnly = true;
+				}
+				catch { }
 
 #if DEBUG || REQUESTLOGS
 			// add execution times
-			if (app != null && app.Context != null && app.Context.Request != null
-				&& !app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Context.Items != null && app.Context.Items.Contains("StopWatch"))
+			if (!app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Context.Items.Contains("StopWatch"))
+			{
+				(app.Context.Items["StopWatch"] as Stopwatch).Stop();
+				var executionTimes = (app.Context.Items["StopWatch"] as Stopwatch).GetElapsedTimes();
+				Global.WriteLogs("End process - Execution times: " + executionTimes);
 				try
 				{
-					(app.Context.Items["StopWatch"] as Stopwatch).Stop();
-					var executionTimes = (app.Context.Items["StopWatch"] as Stopwatch).GetElapsedTimes();
-					Global.WriteLogs("End process - Execution times: " + executionTimes);
-					app.Response.Headers.Add("x-execution-times", executionTimes);
+					app.Context.Response.Headers.Add("x-execution-times", executionTimes);
 				}
 				catch { }
+			}
 #endif
-
-			// add correlation identity
-			if (app != null && app.Response != null && !app.Context.Request.HttpMethod.Equals("OPTIONS"))
-				try
-				{
-					app.Response.Headers.Add("x-correlation-id", Global.GetCorrelationID(app.Context.Items));
-				}
-				catch { }
 		}
 		#endregion
 
@@ -813,7 +815,7 @@ namespace net.vieapps.Services.Files
 					inner = exception.InnerException;
 				}
 			}
-			Global.ShowError(context, 0, exception != null ? exception.Message : "Unknown", type, stack, inner);
+			Global.ShowError(context, exception is FileNotFoundException ? 404 : 0, exception != null ? exception.Message : "Unknown", type, stack, inner);
 		}
 
 		internal static void OnAppError(HttpApplication app)
@@ -1043,6 +1045,64 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
+		#region  Global settings
+		static string _UserAvatarFilesPath = null;
+
+		internal static string UserAvatarFilesPath
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Global._UserAvatarFilesPath))
+				{
+					Global._UserAvatarFilesPath = UtilityService.GetAppSetting("UserAvatarFilesPath");
+					if (string.IsNullOrWhiteSpace(Global._UserAvatarFilesPath))
+						Global._UserAvatarFilesPath = HttpRuntime.AppDomainAppPath + @"\data-files\user-avatars";
+					if (!Global._UserAvatarFilesPath.EndsWith(@"\"))
+						Global._UserAvatarFilesPath += @"\";
+				}
+				return Global._UserAvatarFilesPath;
+			}
+		}
+
+		static string _DefaultUserAvatarFilename = null;
+
+		internal static string DefaultUserAvatarFilename
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Global._DefaultUserAvatarFilename))
+				{
+					Global._DefaultUserAvatarFilename = UtilityService.GetAppSetting("DefaultUserAvatarFileName");
+					if (string.IsNullOrWhiteSpace(Global._DefaultUserAvatarFilename))
+						Global._DefaultUserAvatarFilename = "@default.png";
+				}
+				return Global._DefaultUserAvatarFilename;
+			}
+		}
+
+		static string _AttachmentFilesPath = null;
+
+		internal static string AttachmentFilesPath
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Global._AttachmentFilesPath))
+				{
+					Global._AttachmentFilesPath = UtilityService.GetAppSetting("AttachmentFilesPath");
+					if (string.IsNullOrWhiteSpace(Global._AttachmentFilesPath))
+						Global._AttachmentFilesPath = HttpRuntime.AppDomainAppPath + @"\data-files\attachments";
+					if (!Global._AttachmentFilesPath.EndsWith(@"\"))
+						Global._AttachmentFilesPath += @"\";
+				}
+				return Global._AttachmentFilesPath;
+			}
+		}
+		#endregion
+
+		static void ProcessInterCommunicateMessage(CommunicateMessage message)
+		{
+
+		}
 	}
 
 	// ------------------------------------------------------------------------------
