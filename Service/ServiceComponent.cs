@@ -2,6 +2,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 using Newtonsoft.Json.Linq;
 
@@ -18,16 +19,29 @@ namespace net.vieapps.Services.Files
 		#region Start
 		public ServiceComponent() { }
 
-		internal void Start(string[] args = null, Func<Task> continuationAsync = null)
+		void WriteInfo(string info, Exception ex = null)
+		{
+			var msg = string.IsNullOrWhiteSpace(info)
+				? ex != null ? ex.Message : ""
+				: info;
+
+			Console.WriteLine("~~~~~~~~~~~~~~~~~~~~>");
+			Console.WriteLine(msg);
+			if (ex != null)
+				Console.WriteLine("-----------------------\r\n" + "==> [" + ex.GetType().GetTypeName(true) + "]: " + ex.Message + "\r\n" + ex.StackTrace + "\r\n-----------------------");
+		}
+
+		internal void Start(string[] args = null, System.Action nextAction = null, Func<Task> nextActionAsync = null)
 		{
 			// initialize repository
 			try
 			{
+				this.WriteInfo("Initializing the repository");
 				RepositoryStarter.Initialize();
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine("Error occurred while initializing the repository: " + ex.Message + "\r\n" + ex.StackTrace);
+				this.WriteInfo("Error occurred while initializing the repository", ex);
 			}
 
 			// start the service
@@ -37,29 +51,37 @@ namespace net.vieapps.Services.Files
 				{
 					await this.StartAsync(
 						() => {
-							Console.WriteLine("The service [" + this.ServiceURI + "] is registered");
+							var pid = Process.GetCurrentProcess().Id.ToString();
+							this.WriteInfo("The service is registered - PID: " + pid);
+							this.WriteLog(UtilityService.BlankUID, this.ServiceName, null, "The service [" + this.ServiceURI + "] is registered - PID: " + pid);
 						},
-						(ex) => {
-							Console.WriteLine("Error occurred while registering the service [" + this.ServiceURI + "]: " + ex.Message + "\r\n" + ex.StackTrace);
-						},
+						ex => this.WriteInfo("Error occurred while registering the service", ex),
 						this.OnInterCommunicateMessageReceived
 					);
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine("Error occurred while starting the service [" + this.ServiceURI + "]: " + ex.Message + "\r\n" + ex.StackTrace);
+					this.WriteInfo("Error occurred while starting the service", ex);
 				}
 			})
 			.ContinueWith(async (task) =>
 			{
-				if (continuationAsync != null)
+				try
+				{
+					nextAction?.Invoke();
+				}
+				catch (Exception ex)
+				{
+					this.WriteInfo("Error occurred while running the next action (sync)", ex);
+				}
+				if (nextActionAsync != null)
 					try
 					{
-						await continuationAsync().ConfigureAwait(false);
+						await nextActionAsync().ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
-						Console.WriteLine("Error occurred while running the continuation function: " + ex.Message + "\r\n" + ex.StackTrace);
+						this.WriteInfo("Error occurred while running the next action (async)", ex);
 					}
 			})
 			.ConfigureAwait(false);
@@ -94,7 +116,11 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine(ex.Message + " - Correlation ID: " + requestInfo.CorrelationID);
+#if DEBUG
+				this.WriteInfo("Error occurred while processing\r\n==> Request:\r\n" + requestInfo.ToJson().ToString(Newtonsoft.Json.Formatting.Indented), ex);
+#else
+				this.WriteInfo("Error occurred while processing - Correlation ID: " + requestInfo.CorrelationID);
+#endif
 				throw this.GetRuntimeException(requestInfo, ex);
 			} 
 		}

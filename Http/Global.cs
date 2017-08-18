@@ -13,6 +13,8 @@ using System.Text;
 using System.Linq;
 using System.Xml;
 using System.Web;
+using System.Web.Security;
+using System.Web.Configuration;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -707,21 +709,28 @@ namespace net.vieapps.Services.Files
 			if (app.Context.Request.QueryString["x-passport-token"] != null)
 				try
 				{
-					// parse & validate
-					var token = User.ParseJSONWebToken(app.Context.Request.QueryString["x-passport-token"], Global.AESKey, Global.GenerateJWTKey());
-					var ticket = User.ParseAuthenticateTicket(token.Item3, Global.RSA, Global.AESKey);
-					var user = ticket.Item1;
-					var sessionID = ticket.Item2;
-					var deviceID = ticket.Item3;
+					// parse
+					var token = User.ParsePassportToken(app.Context.Request.QueryString["x-passport-token"], Global.AESKey, Global.GenerateJWTKey());
+					var userID = token.Item1;
+					var accessToken = token.Item2;
+					var sessionID = token.Item3;
+					var deviceID = token.Item4;
+
+					var ticket = User.ParseAuthenticateToken(accessToken, Global.RSA, Global.AESKey);
+					accessToken = ticket.Item2;
+
+					var user = User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey);
+					if (!user.ID.Equals(ticket.Item1) || !user.ID.Equals(userID))
+						throw new InvalidTokenException("Token is invalid (User identity is invalid)");
 
 					// assign user credential
 					app.Context.User = new UserPrincipal(user);
-					var authCookie = new HttpCookie(System.Web.Security.FormsAuthentication.FormsCookieName)
+					var cookie = new HttpCookie(FormsAuthentication.FormsCookieName)
 					{
-						Value = User.GetAuthenticateTicket(user.ID, sessionID, deviceID, token.Item3, System.Web.Security.FormsAuthentication.Timeout.Minutes),
+						Value = User.GetAuthenticateToken(userID, accessToken, sessionID, deviceID, FormsAuthentication.Timeout.Minutes),
 						HttpOnly = true
 					};
-					app.Context.Response.SetCookie(authCookie);
+					app.Context.Response.SetCookie(cookie);
 
 					// assign session/device identity
 					Global.SetSessionID(app.Context, sessionID);
@@ -764,7 +773,7 @@ namespace net.vieapps.Services.Files
 			{
 				if (Global._SessionCookieName == null)
 				{
-					var sessionState = ConfigurationManager.GetSection("system.web/sessionState") as System.Web.Configuration.SessionStateSection;
+					var sessionState = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
 					Global._SessionCookieName = sessionState != null && !string.IsNullOrWhiteSpace(sessionState.CookieName)
 						? sessionState.CookieName
 						: "ASP.NET_SessionId";
@@ -779,13 +788,18 @@ namespace net.vieapps.Services.Files
 		{
 			if (app.Context.User == null || !(app.Context.User is UserPrincipal))
 			{
-				var authCookie = app.Context.Request.Cookies?[System.Web.Security.FormsAuthentication.FormsCookieName];
+				var authCookie = app.Context.Request.Cookies?[FormsAuthentication.FormsCookieName];
 				if (authCookie != null)
 				{
-					var info = User.ParseAuthenticateTicket(authCookie.Value, Global.RSA, Global.AESKey);
-					app.Context.User = new UserPrincipal(info.Item1);
-					app.Context.Items["Session-ID"] = info.Item2;
-					app.Context.Items["Device-ID"] = info.Item3;
+					var ticket = User.ParseAuthenticateToken(authCookie.Value, Global.RSA, Global.AESKey);
+					var userID = ticket.Item1;
+					var accessToken = ticket.Item2;
+					var sessionID = ticket.Item3;
+					var deviceID = ticket.Item4;
+
+					app.Context.User = new UserPrincipal(User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey));
+					app.Context.Items["Session-ID"] = sessionID;
+					app.Context.Items["Device-ID"] = deviceID;
 				}
 				else
 				{
@@ -1202,16 +1216,19 @@ namespace net.vieapps.Services.Files
 				{
 					// parse token
 					var info = User.ParseJSONWebToken(context.Request.QueryString["x-app-token"], Global.AESKey, Global.GenerateJWTKey());
+					var userID = info.Item1;
+					var accessToken = info.Item2;
+					var sessionID = info.Item3;
 
 					// prepare session
 					var session = Global.GetSession(context);
-					session.SessionID = info.Item1;
+					session.SessionID = sessionID;
 					context.Items["Session-ID"] = session.SessionID;
 					context.Items["Device-ID"] = session.DeviceID;
 
 					// prepare user
-					session.User = User.ParseAccessToken(info.Item3, Global.RSA, Global.AESKey);
-					if (session.User.ID.Equals(info.Item2) && await session.ExistsAsync())
+					session.User = User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey);
+					if (session.User.ID.Equals(userID) && await session.ExistsAsync())
 						context.User = new UserPrincipal(session.User);
 				}
 				catch (Exception ex)
