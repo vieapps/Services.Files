@@ -216,6 +216,8 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Download.cs" />
+    <Compile Include="File.cs" />
     <Compile Include="Thumbnail.cs" />
     <Compile Include="Captcha.cs" />
     <Compile Include="Avatar.cs" />
@@ -230,6 +232,10 @@
     <ProjectReference Include="..\..\..\Components\Caching\VIEApps.Components.Caching.csproj">
       <Project>{98147bac-f0a1-48d8-9e1f-064dd227d281}</Project>
       <Name>VIEApps.Components.Caching</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\Components\Repository\VIEApps.Components.Repository.csproj">
+      <Project>{9e0b8c70-1006-4910-8956-471a15b0511a}</Project>
+      <Name>VIEApps.Components.Repository</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\..\Components\Security\VIEApps.Components.Security.csproj">
       <Project>{bf8597e1-3fdf-4d5e-b990-6f8bcd8bbc70}</Project>

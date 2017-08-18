@@ -19,9 +19,17 @@ namespace net.vieapps.Services.Files
 	{
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			if (!context.Request.HttpMethod.IsEquals("GET") && !context.Request.HttpMethod.IsEquals("HEAD"))
+			if (context.Request.HttpMethod.IsEquals("GET") || context.Request.HttpMethod.IsEquals("HEAD"))
+				await this.ShowAsync(context, cancellationToken);
+			else if (context.Request.HttpMethod.IsEquals("POST"))
+				await this.UpdateAsync(context, cancellationToken);
+			else
 				throw new InvalidRequestException();
+		}
 
+		#region Generate & show the thumbnail image
+		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
+		{
 			// prepare information
 			ThumbnailInfo info;
 			try
@@ -61,7 +69,7 @@ namespace net.vieapps.Services.Files
 			// perform actions
 			var cts = new CancellationTokenSource();
 			var generateTask = this.GenerateThumbnailAsync(info, cts.Token);
-			var checkTask = this.CheckPermissionAsync(info, cts.Token);
+			var checkTask = this.CheckPermissionAsync(context, info, cts.Token);
 
 			// stop if the client is disconnected
 			if (!context.Response.IsClientConnected)
@@ -70,66 +78,85 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			// wait for the checking permission task is completed
-			await checkTask;
-
-			// no permission
-			if (!checkTask.Result)
+			// permission
+			try
 			{
-				// stop if the client is disconnected
-				cts.Cancel();
-				if (!context.Response.IsClientConnected)
-					return;
+				// wait for completed
+				await checkTask;
 
-				// if has no right to download and un-authorized, then trasnfer to passport first
-				if (!context.Request.IsAuthenticated && context.Request.QueryString["r"] == null)
+				// no permission
+				if (!checkTask.Result)
 				{
-					// TO DO: redirect to passport
-				}
+					// stop the generating process
+					cts.Cancel();
 
-				// generate thumbnail with error message
-				else
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken);
+					// redirect or show error image
+					if (context.Response.IsClientConnected)
+					{
+						// if has no right to download and un-authorized, then transfer to passport to re-authenticate
+						if (!context.Request.IsAuthenticated && context.Request.QueryString["x-app-token"] == null && context.Request.QueryString["x-passport-token"] == null)
+							context.Response.Redirect(Global.GetTransferToPassportUrl(context));
+
+						// generate thumbnail with error message
+						else
+							await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken);
+					}
+
+					// stop process
+					return;
+				}
+			}
+			catch (Exception ex)
+			{
+				await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
+				cts.Cancel();
+				return;
 			}
 
-			// can view
-			else
+			// stop if the client is disconnected
+			if (!context.Response.IsClientConnected)
 			{
-				// stop if the client is disconnected
-				if (!context.Response.IsClientConnected)
-				{
-					cts.Cancel();
-					return;
-				}
+				cts.Cancel();
+				return;
+			}
 
-				// wait for the generate thumbnail task is completed
+			// generate the thumbnail image
+			try
+			{
+				// wait for completed
 				await generateTask;
 
-				// re-check
-				if (!context.Response.IsClientConnected || generateTask.Result == null)
-					return;
+				// generate
+				if (context.Response.IsClientConnected)
+				{
+					// set cache policy at client-side
+					context.Response.Cache.SetCacheability(HttpCacheability.Public);
+					context.Response.Cache.SetExpires(DateTime.Now.AddDays(365));
+					context.Response.Cache.SetSlidingExpiration(true);
+					if (context.Request.QueryString["crop"] != null)
+						context.Response.Cache.VaryByParams["crop"] = true;
+					if (context.Request.QueryString["cropPos"] != null)
+						context.Response.Cache.VaryByParams["cropPos"] = true;
+					if (info.UseWatermark && context.Request.QueryString["btwm"] != null)
+						context.Response.Cache.VaryByParams["btwm"] = true;
+					if (context.Request.QueryString["nw"] != null)
+						context.Response.Cache.VaryByParams["nw"] = true;
+					context.Response.Cache.SetOmitVaryStar(true);
+					context.Response.Cache.SetValidUntilExpires(true);
+					context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
+					context.Response.Cache.SetETag(eTag);
 
-				// set cache policy at client-side
-				context.Response.Cache.SetCacheability(HttpCacheability.Public);
-				context.Response.Cache.SetExpires(DateTime.Now.AddDays(365));
-				context.Response.Cache.SetSlidingExpiration(true);
-				if (context.Request.QueryString["crop"] != null)
-					context.Response.Cache.VaryByParams["crop"] = true;
-				if (context.Request.QueryString["cropPos"] != null)
-					context.Response.Cache.VaryByParams["cropPos"] = true;
-				if (info.UseWatermark && context.Request.QueryString["btwm"] != null)
-					context.Response.Cache.VaryByParams["btwm"] = true;
-				if (context.Request.QueryString["nw"] != null)
-					context.Response.Cache.VaryByParams["nw"] = true;
-				context.Response.Cache.SetOmitVaryStar(true);
-				context.Response.Cache.SetValidUntilExpires(true);
-				context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
-				context.Response.Cache.SetETag(eTag);
-
-				// flush thumbnail image to output stream
-				await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken);
+					// flush thumbnail image to output stream
+					await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken);
+				}
+			}
+			catch (Exception ex)
+			{
+				if (context.Response.IsClientConnected)
+					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
 			}
 		}
+		#endregion
 
 		#region Prepare information
 		ThumbnailInfo Prepare(HttpContext context)
@@ -173,41 +200,58 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Check permission
-		Task<bool> CheckPermissionAsync(ThumbnailInfo info, CancellationToken cancellationToken)
+		async Task<bool> CheckPermissionAsync(HttpContext context, ThumbnailInfo info, CancellationToken cancellationToken)
 		{
+			// always show thumbnail
 			if (!info.IsAttachment)
-				return Task.FromResult(true);
+				return true;
 
-			return Task.FromResult(true);
+			// check permissions on attachment file
+			try
+			{
+				var attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken);
+				return await Global.IsAbleToDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.EntityID, attachment.ObjectID);
+			}
+			catch (Exception ex)
+			{
+				Global.WriteLogs("Error occurred while working with attachment & related privileges/permissions", ex);
+				throw ex;
+			}
 		}
 		#endregion
 
 		#region Generate thumbnail
 		Task<byte[]> GenerateThumbnailAsync(ThumbnailInfo info, CancellationToken cancellationToken)
 		{
-			try
+			using (cancellationToken.Register(
+				() => { },
+				useSynchronizationContext: false)
+			)
 			{
-				using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.Cropped, info.CroppedPosition))
+				try
 				{
-					// add watermark
-					cancellationToken.ThrowIfCancellationRequested();
-					if (info.UseWatermark)
+					using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.Cropped, info.CroppedPosition))
 					{
+						// add watermark
+						if (info.UseWatermark)
+						{
 
-					}
+						}
 
-					// export image
-					cancellationToken.ThrowIfCancellationRequested();
-					using (var stream = new MemoryStream())
-					{
-						image.Save(stream, info.AsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-						return Task.FromResult(stream.ToArray());
+						// export image
+						using (var stream = new MemoryStream())
+						{
+							image.Save(stream, info.AsPng ? ImageFormat.Png : ImageFormat.Jpeg);
+							return Task.FromResult(stream.ToArray());
+						}
 					}
 				}
-			}
-			catch (Exception ex)
-			{
-				return Task.FromException<byte[]>(ex);
+				catch (Exception ex)
+				{
+					return cancellationToken.IsCancellationRequested
+						? Task.FromException<byte[]>(new OperationCanceledException(ex.Message, ex, cancellationToken))
+						: Task.FromException<byte[]>(ex);
+				}
 			}
 		}
 
@@ -287,10 +331,8 @@ namespace net.vieapps.Services.Files
 					return thumbnail.Clone() as Bitmap;
 				}
 		}
-		#endregion
 
-		#region Generate thumbnail with error message
-		byte[] GenerateThumbnail(string text, int width = 300, int height = 100)
+		byte[] GenerateThumbnail(string message, int width = 300, int height = 100)
 		{
 			using (var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555))
 			{
@@ -298,14 +340,21 @@ namespace net.vieapps.Services.Files
 				{
 					graphics.SmoothingMode = SmoothingMode.AntiAlias;
 					graphics.Clear(Color.White);
-					graphics.DrawString(text, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
+					graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
 					using (var stream = new MemoryStream())
 					{
-						bitmap.Save(stream, ImageFormat.Png);
+						bitmap.Save(stream, ImageFormat.Jpeg);
 						return stream.ToArray();
 					}
 				}
 			}
+		}
+		#endregion
+
+		#region Update thumbnails (receive uploaded images from the client)
+		async Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
+		{
+			await Task.Delay(0);
 		}
 		#endregion
 

@@ -22,15 +22,15 @@ namespace net.vieapps.Services.Files
 			if (requestUrl.IndexOf("?") > 0)
 				requestUrl = requestUrl.Left(requestUrl.IndexOf("?"));
 
-			var requestInfo = requestUrl.ToArray('/', true).RemoveAt(0);
+			var requestInfo = requestUrl.ToArray('/', true);
 			var useSmallImage = true;
-			if (requestInfo.Length > 1)
+			if (requestInfo.Length > 2)
 				try
 				{
-					useSmallImage = !requestInfo[1].Url64Decode().IsEquals("big");
+					useSmallImage = !requestInfo[2].Url64Decode().IsEquals("big");
 				}
 				catch { }
-			CaptchaHelper.GenerateCaptchaImage(context.Response, requestInfo[0].Url64Decode(), useSmallImage);
+			context.Response.GenerateImage(requestInfo[1].Url64Decode(), useSmallImage);
 			return Task.CompletedTask;
 		}
 	}

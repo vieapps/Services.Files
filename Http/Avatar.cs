@@ -17,23 +17,16 @@ namespace net.vieapps.Services.Files
 	{
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			switch (context.Request.HttpMethod)
-			{
-				case "GET":
-					await this.ShowAvatarAsync(context, cancellationToken);
-					break;
-
-				case "POST":
-					await this.UpdateAvatarAsync(context, cancellationToken);
-					break;
-
-				default:
-					throw new InvalidRequestException();
-			}
+			if (context.Request.HttpMethod.IsEquals("GET"))
+				await this.ShowAvatarAsync(context, cancellationToken);
+			else if (context.Request.HttpMethod.IsEquals("POST"))
+				await this.UpdateAvatarAsync(context, cancellationToken);
+			else
+				throw new InvalidRequestException();
 		}
 
 		#region Show avatar image
-		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
 			FileInfo fileInfo = null;
@@ -45,7 +38,7 @@ namespace net.vieapps.Services.Files
 				if (info.IndexOf("?") > 0)
 					info = info.Left(info.IndexOf("?"));
 
-				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true).RemoveAt(0).First().Url64Decode().ToArray('|').Last() + ".png");
+				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true)[1].Url64Decode().ToArray('|').Last() + ".png");
 			}
 			catch { }
 			if (fileInfo == null || !fileInfo.Exists)
@@ -89,8 +82,8 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		#region Update avatar image (receive upload image from client)
-		async Task UpdateAvatarAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		#region Update avatar image (receive upload image from the client)
+		async Task UpdateAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			await Task.Delay(0);
 		}

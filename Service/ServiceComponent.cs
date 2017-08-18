@@ -106,7 +106,7 @@ namespace net.vieapps.Services.Files
 
 			try
 			{
-				var code = CaptchaHelper.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+				var code = Captcha.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
 				return Task.FromResult(new JObject()
 				{
 					{ "Code", code },

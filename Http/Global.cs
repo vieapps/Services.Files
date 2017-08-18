@@ -32,6 +32,7 @@ namespace net.vieapps.Services.Files
 	{
 		internal static CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
 		internal static Dictionary<string, Type> Handlers = new Dictionary<string, Type>();
+		internal static Dictionary<string, IService> Services = new Dictionary<string, IService>();
 
 		#region Get the app info
 		internal static Tuple<string, string, string> GetAppInfo(NameValueCollection header, NameValueCollection query, string agentString, string ipAddress, Uri urlReferrer = null)
@@ -145,9 +146,9 @@ namespace net.vieapps.Services.Files
 					{
 						Global._RSA = CryptoService.CreateRSAInstance(Global.RSAKey.Decrypt());
 					}
-					catch (Exception ex)
+					catch (Exception)
 					{
-						throw ex;
+						throw;
 					}
 				return Global._RSA;
 			}
@@ -186,28 +187,6 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		#region Encrypt/Decrypt
-		internal static string AESEncrypt(string data, string key = null, bool toHexa = false)
-		{
-			return data.Encrypt(string.IsNullOrWhiteSpace(key) ? Global.AESKey : key, toHexa);
-		}
-
-		internal static string AESDecrypt(string data, string key = null, bool isHexa = false)
-		{
-			return data.Decrypt(string.IsNullOrWhiteSpace(key) ? Global.AESKey : key, isHexa);
-		}
-
-		internal static string RSAEncrypt(string data)
-		{
-			return CryptoService.RSAEncrypt(Global.RSA, data);
-		}
-
-		internal static string RSADecrypt(string data)
-		{
-			return CryptoService.RSADecrypt(Global.RSA, data);
-		}
-		#endregion
-
 		#region WAMP channels
 		internal static IWampChannel IncommingChannel = null, OutgoingChannel = null;
 		internal static long IncommingChannelSessionID = 0, OutgoingChannelSessionID = 0;
@@ -243,7 +222,7 @@ namespace net.vieapps.Services.Files
 				if (subject != null)
 					Global.InterCommunicationMessageUpdater = subject.Subscribe(
 						msg => Global.ProcessInterCommunicateMessage(msg),
-						ex =>  Global.WriteLogs(UtilityService.BlankUID, "Error occurred while fetching inter-communicate message", ex)
+						ex => Global.WriteLogs(UtilityService.BlankUID, "Error occurred while fetching inter-communicate message", ex)
 					);
 			};
 
@@ -351,10 +330,12 @@ namespace net.vieapps.Services.Files
 		internal static async Task OpenChannelsAsync()
 		{
 			await Global.OpenIncomingChannelAsync(
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					Global.WriteLogs("The incoming connection is established - Session ID: " + arguments.SessionId);
 				},
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					if (arguments.CloseType.Equals(SessionCloseType.Disconnection))
 						Global.WriteLogs("The incoming connection is broken because the router is not found or the router is refused - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 					else
@@ -364,25 +345,30 @@ namespace net.vieapps.Services.Files
 						else
 							Global.ReOpenIncomingChannel(
 								123,
-								() => {
+								() =>
+								{
 									Global.WriteLogs("Re-connect the incoming connection successful");
 								},
-								(ex) => {
+								(ex) =>
+								{
 									Global.WriteLogs("Error occurred while re-connecting the incoming connection", ex);
 								}
 							);
 					}
 				},
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					Global.WriteLogs("Got an error of incoming connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
 				}
 			);
 
 			await Global.OpenOutgoingChannelAsync(
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					Global.WriteLogs("The outgoing connection is established - Session ID: " + arguments.SessionId);
 				},
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					if (arguments.CloseType.Equals(SessionCloseType.Disconnection))
 						Global.WriteLogs("The outgoing connection is broken because the router is not found or the router is refused - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 					else
@@ -392,16 +378,19 @@ namespace net.vieapps.Services.Files
 						else
 							Global.ReOpenOutgoingChannel(
 								123,
-								() => {
+								() =>
+								{
 									Global.WriteLogs("Re-connect the outgoing connection successful");
 								},
-								(ex) => {
+								(ex) =>
+								{
 									Global.WriteLogs("Error occurred while re-connecting the outgoing connection", ex);
 								}
 							);
 					}
 				},
-				(sender, arguments) => {
+				(sender, arguments) =>
+				{
 					Global.WriteLogs("Got an error of incoming connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
 				}
 			);
@@ -561,26 +550,40 @@ namespace net.vieapps.Services.Files
 				? new HashSet<string>()
 				: segments.Trim().ToLower().ToHashSet('|', true);
 
-			// prepare handlers
+			// default handlers
+			Global.Handlers = new Dictionary<string, Type>()
+			{
+				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler, VIEApps.Services.Files") },
+				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler, VIEApps.Services.Files") },
+				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
+				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
+				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
+				{ "thumbnailbigpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
+				{ "files", Type.GetType("net.vieapps.Services.Files.FileHandler, VIEApps.Services.Files") },
+				{ "downloads", Type.GetType("net.vieapps.Services.Files.DownloadHandler, VIEApps.Services.Files") }
+			};
+
+			// additional handlers
 			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is ConfigurationSectionHandler config)
-				foreach (XmlNode handlerNode in config._section.SelectNodes("handler"))
-				{
-					var settings = config.GetSettings(handlerNode);
-					var keyName = settings["key"] != null && settings["key"] is JValue && (settings["key"] as JValue).Value != null
-						? (settings["key"] as JValue).Value.ToString().ToLower()
-						: null;
-					var typeName = settings["type"] != null && settings["type"] is JValue && (settings["type"] as JValue).Value != null
-						? (settings["type"] as JValue).Value.ToString()
-						: null;
-					if (!string.IsNullOrWhiteSpace(keyName) && !string.IsNullOrWhiteSpace(typeName) && !Global.Handlers.ContainsKey(keyName))
-						try
-						{
-							var type = Type.GetType(typeName);
-							if (type != null && type.CreateInstance() is AbstractHttpHandler)
-								Global.Handlers.Add(keyName, type);
-						}
-						catch { }
-				}
+				if (config != null)
+					foreach (XmlNode node in config._section.SelectNodes("handler"))
+					{
+						var settings = config.GetSettings(node);
+						var keyName = settings["key"] != null && settings["key"] is JValue && (settings["key"] as JValue).Value != null
+							? (settings["key"] as JValue).Value.ToString().ToLower()
+							: null;
+						var typeName = settings["type"] != null && settings["type"] is JValue && (settings["type"] as JValue).Value != null
+							? (settings["type"] as JValue).Value.ToString()
+							: null;
+						if (!string.IsNullOrWhiteSpace(keyName) && !string.IsNullOrWhiteSpace(typeName) && !Global.Handlers.ContainsKey(keyName))
+							try
+							{
+								var type = Type.GetType(typeName);
+								if (type != null && type.CreateInstance() is AbstractHttpHandler)
+									Global.Handlers.Add(keyName, type);
+							}
+							catch { }
+					}
 
 			// handling unhandled exception
 			AppDomain.CurrentDomain.UnhandledException += (sender, arguments) =>
@@ -687,25 +690,42 @@ namespace net.vieapps.Services.Files
 			app.Context.RewritePath(app.Request.ApplicationPath + "Global.ashx", null, query);
 
 			// decrypt session cookie
-			HttpCookie sessionCookie = null;
-			if (app.Request.Cookies != null)
-				for (int index = 0; index < app.Request.Cookies.Count; index++)
-					if (app.Request.Cookies[index].Name.IsEquals(".VIEApps-Session-ID"))
-					{
-						sessionCookie = app.Request.Cookies[index];
-						break;
-					}
+			var sessionCookie = app.Request.Cookies?[Global.SessionCookieName];
 			if (sessionCookie != null)
 				try
 				{
-					var info = sessionCookie.Value.ToArray('|', true);
-					if (info[0].Equals("VIEApps") && info.Length.Equals(3))
+					sessionCookie.Value = sessionCookie.Value.StartsWith("VIEApps|")
+						? sessionCookie.Value.ToArray('|', true).Last().Decrypt(Global.AESKey)
+						: "";
+				}
+				catch
+				{
+					sessionCookie.Value = "";
+				}
+
+			// process authenticate ticket
+			if (app.Context.Request.QueryString["x-passport-token"] != null)
+				try
+				{
+					// parse & validate
+					var token = User.ParseJSONWebToken(app.Context.Request.QueryString["x-passport-token"], Global.AESKey, Global.GenerateJWTKey());
+					var ticket = User.ParseAuthenticateTicket(token.Item3, Global.RSA, Global.AESKey);
+					var user = ticket.Item1;
+					var sessionID = ticket.Item2;
+					var deviceID = ticket.Item3;
+
+					// assign user credential
+					app.Context.User = new UserPrincipal(user);
+					var authCookie = new HttpCookie(System.Web.Security.FormsAuthentication.FormsCookieName)
 					{
-						var value = Global.AESDecrypt(info[1]);
-						var signature = value.GetHMACSHA256(Global.AESKey, false);
-						if (signature.Equals(info[2]))
-							sessionCookie.Value = value;
-					}
+						Value = User.GetAuthenticateTicket(user.ID, sessionID, deviceID, token.Item3, System.Web.Security.FormsAuthentication.Timeout.Minutes),
+						HttpOnly = true
+					};
+					app.Context.Response.SetCookie(authCookie);
+
+					// assign session/device identity
+					Global.SetSessionID(app.Context, sessionID);
+					Global.SetDeviceID(app.Context, deviceID);
 				}
 				catch { }
 		}
@@ -713,21 +733,12 @@ namespace net.vieapps.Services.Files
 		internal static void OnAppEndRequest(HttpApplication app)
 		{
 			// encrypt session cookie
-			HttpCookie sessionCookie = null;
-			if (!app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Response.Cookies != null)
-				for (int index = 0; index < app.Response.Cookies.Count; index++)
-					if (app.Response.Cookies[index].Name.IsEquals(".VIEApps-Session-ID"))
-					{
-						sessionCookie = app.Response.Cookies[index];
-						break;
-					}
-			if (sessionCookie != null)
-				try
-				{
-					sessionCookie.Value = "VIEApps|" + Global.AESEncrypt(sessionCookie.Value) + "|" + sessionCookie.Value.GetHMACSHA256(Global.AESKey, false);
-					sessionCookie.HttpOnly = true;
-				}
-				catch { }
+			var sessionCookie = app.Response.Cookies?[Global.SessionCookieName];
+			if (sessionCookie != null && !string.IsNullOrWhiteSpace(sessionCookie.Value))
+			{
+				sessionCookie.Value = "VIEApps|" + sessionCookie.Value.Encrypt(Global.AESKey);
+				sessionCookie.HttpOnly = true;
+			}
 
 #if DEBUG || REQUESTLOGS
 			// add execution times
@@ -743,6 +754,104 @@ namespace net.vieapps.Services.Files
 				catch { }
 			}
 #endif
+		}
+
+		static string _SessionCookieName = null;
+
+		internal static string SessionCookieName
+		{
+			get
+			{
+				if (Global._SessionCookieName == null)
+				{
+					var sessionState = ConfigurationManager.GetSection("system.web/sessionState") as System.Web.Configuration.SessionStateSection;
+					Global._SessionCookieName = sessionState != null && !string.IsNullOrWhiteSpace(sessionState.CookieName)
+						? sessionState.CookieName
+						: "ASP.NET_SessionId";
+				}
+				return Global._SessionCookieName;
+			}
+		}
+		#endregion
+
+		#region Authenticate request
+		internal static void OnAppAuthenticateRequest(HttpApplication app)
+		{
+			if (app.Context.User == null || !(app.Context.User is UserPrincipal))
+			{
+				var authCookie = app.Context.Request.Cookies?[System.Web.Security.FormsAuthentication.FormsCookieName];
+				if (authCookie != null)
+				{
+					var info = User.ParseAuthenticateTicket(authCookie.Value, Global.RSA, Global.AESKey);
+					app.Context.User = new UserPrincipal(info.Item1);
+					app.Context.Items["Session-ID"] = info.Item2;
+					app.Context.Items["Device-ID"] = info.Item3;
+				}
+				else
+				{
+					app.Context.User = new UserPrincipal();
+					Global.GetSessionID(app.Context);
+					Global.GetDeviceID(app.Context);
+				}
+			}
+		}
+
+		internal static void SetSessionID(HttpContext context, string sessionID)
+		{
+			context = context ?? HttpContext.Current;
+			context.Items["Session-ID"] = sessionID;
+			var cookie = new HttpCookie(".VIEApps-Authenticated-Session-ID")
+			{
+				Value = "VIEApps|" + sessionID.Encrypt(Global.AESKey),
+				HttpOnly = true,
+				Expires = DateTime.Now.AddDays(180)
+			};
+			context.Response.SetCookie(cookie);
+		}
+
+		internal static string GetSessionID(HttpContext context)
+		{
+			context = context ?? HttpContext.Current;
+			if (!context.Items.Contains("Session-ID"))
+			{
+				var cookie = context.Request.Cookies?[".VIEApps-Authenticated-Session-ID"];
+				if (cookie != null && cookie.Value.StartsWith("VIEApps|"))
+					try
+					{
+						context.Items["Session-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Global.AESKey);
+					}
+					catch { }
+			}
+			return context.Items["Session-ID"] as string;
+		}
+
+		internal static void SetDeviceID(HttpContext context, string sessionID)
+		{
+			context = context ?? HttpContext.Current;
+			context.Items["Device-ID"] = sessionID;
+			var cookie = new HttpCookie(".VIEApps-Authenticated-Device-ID")
+			{
+				Value = "VIEApps|" + sessionID.Encrypt(Global.AESKey),
+				HttpOnly = true,
+				Expires = DateTime.Now.AddDays(180)
+			};
+			context.Response.SetCookie(cookie);
+		}
+
+		internal static string GetDeviceID(HttpContext context)
+		{
+			context = context ?? HttpContext.Current;
+			if (!context.Items.Contains("Device-ID"))
+			{
+				var cookie = context.Request.Cookies?[".VIEApps-Authenticated-Device-ID"];
+				if (cookie != null && cookie.Value.StartsWith("VIEApps|"))
+					try
+					{
+						context.Items["Device-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Global.AESKey);
+					}
+					catch { }
+			}
+			return context.Items["Device-ID"] as string;
 		}
 		#endregion
 
@@ -815,7 +924,12 @@ namespace net.vieapps.Services.Files
 					inner = exception.InnerException;
 				}
 			}
-			Global.ShowError(context, exception is FileNotFoundException ? 404 : 0, exception != null ? exception.Message : "Unknown", type, stack, inner);
+			var code = exception is FileNotFoundException
+				? 404
+				: exception is AccessDeniedException
+					? 403
+					: 0;
+			Global.ShowError(context, code, exception != null ? exception.Message : "Unknown", type, stack, inner);
 		}
 
 		internal static void OnAppError(HttpApplication app)
@@ -828,7 +942,68 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		#region Session & User with JSON Web Token
+		#region Get & call services
+		internal static async Task<IService> GetServiceAsync(string name)
+		{
+			if (!Global.Services.TryGetValue(name, out IService service))
+			{
+				await Global.OpenOutgoingChannelAsync();
+				lock (Global.Services)
+				{
+					if (!Global.Services.TryGetValue(name, out service))
+					{
+						service = Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IService>(new CachedCalleeProxyInterceptor(new ProxyInterceptor(name)));
+						Global.Services.Add(name, service);
+					}
+				}
+			}
+			return service;
+		}
+
+		internal static async Task<JObject> CallServiceAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			var name = requestInfo.ServiceName.Trim().ToLower();
+
+#if DEBUG
+			Global.WriteLogs(requestInfo.CorrelationID, "Call the service [net.vieapps.services." + name + "]" + "\r\n" + requestInfo.ToJson().ToString(Newtonsoft.Json.Formatting.Indented));
+#endif
+
+			JObject json = null;
+			try
+			{
+				var service = await Global.GetServiceAsync(name);
+				json = await service.ProcessRequestAsync(requestInfo, cancellationToken);
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+
+#if DEBUG
+			Global.WriteLogs(requestInfo.CorrelationID, "Result of the service [net.vieapps.services." + name + "]" + "\r\n" + json.ToString(Newtonsoft.Json.Formatting.Indented));
+#endif
+
+			return json;
+		}
+
+		internal static async Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, Dictionary<string, string> extra = null, string body = null, string correlationID = null)
+		{
+			return await Global.CallServiceAsync(new RequestInfo(session)
+			{
+				ServiceName = serviceName,
+				ObjectName = objectName,
+				Verb = verb,
+				Header = header,
+				Query = query,
+				Body = body,
+				Extra = extra,
+				CorrelationID = correlationID ?? Global.GetCorrelationID()
+			},
+			Global.CancellationTokenSource.Token);
+		}
+		#endregion
+
+		#region Authentication
 		internal static Session GetSession(NameValueCollection header, NameValueCollection query, string agentString, string ipAddress, Uri urlReferrer = null)
 		{
 			var appInfo = Global.GetAppInfo(header, query, agentString, ipAddress, urlReferrer);
@@ -843,209 +1018,102 @@ namespace net.vieapps.Services.Files
 			};
 		}
 
-		internal static string GetAccessToken(string userID, SystemRole userRole, List<string> userRoles, List<Privilege> privileges)
+		internal static Session GetSession(HttpContext context = null)
 		{
-			var token = new JObject()
-			{
-				{ "ID", userID },
-				{ "Role", userRole.ToString() }
-			};
-
-			if (userRoles != null && userRoles.Count > 0)
-				token.Add(new JProperty("Roles", userRoles));
-
-			if (privileges != null && privileges.Count > 0)
-				token.Add(new JProperty("Privileges", privileges));
-
-			var key = UtilityService.GetUUID();
-			token = new JObject()
-			{
-				{ "Key", Global.RSAEncrypt(key) },
-				{ "Data", Global.AESEncrypt(token.ToString(Newtonsoft.Json.Formatting.None), key) }
-			};
-
-			return Global.AESEncrypt(token.ToString(Newtonsoft.Json.Formatting.None));
+			context = context ?? HttpContext.Current;
+			var session = Global.GetSession(context.Request.Headers, context.Request.QueryString, context.Request.UserAgent, context.Request.UserHostAddress, context.Request.UrlReferrer);
+			session.User = context.User as User;
+			if (string.IsNullOrWhiteSpace(session.SessionID))
+				session.SessionID = Global.GetSessionID(context);
+			if (string.IsNullOrWhiteSpace(session.DeviceID))
+				session.DeviceID = Global.GetDeviceID(context);
+			return session;
 		}
 
-		internal static string GetAccessToken(this User user)
+		internal static string GetTransferToPassportUrl(HttpContext context = null, string url = null)
 		{
-			return Global.GetAccessToken(user.ID, user.Role, user.Roles, user.Privileges);
+			context = context ?? HttpContext.Current;
+			url = url ?? context.Request.Url.Scheme + "://" + context.Request.Url.Host + context.Request.RawUrl;
+			return Global.PassportUrl + "validator"
+				+ "?a=" + (context.Request.IsAuthenticated ? "ON" : "OFF").Url64Encode()
+				+ "&u=" + url.Url64Encode();
 		}
 
-		internal static User GetUser(this string accessToken)
+		internal static async Task<bool> ExistsAsync(this Session session)
 		{
-			// decrypt
-			string decrypted = "";
-			try
-			{
-				decrypted = Global.AESDecrypt(accessToken);
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Cannot decrypt the access token", ex);
-			}
-
-			// parse JSON
-			JObject token = null;
-			try
-			{
-				token = JObject.Parse(decrypted);
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Cannot parse the JSON", ex);
-			}
-
-			// check
-			if (token["Key"] == null || token["Data"] == null)
-				throw new InvalidTokenException();
-
-			// decrypt key
-			try
-			{
-				decrypted = Global.RSADecrypt((token["Key"] as JValue).Value.ToString());
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Cannot decrypt the access token", ex);
-			}
-
-			// decrypt JSON
-			try
-			{
-				decrypted = Global.AESDecrypt((token["Data"] as JValue).Value.ToString(), decrypted);
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Cannot decrypt the access token", ex);
-			}
-
-			// serialize from JSON
-			try
-			{
-				return decrypted.FromJson<User>();
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Cannot deserialize parse the JSON", ex);
-			}
-		}
-
-		static string GetSignature(this string sessionID, string accessToken, string algorithm = "HS512")
-		{
-			var data = accessToken + "@" + sessionID;
-			algorithm = algorithm ?? "HS512";
-			switch (algorithm.ToLower())
-			{
-				case "hs1":
-					return data.GetHMACSHA1(Global.AESKey, false);
-
-				case "hs256":
-					return data.GetHMACSHA256(Global.AESKey, false);
-
-				case "hs384":
-					return data.GetHMACSHA384(Global.AESKey, false);
-
-				default:
-					return data.GetHMACSHA512(Global.AESKey, false);
-			}
-		}
-
-		internal static string GetJSONWebToken(this Session session, string accessToken = null)
-		{
-			accessToken = accessToken ?? session.User.GetAccessToken();
-			var payload = new JObject()
-			{
-				{ "iat", DateTime.Now.ToUnixTimestamp() },
-				{ "jti", Global.AESEncrypt(session.SessionID, Global.AESKey.Reverse()) },
-				{ "uid", session.User.ID },
-				{ "jtk", accessToken },
-				{ "jts", session.SessionID.GetSignature(accessToken) }
-			};
-			return JSONWebToken.Encode(payload, Global.GenerateJWTKey());
-		}
-
-		internal static async Task<string> ParseJSONWebTokenAsync(this Session session, string jwt, Func<Session, Task> checkAsync = null)
-		{
-			// parse JSON Web Token
-			JObject payload = null;
-			try
-			{
-				payload = JSONWebToken.DecodeAsJObject(jwt, Global.GenerateJWTKey());
-			}
-			catch (InvalidTokenSignatureException)
-			{
-				throw;
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException(ex);
-			}
-
-			// check issued time
-			var issuedAt = payload["iat"] != null
-				? (long)(payload["iat"] as JValue).Value
-				: DateTime.Now.AddDays(-30).ToUnixTimestamp();
-			if (DateTime.Now.ToUnixTimestamp() - issuedAt > 30)
-				throw new TokenExpiredException();
-
-			// get session identity
-			var sessionID = payload["jti"] != null
-				? (payload["jti"] as JValue).Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(sessionID))
-				throw new InvalidTokenException("Token is invalid (Identity is invalid)");
-
-			try
-			{
-				sessionID = Global.AESDecrypt(sessionID, Global.AESKey.Reverse());
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Token is invalid (Identity is invalid)", ex);
-			}
-
-			// get access token
-			var accessToken = payload["jtk"] != null
-				? (payload["jtk"] as JValue).Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(accessToken))
-				throw new InvalidTokenException("Token is invalid (Access token is invalid)");
-
-			var signature = payload["jts"] != null
-				? (payload["jts"] as JValue).Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(signature) || !signature.Equals(sessionID.GetSignature(accessToken)))
-				throw new InvalidTokenSignatureException("Token is invalid (Signature is invalid)");
-
-			var userID = (payload["uid"] as JValue).Value as string;
-			if (userID == null)
-				throw new InvalidTokenException("Token is invalid (User identity is invalid)");
-
-			// get user information
-			try
-			{
-				session.User = accessToken.GetUser();
-			}
-			catch (Exception ex)
-			{
-				throw new InvalidTokenException("Token is invalid (Access token is invalid)", ex);
-			}
-
-			if (!session.User.ID.Equals(userID))
-				throw new InvalidTokenException("Token is invalid (User identity is invalid)");
-
-			// check to see the session is registered or not
-			session.SessionID = sessionID;
-			if (checkAsync != null)
-				await checkAsync(session);
-
-			// return access token
-			return accessToken;
+			var result = await Global.CallServiceAsync(session, "users", "mediator", "GET", null, null, new Dictionary<string, string>() { { "Exist", "" } });
+			return result != null && result["Existed"] is JValue && (result["Existed"] as JValue).Value != null && (result["Existed"] as JValue).Value.CastAs<bool>() == true;
 		}
 		#endregion
 
-		#region  Global settings
+		#region Authorization
+		internal static async Task<bool> IsAbleToUploadAsync(string serviceName, string systemID, string entityID, string objectID)
+		{
+			var service = await Global.GetServiceAsync(serviceName);
+			return await service.IsAbleToUploadAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+		}
+
+		internal static async Task<bool> IsAbleToDownloadAsync(string serviceName, string systemID, string entityID, string objectID)
+		{
+			var service = await Global.GetServiceAsync(serviceName);
+			return await service.IsAbleToDownloadAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+		}
+
+		internal static async Task<bool> IsAbleToDeleteAsync(string serviceName, string systemID, string entityID, string objectID)
+		{
+			var service = await Global.GetServiceAsync(serviceName);
+			return await service.IsAbleToDeleteAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+		}
+
+		internal static async Task<bool> IsAbleToRestoreAsync(string serviceName, string systemID, string entityID, string objectID)
+		{
+			var service = await Global.GetServiceAsync(serviceName);
+			return await service.IsAbleToRestoreAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+		}
+		#endregion
+
+		#region Attachment information
+		internal static async Task<Attachment> GetAttachmentAsync(string id, Session session = null, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			return string.IsNullOrEmpty(id)
+				? null
+				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession()) {
+						ServiceName = "files",
+						ObjectName = "attachment", 
+						Verb = "GET",
+						Query = new Dictionary<string, string>() { { "object-identity", id } },
+						CorrelationID = Global.GetCorrelationID()
+					}, cancellationToken)).FromJson<Attachment>();
+		}
+
+		internal static bool IsReadable(this string mime)
+		{
+			return string.IsNullOrWhiteSpace(mime)
+				? false
+				: mime.IsStartsWith("image/") || mime.IsStartsWith("video/")
+					|| mime.IsStartsWith("text/") || mime.IsStartsWith("application/x-shockwave-flash")
+					|| mime.IsEquals("application/pdf") || mime.IsEquals("application/x-pdf");
+		}
+
+		internal static bool IsReadable(this Attachment @object)
+		{
+			return @object != null && @object.ContentType.IsReadable();
+		}
+
+		internal static bool IsReadable(this AttachmentInfo @object)
+		{
+			return @object.ContentType.IsReadable();
+		}
+
+		internal static async Task UpdateCounterAsync(HttpContext context, Attachment attachment)
+		{
+			context = context ?? HttpContext.Current;
+			var session = Global.GetSession(context);
+			await Task.Delay(0);
+		}
+		#endregion
+
+		#region  Global settings of the app
 		static string _UserAvatarFilesPath = null;
 
 		internal static string UserAvatarFilesPath
@@ -1071,11 +1139,7 @@ namespace net.vieapps.Services.Files
 			get
 			{
 				if (string.IsNullOrWhiteSpace(Global._DefaultUserAvatarFilename))
-				{
-					Global._DefaultUserAvatarFilename = UtilityService.GetAppSetting("DefaultUserAvatarFileName");
-					if (string.IsNullOrWhiteSpace(Global._DefaultUserAvatarFilename))
-						Global._DefaultUserAvatarFilename = "@default.png";
-				}
+					Global._DefaultUserAvatarFilename = UtilityService.GetAppSetting("DefaultUserAvatarFileName", "@default.png");
 				return Global._DefaultUserAvatarFilename;
 			}
 		}
@@ -1095,6 +1159,20 @@ namespace net.vieapps.Services.Files
 						Global._AttachmentFilesPath += @"\";
 				}
 				return Global._AttachmentFilesPath;
+			}
+		}
+
+		static string _PassportUrl = null;
+
+		internal static string PassportUrl
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Global._PassportUrl))
+					Global._PassportUrl = UtilityService.GetAppSetting("PassportUrl", "https://id.vieapps.net");
+				if (!Global._PassportUrl.EndsWith("/"))
+					Global._PassportUrl += "/";
+				return Global._PassportUrl;
 			}
 		}
 		#endregion
@@ -1117,6 +1195,29 @@ namespace net.vieapps.Services.Files
 			// stop process request is OPTIONS
 			if (context.Request.HttpMethod.Equals("OPTIONS"))
 				return;
+
+			// authentication
+			if (context.Request.QueryString["x-app-token"] != null)
+				try
+				{
+					// parse token
+					var info = User.ParseJSONWebToken(context.Request.QueryString["x-app-token"], Global.AESKey, Global.GenerateJWTKey());
+
+					// prepare session
+					var session = Global.GetSession(context);
+					session.SessionID = info.Item1;
+					context.Items["Session-ID"] = session.SessionID;
+					context.Items["Device-ID"] = session.DeviceID;
+
+					// prepare user
+					session.User = User.ParseAccessToken(info.Item3, Global.RSA, Global.AESKey);
+					if (session.User.ID.Equals(info.Item2) && await session.ExistsAsync())
+						context.User = new UserPrincipal(session.User);
+				}
+				catch (Exception ex)
+				{
+					Global.WriteLogs("Error occurred while processing with authentication", ex);
+				}
 
 			// prepare
 			var requestTo = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
@@ -1159,7 +1260,7 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
-			// file on the disc
+			// files
 			else
 			{
 				// get the handler
@@ -1201,7 +1302,7 @@ namespace net.vieapps.Services.Files
 
 		protected void Application_AuthenticateRequest(object sender, EventArgs args)
 		{
-			//Global.OnAppAuthenticateRequest(sender as HttpApplication);
+			Global.OnAppAuthenticateRequest(sender as HttpApplication);
 		}
 
 		protected void Application_PreSendRequestHeaders(object sender, EventArgs args)
