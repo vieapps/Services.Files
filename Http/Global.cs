@@ -969,15 +969,16 @@ namespace net.vieapps.Services.Files
 
 		internal static async Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, Dictionary<string, string> extra = null, string body = null, string correlationID = null)
 		{
-			return await Global.CallServiceAsync(new RequestInfo(session)
+			return await Global.CallServiceAsync(new RequestInfo()
 			{
-				ServiceName = serviceName,
-				ObjectName = objectName,
-				Verb = verb,
-				Header = header,
-				Query = query,
+				Session = session ?? Global.GetSession(),
+				ServiceName = serviceName ?? "unknown",
+				ObjectName = objectName ?? "unknown",
+				Verb = string.IsNullOrWhiteSpace(verb) ? "GET" : verb,
+				Query = query ?? new Dictionary<string, string>(),
+				Header = header ?? new Dictionary<string, string>(),
 				Body = body,
-				Extra = extra,
+				Extra = extra ?? new Dictionary<string, string>(),
 				CorrelationID = correlationID ?? Global.GetCorrelationID()
 			},
 			Global.CancellationTokenSource.Token);
