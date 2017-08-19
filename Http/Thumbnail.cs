@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Files
 			else if (context.Request.HttpMethod.IsEquals("POST"))
 				await this.UpdateAsync(context, cancellationToken);
 			else
-				throw new InvalidRequestException();
+				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
 
 		#region Generate & show the thumbnail image
@@ -62,7 +62,7 @@ namespace net.vieapps.Services.Files
 			var fileInfo = new FileInfo(info.FilePath);
 			if (!fileInfo.Exists)
 			{
-				Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null, new FileNotFoundException(info.FilePath));
+				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
 				return;
 			}
 

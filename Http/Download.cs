@@ -17,7 +17,7 @@ namespace net.vieapps.Services.Files
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (!context.Request.HttpMethod.IsEquals("GET") && !context.Request.HttpMethod.IsEquals("HEAD"))
-				throw new InvalidRequestException();
+				throw new MethodNotAllowedException(context.Request.HttpMethod);
 
 			// prepare information
 			var identifier = "";
@@ -92,7 +92,7 @@ namespace net.vieapps.Services.Files
 			if (!fileInfo.Exists)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null, new FileNotFoundException(fileInfo.FullName));
+					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
 				return;
 			}
 
@@ -121,7 +121,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, ex);
+					context.ShowError(ex);
 			}
 		}
 	}

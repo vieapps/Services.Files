@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Files
 			else if (context.Request.HttpMethod.IsEquals("POST"))
 				await this.UpdateAvatarAsync(context, cancellationToken);
 			else
-				throw new InvalidRequestException();
+				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
 
 		#region Show avatar image
@@ -73,7 +73,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (FileNotFoundException ex)
 			{
-				Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", ex.StackTrace, ex.InnerException);
+				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", ex.StackTrace);
 			}
 			catch (Exception)
 			{

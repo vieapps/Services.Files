@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Files
 			else if (context.Request.HttpMethod.IsEquals("POST"))
 				await this.UpdateAsync(context, cancellationToken);
 			else
-				throw new InvalidRequestException();
+				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
 
 		#region Flush file to output stream
@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, ex);
+					context.ShowError(ex);
 				return;
 			}
 
@@ -84,14 +84,14 @@ namespace net.vieapps.Services.Files
 					if (!context.Request.IsAuthenticated && context.Request.QueryString["x-app-token"] == null && context.Request.QueryString["x-passport-token"] == null)
 						context.Response.Redirect(Global.GetTransferToPassportUrl(context));
 					else
-						Global.ShowError(context, ex);
+						context.ShowError(ex);
 				}
 				return;
 			}
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, ex);
+					context.ShowError(ex);
 				return;
 			}
 
@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Files
 			if (!fileInfo.Exists)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, (int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null, new FileNotFoundException(info.FilePath));
+					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
 				return;
 			}
 
@@ -126,7 +126,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					Global.ShowError(context, ex);
+					context.ShowError(ex);
 			}
 		}
 		#endregion

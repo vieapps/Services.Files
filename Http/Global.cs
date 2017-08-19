@@ -628,6 +628,53 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
+			// decrypt session state cookie
+			var cookie = app.Request.Cookies?[Global.StateCookieName];
+			if (cookie != null)
+				try
+				{
+					cookie.Value = cookie.Value.StartsWith("VIEApps|")
+						? cookie.Value.ToArray('|', true).Last().Decrypt(Global.AESKey)
+						: "";
+				}
+				catch
+				{
+					cookie.Value = "";
+				}
+
+			// authentication: process passport token
+			if (!string.IsNullOrWhiteSpace(app.Context.Request.QueryString["x-passport-token"]))
+				try
+				{
+					// parse
+					var token = User.ParsePassportToken(app.Context.Request.QueryString["x-passport-token"], Global.AESKey, Global.GenerateJWTKey());
+					var userID = token.Item1;
+					var accessToken = token.Item2;
+					var sessionID = token.Item3;
+					var deviceID = token.Item4;
+
+					var ticket = User.ParseAuthenticateToken(accessToken, Global.RSA, Global.AESKey);
+					accessToken = ticket.Item2;
+
+					var user = User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey);
+					if (!user.ID.Equals(ticket.Item1) || !user.ID.Equals(userID))
+						throw new InvalidTokenException("Token is invalid (User identity is invalid)");
+
+					// assign user credential
+					app.Context.User = new UserPrincipal(user);
+					var authCookie = new HttpCookie(FormsAuthentication.FormsCookieName)
+					{
+						Value = User.GetAuthenticateToken(userID, accessToken, sessionID, deviceID, FormsAuthentication.Timeout.Minutes),
+						HttpOnly = true
+					};
+					app.Context.Response.SetCookie(authCookie);
+
+					// assign session/device identity
+					Global.SetSessionID(app.Context, sessionID);
+					Global.SetDeviceID(app.Context, deviceID);
+				}
+				catch { }
+
 			// prepare
 			var requestTo = app.Request.AppRelativeCurrentExecutionFilePath;
 			if (requestTo.StartsWith("~/"))
@@ -643,7 +690,7 @@ namespace net.vieapps.Services.Files
 			// hidden segments
 			else if (Global.HiddenSegments.Count > 0 && Global.HiddenSegments.Contains(requestTo))
 			{
-				Global.ShowError(app.Context, 403, "Forbidden", "AccessDeniedException", null, null);
+				app.Context.ShowError(403, "Forbidden", "AccessDeniedException", null);
 				app.Context.Response.End();
 				return;
 			}
@@ -664,14 +711,13 @@ namespace net.vieapps.Services.Files
 					: errorElements[0].Equals("404")
 						? "FileNotFoundException"
 						: "Unknown";
-				Global.ShowError(app.Context, errorElements[0].CastAs<int>(), errorMessage, errorType, null, null);
+				app.Context.ShowError(errorElements[0].CastAs<int>(), errorMessage, errorType, null);
 				app.Context.Response.End();
 				return;
 			}
 
 #if DEBUG || REQUESTLOGS
 			var appInfo = app.Context.GetAppInfo();
-
 			Global.WriteLogs(new List<string>() {
 					"Begin process [" + app.Context.Request.HttpMethod + "]: " + app.Context.Request.Url.Scheme + "://" + app.Context.Request.Url.Host + app.Context.Request.RawUrl,
 					"- Origin: " + appInfo.Item1 + " / " + appInfo.Item2 + " - " + appInfo.Item3,
@@ -690,64 +736,19 @@ namespace net.vieapps.Services.Files
 					query += (query.Equals("") ? "" : "&") + key + "=" + app.Request.QueryString[key].UrlEncode();
 
 			app.Context.RewritePath(app.Request.ApplicationPath + "Global.ashx", null, query);
-
-			// decrypt session cookie
-			var sessionCookie = app.Request.Cookies?[Global.SessionCookieName];
-			if (sessionCookie != null)
-				try
-				{
-					sessionCookie.Value = sessionCookie.Value.StartsWith("VIEApps|")
-						? sessionCookie.Value.ToArray('|', true).Last().Decrypt(Global.AESKey)
-						: "";
-				}
-				catch
-				{
-					sessionCookie.Value = "";
-				}
-
-			// process authenticate ticket
-			if (app.Context.Request.QueryString["x-passport-token"] != null)
-				try
-				{
-					// parse
-					var token = User.ParsePassportToken(app.Context.Request.QueryString["x-passport-token"], Global.AESKey, Global.GenerateJWTKey());
-					var userID = token.Item1;
-					var accessToken = token.Item2;
-					var sessionID = token.Item3;
-					var deviceID = token.Item4;
-
-					var ticket = User.ParseAuthenticateToken(accessToken, Global.RSA, Global.AESKey);
-					accessToken = ticket.Item2;
-
-					var user = User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey);
-					if (!user.ID.Equals(ticket.Item1) || !user.ID.Equals(userID))
-						throw new InvalidTokenException("Token is invalid (User identity is invalid)");
-
-					// assign user credential
-					app.Context.User = new UserPrincipal(user);
-					var cookie = new HttpCookie(FormsAuthentication.FormsCookieName)
-					{
-						Value = User.GetAuthenticateToken(userID, accessToken, sessionID, deviceID, FormsAuthentication.Timeout.Minutes),
-						HttpOnly = true
-					};
-					app.Context.Response.SetCookie(cookie);
-
-					// assign session/device identity
-					Global.SetSessionID(app.Context, sessionID);
-					Global.SetDeviceID(app.Context, deviceID);
-				}
-				catch { }
 		}
 
 		internal static void OnAppEndRequest(HttpApplication app)
 		{
-			// encrypt session cookie
-			var sessionCookie = app.Response.Cookies?[Global.SessionCookieName];
-			if (sessionCookie != null && !string.IsNullOrWhiteSpace(sessionCookie.Value))
-			{
-				sessionCookie.Value = "VIEApps|" + sessionCookie.Value.Encrypt(Global.AESKey);
-				sessionCookie.HttpOnly = true;
-			}
+			// encrypt session state cookie
+			var cookie = app.Response.Cookies?[Global.StateCookieName];
+			if (cookie != null && !string.IsNullOrWhiteSpace(cookie.Value))
+				try
+				{
+					cookie.Value = "VIEApps|" + cookie.Value.Encrypt(Global.AESKey);
+					cookie.HttpOnly = true;
+				}
+				catch { }
 
 #if DEBUG || REQUESTLOGS
 			// add execution times
@@ -765,20 +766,20 @@ namespace net.vieapps.Services.Files
 #endif
 		}
 
-		static string _SessionCookieName = null;
+		static string _StateCookieName = null;
 
-		internal static string SessionCookieName
+		internal static string StateCookieName
 		{
 			get
 			{
-				if (Global._SessionCookieName == null)
+				if (Global._StateCookieName == null)
 				{
-					var sessionState = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
-					Global._SessionCookieName = sessionState != null && !string.IsNullOrWhiteSpace(sessionState.CookieName)
-						? sessionState.CookieName
+					var section = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
+					Global._StateCookieName = section != null && !string.IsNullOrWhiteSpace(section.CookieName)
+						? section.CookieName
 						: "ASP.NET_SessionId";
 				}
-				return Global._SessionCookieName;
+				return Global._StateCookieName;
 			}
 		}
 		#endregion
@@ -902,48 +903,14 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		internal static void ShowError(HttpContext context, int code, string message, string type, string stack, Exception inner)
+		internal static void ShowError(this HttpContext context, int code, string message, string type, string stack)
 		{
-			context.Response.TrySkipIisCustomErrors = true;
-			context.Response.StatusCode = code < 1 ? 500 : code;
-			context.Response.Cache.SetNoStore();
-			context.Response.ContentType = "text/html";
-
-			context.Response.ClearContent();
-			context.Response.Output.Write("<!DOCTYPE html>\r\n");
-			context.Response.Output.Write("<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n");
-			context.Response.Output.Write("<head><title>Error " + (code < 1 ? 500 : code).ToString() + "</title></head>\r\n<body>\r\n");
-			context.Response.Output.Write("<h1>HTTP " + (code < 1 ? 500 : code).ToString() + " - " + message.Replace("<", "&lt;").Replace(">", "&gt;") + "</h1>\r\n");
-			context.Response.Output.Write("<hr/>\r\n");
-			context.Response.Output.Write("<div>Type: " + type + " - Correlation ID: " + Global.GetCorrelationID(context.Items) + "</div>\r\n");
-			if (!string.IsNullOrWhiteSpace(stack) && Global.IsShowErrorStacks)
-				context.Response.Output.Write("<div>Stack:</div><blockquote>" + stack.Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "<br/>").Replace("\r", "").Replace("\t", "") + "</blockquote>\r\n");
-			context.Response.Output.Write("</body>\r\n</html>");
-
-			if (message.Contains("potentially dangerous"))
-				context.Response.End();
+			context.ShowHttpError(code, message, type, Global.GetCorrelationID(context.Items), stack, Global.IsShowErrorStacks);
 		}
 
-		internal static void ShowError(HttpContext context, Exception exception)
+		internal static void ShowError(this HttpContext context, Exception exception)
 		{
-			var type = "Unknown";
-			string stack = null;
-			Exception inner = null;
-			if (exception != null)
-			{
-				type = exception.GetType().ToString().ToArray('.').Last();
-				if (Global.IsShowErrorStacks)
-				{
-					stack = exception.StackTrace;
-					inner = exception.InnerException;
-				}
-			}
-			var code = exception is FileNotFoundException
-				? 404
-				: exception is AccessDeniedException
-					? 403
-					: 0;
-			Global.ShowError(context, code, exception != null ? exception.Message : "Unknown", type, stack, inner);
+			context.ShowError(exception != null ? exception.GetHttpStatusCode() : 0, exception != null ? exception.Message : "Unknown", exception != null ? exception.GetType().ToString().ToArray('.').Last() : "Unknown", exception != null && Global.IsShowErrorStacks ? exception.StackTrace : null);
 		}
 
 		internal static void OnAppError(HttpApplication app)
@@ -952,7 +919,7 @@ namespace net.vieapps.Services.Files
 			app.Server.ClearError();
 
 			Global.WriteLogs("", exception);
-			Global.ShowError(app.Context, exception);
+			app.Context.ShowError(exception);
 		}
 		#endregion
 
@@ -1049,8 +1016,10 @@ namespace net.vieapps.Services.Files
 			context = context ?? HttpContext.Current;
 			url = url ?? context.Request.Url.Scheme + "://" + context.Request.Url.Host + context.Request.RawUrl;
 			return Global.PassportUrl + "validator"
-				+ "?a=" + (context.Request.IsAuthenticated ? "ON" : "OFF").Url64Encode()
-				+ "&u=" + url.Url64Encode();
+				+ "?aut=" + (UtilityService.NewUID.Left(5) + "-" + (context.Request.IsAuthenticated ? "ON" : "OFF")).Encrypt(Global.AESKey).ToBase64Url(true)
+				+ "&uid=" + (context.Request.IsAuthenticated ? (context.User as User).ID : "").Encrypt(Global.AESKey).ToBase64Url(true)
+				+ "&uri=" + url.Encrypt(Global.AESKey).ToBase64Url(true)
+				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Global.AESKey).ToBase64Url(true);
 		}
 
 		internal static async Task<bool> ExistsAsync(this Session session)
@@ -1210,7 +1179,7 @@ namespace net.vieapps.Services.Files
 			if (context.Request.HttpMethod.Equals("OPTIONS"))
 				return;
 
-			// authentication
+			// authentication: process app token
 			if (context.Request.QueryString["x-app-token"] != null)
 				try
 				{
@@ -1269,11 +1238,11 @@ namespace net.vieapps.Services.Files
 				}
 				catch (FileNotFoundException ex)
 				{
-					Global.ShowError(context, 404, "Not found [" + path + "]", "FileNotFoundException", ex.StackTrace, ex.InnerException);
+					context.ShowError(404, "Not found [" + path + "]", "FileNotFoundException", ex.StackTrace);
 				}
 				catch (Exception ex)
 				{
-					Global.ShowError(context, ex);
+					context.ShowError(ex);
 				}
 			}
 
@@ -1294,10 +1263,10 @@ namespace net.vieapps.Services.Files
 					catch (OperationCanceledException) { }
 					catch (Exception ex)
 					{
-						Global.ShowError(context, ex);
+						context.ShowError(ex);
 					}
 				else
-					Global.ShowError(context, 404, "Not Found", "FileNotFoundException", null, null);
+					context.ShowError(404, "Not Found", "FileNotFoundException", null);
 			}
 		}
 	}
