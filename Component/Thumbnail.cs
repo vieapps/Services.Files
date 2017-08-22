@@ -16,7 +16,7 @@ namespace net.vieapps.Services.Files
 	[Entity(CollectionName = "Thumbnails", TableName = "T_Files_Thumbnails", CacheStorageType = typeof(Utility), CacheStorageName = "Cache")]
 	public class Thumbnail : Repository<Thumbnail>
 	{
-		public Thumbnail()
+		public Thumbnail() : base()
 		{
 			this.ID = "";
 			this.ServiceName = "";

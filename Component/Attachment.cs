@@ -16,7 +16,7 @@ namespace net.vieapps.Services.Files
 	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheStorageType = typeof(Utility), CacheStorageName = "Cache", Searchable = true)]
 	public class Attachment : Repository<Attachment>
 	{
-		public Attachment()
+		public Attachment() : base()
 		{
 			this.ID = "";
 			this.ServiceName = "";

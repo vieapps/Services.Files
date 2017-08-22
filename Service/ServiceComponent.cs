@@ -147,7 +147,7 @@ namespace net.vieapps.Services.Files
 
 		void OnInterCommunicateMessageReceived(CommunicateMessage message)
 		{
-
+			Attachment info = null;
 		}
 
 		~ServiceComponent()
