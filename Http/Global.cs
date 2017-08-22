@@ -30,11 +30,12 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Files
 {
-	internal static class Global
+	public static class Global
 	{
 		internal static CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
 		internal static Dictionary<string, Type> Handlers = new Dictionary<string, Type>();
 		internal static Dictionary<string, IService> Services = new Dictionary<string, IService>();
+		internal static IRTUService _RTUService = null;
 
 		#region Get the app info
 		internal static Tuple<string, string, string> GetAppInfo(NameValueCollection header, NameValueCollection query, string agentString, string ipAddress, Uri urlReferrer = null)
@@ -286,6 +287,14 @@ namespace net.vieapps.Services.Files
 			Global.OutgoingChannel.RealmProxy.Monitor.ConnectionEstablished += (sender, arguments) =>
 			{
 				Global.OutgoingChannelSessionID = arguments.SessionId;
+				Task.Run(async () =>
+				{
+					try
+					{
+						await Global.InitializeRTUServiceAsync();
+					}
+					catch { }
+				}).ConfigureAwait(false);
 			};
 
 			if (onConnectionEstablished != null)
@@ -1016,7 +1025,7 @@ namespace net.vieapps.Services.Files
 		{
 			context = context ?? HttpContext.Current;
 			url = url ?? context.Request.Url.Scheme + "://" + context.Request.Url.Host + context.Request.RawUrl;
-			return Global.PassportUrl + "validator"
+			return Global.HttpUsersUri + "validator"
 				+ "?aut=" + (UtilityService.NewUID.Left(5) + "-" + (context.Request.IsAuthenticated ? "ON" : "OFF")).Encrypt(Global.AESKey).ToBase64Url(true)
 				+ "&uid=" + (context.Request.IsAuthenticated ? (context.User as User).ID : "").Encrypt(Global.AESKey).ToBase64Url(true)
 				+ "&uri=" + url.Encrypt(Global.AESKey).ToBase64Url(true)
@@ -1146,25 +1155,62 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static string _PassportUrl = null;
+		static string _HttpUsersUri = null;
 
-		internal static string PassportUrl
+		internal static string HttpUsersUri
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Global._PassportUrl))
-					Global._PassportUrl = UtilityService.GetAppSetting("PassportUrl", "https://id.vieapps.net");
-				if (!Global._PassportUrl.EndsWith("/"))
-					Global._PassportUrl += "/";
-				return Global._PassportUrl;
+				if (string.IsNullOrWhiteSpace(Global._HttpUsersUri))
+					Global._HttpUsersUri = UtilityService.GetAppSetting("HttpUsersUri", "https://aid.vieapps.net");
+				if (!Global._HttpUsersUri.EndsWith("/"))
+					Global._HttpUsersUri += "/";
+				return Global._HttpUsersUri;
 			}
 		}
 		#endregion
+
+		#region Send & process inter-communicate message
+		static async Task InitializeRTUServiceAsync()
+		{
+			if (Global._RTUService == null)
+			{
+				await Global.OpenOutgoingChannelAsync();
+				Global._RTUService = Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IRTUService>();
+			}
+		}
+
+		public static IRTUService RTUService
+		{
+			get
+			{
+				if (Global._RTUService == null)
+					try
+					{
+						var task = Global.InitializeRTUServiceAsync();
+						task.Wait(678, Global.CancellationTokenSource.Token);
+					}
+					catch { }
+				return Global._RTUService;
+			}
+		}
+
+		internal static async Task SendInterCommunicateMessageAsync(CommunicateMessage message)
+		{
+			try
+			{
+				await Global.InitializeRTUServiceAsync();
+				await Global._RTUService.SendInterCommunicateMessageAsync(message, Global.CancellationTokenSource.Token);
+			}
+			catch { }
+		}
 
 		static void ProcessInterCommunicateMessage(CommunicateMessage message)
 		{
 
 		}
+		#endregion
+
 	}
 
 	// ------------------------------------------------------------------------------

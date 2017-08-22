@@ -13,12 +13,8 @@ namespace net.vieapps.Services.Files
 	public static class Utility
 	{
 
-		#region Caching mechanism
 		static int _CacheTime = 0;
 
-		/// <summary>
-		/// Gets the default time for caching data
-		/// </summary>
 		internal static int CacheTime
 		{
 			get
@@ -38,18 +34,25 @@ namespace net.vieapps.Services.Files
 
 		static CacheManager _Cache = new CacheManager("VIEApps-Services-Files-Info", "Sliding", Utility.CacheTime);
 
-		/// <summary>
-		/// Gets the default cache storage
-		/// </summary>
 		public static CacheManager Cache { get { return Utility._Cache; } }
 
 		static CacheManager _DataCache = new CacheManager("VIEApps-Services-Files-Data", "Sliding", Utility.CacheTime);
 
-		/// <summary>
-		/// Gets the cache storage for storing binary data
-		/// </summary>
 		public static CacheManager DataCache { get { return Utility._DataCache; } }
-		#endregion
+
+		static string _HttpFilesUri = null;
+
+		static string HttpFilesUri
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Utility._HttpFilesUri))
+					Utility._HttpFilesUri = UtilityService.GetAppSetting("HttpFilesUri", "https://afs.vieapps.net");
+				while (Utility._HttpFilesUri.EndsWith("/"))
+					Utility._HttpFilesUri = Utility._HttpFilesUri.Left(Utility._HttpFilesUri.Length - 1);
+				return Utility._HttpFilesUri;
+			}
+		}
 
 	}
 

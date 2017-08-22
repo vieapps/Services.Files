@@ -41,5 +41,15 @@
     <Compile Include="AbstractHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Components\Utility\VIEApps.Components.Utility.csproj">
+      <Project>{995c1122-0acc-4cf4-8a89-775212a35d89}</Project>
+      <Name>VIEApps.Components.Utility</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Base\VIEApps.Services.Base.csproj">
+      <Project>{c496cef5-9ff8-4364-9860-fcdefed4e277}</Project>
+      <Name>VIEApps.Services.Base</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -15,6 +15,11 @@ namespace net.vieapps.Services.Files
 {
 	public class AvatarHandler : AbstractHttpHandler
 	{
+		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			await Global.SendInterCommunicateMessageAsync(message);
+		}
+
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (context.Request.HttpMethod.IsEquals("GET"))
