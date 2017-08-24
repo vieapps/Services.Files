@@ -9,6 +9,8 @@ namespace net.vieapps.Services.Files
 
 		static void Main(string[] args)
 		{
+			Console.OutputEncoding = System.Text.Encoding.UTF8;
+
 			// start the component
 			Program.Component = new ServiceComponent();
 			Program.Component.Start(args, () => Console.WriteLine("===============> Press the RETURN key to terminate......."));
