@@ -32,10 +32,24 @@ namespace net.vieapps.Services.Files
 {
 	public static class Global
 	{
+
+		#region Attributes
 		internal static CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
+		internal static HashSet<string> HiddenSegments = null, BypassSegments = null, StaticSegments = null;
 		internal static Dictionary<string, Type> Handlers = new Dictionary<string, Type>();
+
+		internal static IWampChannel IncommingChannel = null, OutgoingChannel = null;
+		internal static long IncommingChannelSessionID = 0, OutgoingChannelSessionID = 0;
+		internal static bool ChannelsAreClosedBySystem = false;
+
 		internal static Dictionary<string, IService> Services = new Dictionary<string, IService>();
+		internal static IManagementService ManagementService = null;
+		internal static IDisposable InterCommunicationMessageUpdater = null;
 		internal static IRTUService _RTUService = null;
+
+		static string _AESKey = null, _JWTKey = null, _PublicJWTKey = null, _RSAKey = null, _RSAExponent = null, _RSAModulus = null;
+		static RSACryptoServiceProvider _RSA = null;
+		#endregion
 
 		#region Get the app info
 		internal static Tuple<string, string, string> GetAppInfo(NameValueCollection header, NameValueCollection query, string agentString, string ipAddress, Uri urlReferrer = null)
@@ -74,8 +88,6 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Encryption keys
-		static string _AESKey = null;
-
 		/// <summary>
 		/// Geths the key for working with AES
 		/// </summary>
@@ -99,8 +111,6 @@ namespace net.vieapps.Services.Files
 			return (Global.AESKey + (string.IsNullOrWhiteSpace(additional) ? "" : ":" + additional)).GenerateEncryptionKey(true, true, 128);
 		}
 
-		static string _JWTKey = null;
-
 		/// <summary>
 		/// Geths the key for working with JSON Web Token
 		/// </summary>
@@ -114,16 +124,12 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static string _PublicJWTKey = null;
-
 		internal static string GenerateJWTKey()
 		{
 			if (Global._PublicJWTKey == null)
 				Global._PublicJWTKey = Global.JWTKey.GetHMACSHA512(Global.AESKey).ToBase64Url(false, true);
 			return Global._PublicJWTKey;
 		}
-
-		static string _RSAKey = null;
 
 		/// <summary>
 		/// Geths the key for working with RSA
@@ -137,8 +143,6 @@ namespace net.vieapps.Services.Files
 				return Global._RSAKey;
 			}
 		}
-
-		static RSACryptoServiceProvider _RSA = null;
 
 		internal static RSACryptoServiceProvider RSA
 		{
@@ -157,8 +161,6 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static string _RSAExponent = null;
-
 		internal static string RSAExponent
 		{
 			get
@@ -172,8 +174,6 @@ namespace net.vieapps.Services.Files
 				return Global._RSAExponent;
 			}
 		}
-
-		static string _RSAModulus = null;
 
 		internal static string RSAModulus
 		{
@@ -191,11 +191,6 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region WAMP channels
-		internal static IWampChannel IncommingChannel = null, OutgoingChannel = null;
-		internal static long IncommingChannelSessionID = 0, OutgoingChannelSessionID = 0;
-		internal static bool ChannelAreClosedBySystem = false;
-		internal static IDisposable InterCommunicationMessageUpdater = null;
-
 		static Tuple<string, string, bool> GetLocationInfo()
 		{
 			var address = UtilityService.GetAppSetting("RouterAddress", "ws://127.0.0.1:26429/");
@@ -245,19 +240,17 @@ namespace net.vieapps.Services.Files
 		{
 			if (Global.IncommingChannel != null)
 			{
-				Global.IncommingChannel.Close("The incoming channel is closed when stop the File HTTP Service", new GoodbyeDetails());
+				Global.IncommingChannel.Close("The incoming channel is closed when stop the HTTP Files", new GoodbyeDetails());
 				Global.IncommingChannel = null;
 			}
 		}
 
-		internal static void ReOpenIncomingChannel(int delay = 0, System.Action onSuccess = null, Action<Exception> onError = null)
+		internal static void ReOpenIncomingChannel(int delay = 123, System.Action onSuccess = null, Action<Exception> onError = null)
 		{
 			if (Global.IncommingChannel != null)
 				(new WampChannelReconnector(Global.IncommingChannel, async () =>
 				{
-					if (delay > 0)
-						await Task.Delay(delay);
-
+					await Task.Delay(delay > 0 ? delay : 0);
 					try
 					{
 						await Global.IncommingChannel.Open();
@@ -313,19 +306,17 @@ namespace net.vieapps.Services.Files
 		{
 			if (Global.OutgoingChannel != null)
 			{
-				Global.OutgoingChannel.Close("The outgoing channel is closed when stop the File HTTP Service", new GoodbyeDetails());
+				Global.OutgoingChannel.Close("The outgoing channel is closed when stop the HTTP Files", new GoodbyeDetails());
 				Global.OutgoingChannel = null;
 			}
 		}
 
-		internal static void ReOpenOutgoingChannel(int delay = 0, System.Action onSuccess = null, Action<Exception> onError = null)
+		internal static void ReOpenOutgoingChannel(int delay = 123, System.Action onSuccess = null, Action<Exception> onError = null)
 		{
 			if (Global.OutgoingChannel != null)
 				(new WampChannelReconnector(Global.OutgoingChannel, async () =>
 				{
-					if (delay > 0)
-						await Task.Delay(delay);
-
+					await Task.Delay(delay > 0 ? delay : 0);
 					try
 					{
 						await Global.OutgoingChannel.Open();
@@ -351,7 +342,7 @@ namespace net.vieapps.Services.Files
 						Global.WriteLogs("The incoming connection is broken because the router is not found or the router is refused - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 					else
 					{
-						if (Global.ChannelAreClosedBySystem)
+						if (Global.ChannelsAreClosedBySystem)
 							Global.WriteLogs("The incoming connection is closed - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 						else
 							Global.ReOpenIncomingChannel(
@@ -384,7 +375,7 @@ namespace net.vieapps.Services.Files
 						Global.WriteLogs("The outgoing connection is broken because the router is not found or the router is refused - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 					else
 					{
-						if (Global.ChannelAreClosedBySystem)
+						if (Global.ChannelsAreClosedBySystem)
 							Global.WriteLogs("The outgoing connection is closed - Session ID: " + arguments.SessionId + "\r\n" + "- Reason: " + (string.IsNullOrWhiteSpace(arguments.Reason) ? "Unknown" : arguments.Reason) + " - " + arguments.CloseType.ToString());
 						else
 							Global.ReOpenOutgoingChannel(
@@ -432,8 +423,6 @@ namespace net.vieapps.Services.Files
 			return Global.GetCorrelationID(HttpContext.Current?.Items);
 		}
 
-		static IManagementService ManagementService = null;
-
 		internal static async Task InitializeManagementServiceAsync()
 		{
 			if (Global.ManagementService == null)
@@ -474,24 +463,24 @@ namespace net.vieapps.Services.Files
 			catch { }
 		}
 
-		internal static async Task WriteLogsAsync(string correlationID, string log, Exception exception = null)
+		internal static Task WriteLogsAsync(string correlationID, string log, Exception exception = null)
 		{
 			var logs = !string.IsNullOrEmpty(log)
 				? new List<string>() { log }
 				: exception != null
 					? new List<string>() { exception.Message + " [" + exception.GetType().ToString() + "]" }
 					: new List<string>();
-			await Global.WriteLogsAsync(correlationID, logs, exception);
+			return Global.WriteLogsAsync(correlationID, logs, exception);
 		}
 
-		internal static async Task WriteLogsAsync(List<string> logs, Exception exception = null)
+		internal static Task WriteLogsAsync(List<string> logs, Exception exception = null)
 		{
-			await Global.WriteLogsAsync(Global.GetCorrelationID(), logs, exception);
+			return Global.WriteLogsAsync(Global.GetCorrelationID(), logs, exception);
 		}
 
-		internal static async Task WriteLogsAsync(string log, Exception exception = null)
+		internal static Task WriteLogsAsync(string log, Exception exception = null)
 		{
-			await Global.WriteLogsAsync(Global.GetCorrelationID(), log, exception);
+			return Global.WriteLogsAsync(Global.GetCorrelationID(), log, exception);
 		}
 
 		internal static void WriteLogs(string correlationID, List<string> logs, Exception exception = null)
@@ -524,8 +513,6 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Start/End the app
-		internal static HashSet<string> HiddenSegments = null, BypassSegments = null, StaticSegments = null;
-
 		internal static void OnAppStart(HttpContext context)
 		{
 			var stopwatch = new Stopwatch();
@@ -580,12 +567,15 @@ namespace net.vieapps.Services.Files
 					foreach (XmlNode node in config._section.SelectNodes("handler"))
 					{
 						var settings = config.GetSettings(node);
+
 						var keyName = settings["key"] != null && settings["key"] is JValue && (settings["key"] as JValue).Value != null
 							? (settings["key"] as JValue).Value.ToString().ToLower()
 							: null;
+
 						var typeName = settings["type"] != null && settings["type"] is JValue && (settings["type"] as JValue).Value != null
 							? (settings["type"] as JValue).Value.ToString()
 							: null;
+
 						if (!string.IsNullOrWhiteSpace(keyName) && !string.IsNullOrWhiteSpace(typeName) && !Global.Handlers.ContainsKey(keyName))
 							try
 							{
@@ -603,15 +593,15 @@ namespace net.vieapps.Services.Files
 			};
 
 			stopwatch.Stop();
-			Global.WriteLogs("*** The File HTTP Service is ready for serving. The app is initialized in " + stopwatch.GetElapsedTimes());
+			Global.WriteLogs("*** The HTTP Files is ready for serving. The app is initialized in " + stopwatch.GetElapsedTimes());
 		}
 
 		internal static void OnAppEnd()
 		{
 			Global.CancellationTokenSource.Cancel();
-			if (Global.InterCommunicationMessageUpdater != null)
-				Global.InterCommunicationMessageUpdater.Dispose();
-			Global.ChannelAreClosedBySystem = true;
+			Global.InterCommunicationMessageUpdater?.Dispose();
+
+			Global.ChannelsAreClosedBySystem = true;
 			Global.CloseIncomingChannel();
 			Global.CloseOutgoingChannel();
 		}
@@ -1065,18 +1055,61 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
+		#region Send & process inter-communicate message
+		static async Task InitializeRTUServiceAsync()
+		{
+			if (Global._RTUService == null)
+			{
+				await Global.OpenOutgoingChannelAsync();
+				Global._RTUService = Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IRTUService>();
+			}
+		}
+
+		public static IRTUService RTUService
+		{
+			get
+			{
+				if (Global._RTUService == null)
+					try
+					{
+						var task = Global.InitializeRTUServiceAsync();
+						task.Wait(678, Global.CancellationTokenSource.Token);
+					}
+					catch { }
+				return Global._RTUService;
+			}
+		}
+
+		internal static async Task SendInterCommunicateMessageAsync(CommunicateMessage message)
+		{
+			try
+			{
+				await Global.InitializeRTUServiceAsync();
+				await Global._RTUService.SendInterCommunicateMessageAsync(message, Global.CancellationTokenSource.Token);
+			}
+			catch { }
+		}
+
+		static void ProcessInterCommunicateMessage(CommunicateMessage message)
+		{
+
+		}
+		#endregion
+
 		#region Attachment information
 		internal static async Task<Attachment> GetAttachmentAsync(string id, Session session = null, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			return string.IsNullOrEmpty(id)
+			return string.IsNullOrWhiteSpace(id)
 				? null
-				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession()) {
+				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
+					{
 						ServiceName = "files",
 						ObjectName = "attachment", 
 						Verb = "GET",
 						Query = new Dictionary<string, string>() { { "object-identity", id } },
 						CorrelationID = Global.GetCorrelationID()
-					}, cancellationToken)).FromJson<Attachment>();
+					}, cancellationToken)
+				 ).FromJson<Attachment>();
 		}
 
 		internal static bool IsReadable(this string mime)
@@ -1167,47 +1200,6 @@ namespace net.vieapps.Services.Files
 					Global._HttpUsersUri += "/";
 				return Global._HttpUsersUri;
 			}
-		}
-		#endregion
-
-		#region Send & process inter-communicate message
-		static async Task InitializeRTUServiceAsync()
-		{
-			if (Global._RTUService == null)
-			{
-				await Global.OpenOutgoingChannelAsync();
-				Global._RTUService = Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IRTUService>();
-			}
-		}
-
-		public static IRTUService RTUService
-		{
-			get
-			{
-				if (Global._RTUService == null)
-					try
-					{
-						var task = Global.InitializeRTUServiceAsync();
-						task.Wait(678, Global.CancellationTokenSource.Token);
-					}
-					catch { }
-				return Global._RTUService;
-			}
-		}
-
-		internal static async Task SendInterCommunicateMessageAsync(CommunicateMessage message)
-		{
-			try
-			{
-				await Global.InitializeRTUServiceAsync();
-				await Global._RTUService.SendInterCommunicateMessageAsync(message, Global.CancellationTokenSource.Token);
-			}
-			catch { }
-		}
-
-		static void ProcessInterCommunicateMessage(CommunicateMessage message)
-		{
-
 		}
 		#endregion
 

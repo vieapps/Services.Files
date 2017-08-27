@@ -212,9 +212,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Global.asax" />
-    <Content Include="Web.config">
-      <SubType>Designer</SubType>
-    </Content>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Download.cs" />
@@ -250,6 +247,10 @@
       <Project>{c496cef5-9ff8-4364-9860-fcdefed4e277}</Project>
       <Name>VIEApps.Services.Base</Name>
     </ProjectReference>
+    <ProjectReference Include="..\..\Books\Http\VIEApps.Services.Books.Http.csproj">
+      <Project>{e6cb75ca-de48-4dc8-8c24-5919bcf308c9}</Project>
+      <Name>VIEApps.Services.Books.Http</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Component\VIEApps.Services.Files.Component.csproj">
       <Project>{9e3accfe-0814-420e-af3d-575462be0ad6}</Project>
       <Name>VIEApps.Services.Files.Component</Name>
@@ -258,6 +259,17 @@
       <Project>{edd2f296-eb6d-4c3a-80be-03b0ddd982d3}</Project>
       <Name>VIEApps.Services.Files.Http.AbstractHandler</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="web.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="web.Debug.config">
+      <DependentUpon>web.config</DependentUpon>
+    </None>
+    <None Include="web.Release.config">
+      <DependentUpon>web.config</DependentUpon>
+    </None>
   </ItemGroup>
   <PropertyGroup>
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
@@ -274,7 +286,7 @@
           <AutoAssignPort>True</AutoAssignPort>
           <DevelopmentServerPort>1977</DevelopmentServerPort>
           <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>http://localhost:1977/</IISUrl>
+          <IISUrl>http://localhost:7780/</IISUrl>
           <NTLMAuthentication>False</NTLMAuthentication>
           <UseCustomServer>False</UseCustomServer>
           <CustomServerUrl>
