@@ -55,8 +55,9 @@ namespace net.vieapps.Services.Files
 							this.WriteInfo("The service is registered - PID: " + pid);
 							this.WriteLog(UtilityService.BlankUID, this.ServiceName, null, "The service [" + this.ServiceURI + "] is registered - PID: " + pid);
 						},
-						ex => this.WriteInfo("Error occurred while registering the service", ex),
-						this.OnInterCommunicateMessageReceived
+						(ex) => {
+							this.WriteInfo("Error occurred while registering the service", ex);
+						}
 					);
 				}
 				catch (Exception ex)
@@ -145,14 +146,12 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		void OnInterCommunicateMessageReceived(CommunicateMessage message)
+		#region Process inter-communicate messages
+		protected override void ProcessInterCommunicateMessage(CommunicateMessage message)
 		{
-			Attachment info = null;
-		}
 
-		~ServiceComponent()
-		{
-			this.Dispose(false);
 		}
+		#endregion
+
 	}
 }

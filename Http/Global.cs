@@ -103,7 +103,7 @@ namespace net.vieapps.Services.Files
 
 		internal static byte[] GenerateEncryptionKey(string additional = null)
 		{
-			return (Global.AESKey + (string.IsNullOrWhiteSpace(additional) ? "" : ":" + additional)).GenerateEncryptionKey(true, false, 256);
+			return (Global.AESKey + (string.IsNullOrWhiteSpace(additional) ? "" : ":" + additional)).GenerateEncryptionKey(false, false, 256);
 		}
 
 		internal static byte[] GenerateEncryptionIV(string additional = null)
