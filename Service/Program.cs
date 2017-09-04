@@ -1,14 +1,18 @@
-﻿using System;
+﻿#region Related components
+using System;
+using System.Linq;
 using System.Threading;
 using System.Runtime.InteropServices;
 
 using net.vieapps.Components.Utility;
+#endregion
 
 namespace net.vieapps.Services.Files
 {
 	class Program
 	{
 		internal static ServiceComponent Component = null;
+		internal static bool AsService = false;
 
 		static void Main(string[] args)
 		{
@@ -16,38 +20,36 @@ namespace net.vieapps.Services.Files
 			Console.OutputEncoding = System.Text.Encoding.UTF8;
 			Program.Component = new ServiceComponent();
 
-			// set flag to run or exit (when called from API Gateway)
+			// get flag to run or stop (when called from API Gateway)
+			var apiCall = args?.FirstOrDefault(a => a.IsStartsWith("/agc:"));
+			var apiCallToStop = apiCall != null && apiCall.IsEquals("/agc:s");
+			Program.AsService = apiCall != null;
+
+			// prepare the signal to start/stop
 			EventWaitHandle waitHandle = null;
-			bool isCalledFromAPIGateway = false, isCalledFromAPIGatewayToStop = false;
-			if (args != null)
-				for (var index = 0; index < args.Length; index++)
-					if (args[index].IsStartsWith("/agc:"))
-					{
-						isCalledFromAPIGateway = true;
-						isCalledFromAPIGatewayToStop = args[index].IsEquals("/agc:s");
-						break;
-					}
-
-			// check to see if request to exit or not
-			if (isCalledFromAPIGateway)
+			if (Program.AsService)
 			{
-				waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset, "VIEApps.Services." + Program.Component.ServiceName.GetCapitalizedFirstLetter(), out bool createdNew);
-				if (!createdNew)
-					waitHandle.Set();
+				// get the flag of the existing instance
+				waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset, Program.Component.ServiceURI, out bool createdNew);
 
-				// call to stop
-				if (isCalledFromAPIGatewayToStop)
+				// process the call to stop
+				if (apiCallToStop)
 				{
+					// raise an event to stop current existing instance
+					if (!createdNew)
+						waitHandle.Set();
+
+					// then exit
 					Program.Component.Dispose();
 					return;
 				}
 			}
 
-			// start the component
+			// start the service component
 			Program.Component.Start(args);
 
-			// waiting right here
-			if (isCalledFromAPIGateway)
+			// wait for exit
+			if (Program.AsService)
 			{
 				waitHandle.WaitOne();
 				Program.Exit();

@@ -48,6 +48,8 @@ namespace net.vieapps.Services.Files
 		internal static IDisposable InterCommunicationMessageUpdater = null;
 		internal static IRTUService _RTUService = null;
 
+		static Queue<Tuple<string, List<string>, string, string>> Logs = new Queue<Tuple<string, List<string>, string, string>>();
+
 		static string _AESKey = null, _JWTKey = null, _PublicJWTKey = null, _RSAKey = null, _RSAExponent = null, _RSAModulus = null;
 		static RSACryptoServiceProvider _RSA = null;
 		#endregion
@@ -285,6 +287,7 @@ namespace net.vieapps.Services.Files
 				{
 					try
 					{
+						await Global.InitializeManagementServiceAsync();
 						await Global.InitializeRTUServiceAsync();
 					}
 					catch { }
@@ -335,7 +338,7 @@ namespace net.vieapps.Services.Files
 			await Global.OpenIncomingChannelAsync(
 				(sender, arguments) =>
 				{
-					Global.WriteLogs("The incoming connection is established - Session ID: " + arguments.SessionId);
+					Global.Logs.Enqueue(new Tuple<string, List<string>, string, string>(UtilityService.NewUID, new List<string>() { "The outgoing connection is established - Session ID: " + arguments.SessionId }, null, null));
 				},
 				(sender, arguments) =>
 				{
@@ -394,7 +397,7 @@ namespace net.vieapps.Services.Files
 				},
 				(sender, arguments) =>
 				{
-					Global.WriteLogs("Got an error of incoming connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
+					Global.WriteLogs("Got an error of outgoing connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
 				}
 			);
 		}
@@ -459,9 +462,17 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				await Global.InitializeManagementServiceAsync();
-				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, simpleStack, fullStack);
+				while (Global.Logs.Count > 0)
+				{
+					var log = Global.Logs.Dequeue();
+					await Global.ManagementService.WriteLogsAsync(log.Item1, "files", "http", log.Item2, log.Item3, log.Item4, Global.CancellationTokenSource.Token);
+				}
+				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, simpleStack, fullStack, Global.CancellationTokenSource.Token);
 			}
-			catch { }
+			catch
+			{
+				Global.Logs.Enqueue(new Tuple<string, List<string>, string, string>(correlationID, logs, simpleStack, fullStack));
+			}
 		}
 
 		internal static Task WriteLogsAsync(string correlationID, string log, Exception exception = null)
@@ -619,7 +630,7 @@ namespace net.vieapps.Services.Files
 			// update special headers on OPTIONS request
 			if (app.Context.Request.HttpMethod.Equals("OPTIONS"))
 			{
-				app.Context.Response.Headers.Add("access-control-allow-methods", "HEAD,GET,POST,OPTIONS");
+				app.Context.Response.Headers.Add("access-control-allow-methods", "HEAD,GET,POST");
 
 				var allowHeaders = app.Context.Request.Headers.Get("access-control-request-headers");
 				if (!string.IsNullOrWhiteSpace(allowHeaders))
@@ -775,7 +786,7 @@ namespace net.vieapps.Services.Files
 				if (Global._StateCookieName == null)
 				{
 					var section = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
-					Global._StateCookieName = section != null && !string.IsNullOrWhiteSpace(section.CookieName)
+					Global._StateCookieName = !string.IsNullOrWhiteSpace(section?.CookieName)
 						? section.CookieName
 						: "ASP.NET_SessionId";
 				}
