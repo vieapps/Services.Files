@@ -545,20 +545,9 @@ namespace net.vieapps.Services.Files
 			}).ConfigureAwait(false);
 
 			// special segments
-			var segments = UtilityService.GetAppSetting("BypassSegments");
-			Global.BypassSegments = string.IsNullOrWhiteSpace(segments)
-				? new HashSet<string>()
-				: segments.Trim().ToLower().ToHashSet('|', true);
-
-			segments = UtilityService.GetAppSetting("HiddenSegments");
-			Global.HiddenSegments = string.IsNullOrWhiteSpace(segments)
-				? new HashSet<string>()
-				: segments.Trim().ToLower().ToHashSet('|', true);
-
-			segments = UtilityService.GetAppSetting("StaticSegments");
-			Global.StaticSegments = string.IsNullOrWhiteSpace(segments)
-				? new HashSet<string>()
-				: segments.Trim().ToLower().ToHashSet('|', true);
+			Global.BypassSegments = UtilityService.GetAppSetting("BypassSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
+			Global.HiddenSegments = UtilityService.GetAppSetting("HiddenSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
+			Global.StaticSegments = UtilityService.GetAppSetting("StaticSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
 
 			// default handlers
 			Global.Handlers = new Dictionary<string, Type>()
@@ -574,11 +563,11 @@ namespace net.vieapps.Services.Files
 			};
 
 			// additional handlers
-			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is ConfigurationSectionHandler config)
-				if (config != null)
-					foreach (XmlNode node in config._section.SelectNodes("handler"))
+			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is AppConfigurationSectionHandler config)
+				if (config.Section.SelectNodes("handler") is XmlNodeList handlerNodes)
+					foreach (XmlNode handlerNode in handlerNodes)
 					{
-						var settings = config.GetSettings(node);
+						var settings = config.GetJson(handlerNode);
 
 						var keyName = settings["key"] != null && settings["key"] is JValue && (settings["key"] as JValue).Value != null
 							? (settings["key"] as JValue).Value.ToString().ToLower()
@@ -1222,6 +1211,8 @@ namespace net.vieapps.Services.Files
 	#region Global.ashx
 	public class GlobalHandler : HttpTaskAsyncHandler
 	{
+		public GlobalHandler() : base() { }
+
 		public override bool IsReusable { get { return true; } }
 
 		public override async Task ProcessRequestAsync(HttpContext context)
@@ -1387,27 +1378,6 @@ namespace net.vieapps.Services.Files
 		protected void Application_End(object sender, EventArgs args)
 		{
 			Global.OnAppEnd();
-		}
-	}
-	#endregion
-
-	#region Configuration section handler
-	public class ConfigurationSectionHandler : IConfigurationSectionHandler
-	{
-		internal XmlNode _section = null;
-
-		public object Create(object parent, object configContext, XmlNode section)
-		{
-			this._section = section;
-			return this;
-		}
-
-		internal JObject GetSettings(XmlNode node)
-		{
-			var settings = new JObject();
-			foreach (XmlAttribute attribute in node.Attributes)
-				settings.Add(new JProperty(attribute.Name, attribute.Value));
-			return settings;
 		}
 	}
 	#endregion
