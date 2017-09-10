@@ -250,6 +250,10 @@
       <Project>{e6cb75ca-de48-4dc8-8c24-5919bcf308c9}</Project>
       <Name>VIEApps.Services.Books.Http</Name>
     </ProjectReference>
+    <ProjectReference Include="..\..\Libraries\Http\VIEApps.Services.Libraries.Http.csproj">
+      <Project>{0777ffea-441b-4cb3-a0fb-60a73e9d663d}</Project>
+      <Name>VIEApps.Services.Libraries.Http</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Component\VIEApps.Services.Files.Component.csproj">
       <Project>{9e3accfe-0814-420e-af3d-575462be0ad6}</Project>
       <Name>VIEApps.Services.Files.Component</Name>
@@ -285,7 +289,7 @@
           <AutoAssignPort>True</AutoAssignPort>
           <DevelopmentServerPort>1977</DevelopmentServerPort>
           <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>http://localhost:7780/</IISUrl>
+          <IISUrl>http://localhost:1977/</IISUrl>
           <NTLMAuthentication>False</NTLMAuthentication>
           <UseCustomServer>False</UseCustomServer>
           <CustomServerUrl>

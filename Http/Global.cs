@@ -967,7 +967,7 @@ namespace net.vieapps.Services.Files
 			return json;
 		}
 
-		internal static async Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, Dictionary<string, string> extra = null, string body = null, string correlationID = null)
+		internal static async Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, string body = null, Dictionary<string, string> extra = null, string correlationID = null)
 		{
 			return await Global.CallServiceAsync(new RequestInfo()
 			{
@@ -1025,8 +1025,12 @@ namespace net.vieapps.Services.Files
 
 		internal static async Task<bool> ExistsAsync(this Session session)
 		{
-			var result = await Global.CallServiceAsync(session, "users", "mediator", "GET", null, null, new Dictionary<string, string>() { { "Exist", "" } });
-			return result != null && result["Existed"] is JValue && (result["Existed"] as JValue).Value != null && (result["Existed"] as JValue).Value.CastAs<bool>() == true;
+			var result = await Global.CallServiceAsync(session, "users", "session", "GET", null, null, null, new Dictionary<string, string>()
+			{
+				{ "Exist", "" }
+			});
+			var isExisted = result?["Existed"];
+			return isExisted != null && isExisted is JValue && (isExisted as JValue).Value != null && (isExisted as JValue).Value.CastAs<bool>() == true;
 		}
 		#endregion
 
@@ -1212,8 +1216,6 @@ namespace net.vieapps.Services.Files
 	public class GlobalHandler : HttpTaskAsyncHandler
 	{
 		public GlobalHandler() : base() { }
-
-		public override bool IsReusable { get { return true; } }
 
 		public override async Task ProcessRequestAsync(HttpContext context)
 		{

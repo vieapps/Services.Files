@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Files
 			if (Program.AsService)
 			{
 				waitHandle.WaitOne();
-				Program.Exit();
+				Program.Component.Dispose();
 			}
 			else
 			{
@@ -61,12 +61,6 @@ namespace net.vieapps.Services.Files
 				Console.WriteLine("=====> Press RETURN to terminate...");
 				Console.ReadLine();
 			}
-		}
-
-		internal static void Exit()
-		{
-			Program.Component.Dispose();
-			Environment.Exit(0);
 		}
 
 		#region Closing event handler
@@ -78,7 +72,7 @@ namespace net.vieapps.Services.Files
 				case 1:		// Ctrl + Break
 				case 2:		// Close
 				case 6:        // Shutdown
-					Program.Exit();
+					Program.Component.Dispose();
 					break;
 			}
 			return false;
