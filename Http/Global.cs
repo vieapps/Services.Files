@@ -1224,11 +1224,12 @@ namespace net.vieapps.Services.Files
 				return;
 
 			// authentication: process app token
-			if (context.Request.QueryString["x-app-token"] != null)
+			var appToken = context.Request.Headers["x-app-token"] ?? context.Request.QueryString["x-app-token"];
+			if (!string.IsNullOrWhiteSpace(appToken))
 				try
 				{
 					// parse token
-					var info = User.ParseJSONWebToken(context.Request.QueryString["x-app-token"], Global.AESKey, Global.GenerateJWTKey());
+					var info = User.ParseJSONWebToken(appToken, Global.AESKey, Global.GenerateJWTKey());
 					var userID = info.Item1;
 					var accessToken = info.Item2;
 					var sessionID = info.Item3;

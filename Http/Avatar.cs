@@ -6,9 +6,10 @@ using System.Web;
 using System.IO;
 using System.Net;
 
+using Newtonsoft.Json.Linq;
+
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
-using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -43,7 +44,7 @@ namespace net.vieapps.Services.Files
 				if (info.IndexOf("?") > 0)
 					info = info.Left(info.IndexOf("?"));
 
-				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true)[1].Url64Decode().ToArray('|').Last() + ".png");
+				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true)[1].Replace(".png", "").Url64Decode().ToArray('|').Last() + ".png");
 			}
 			catch { }
 			if (fileInfo == null || !fileInfo.Exists)
@@ -90,7 +91,43 @@ namespace net.vieapps.Services.Files
 		#region Update avatar image (receive upload image from the client)
 		async Task UpdateAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			await Task.Delay(0);
+			// check
+			if (context.User == null || !(context.User is UserPrincipal) || context.User.Identity.Name.Equals(""))
+				throw new AccessDeniedException();
+
+			// delete old file
+			var filePath = Global.UserAvatarFilesPath + context.User.Identity.Name + ".png";
+			try
+			{
+				if (File.Exists(filePath))
+					File.Delete(filePath);
+			}
+			catch { }
+
+			// base64 image
+			if (context.Request.Headers["x-as-base64"] != null)
+			{
+				// parse & write file
+				var data = "";
+				using (var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding))
+				{
+					var body = await reader.ReadToEndAsync();
+					data = body.ToExpandoObject().Get<string>("Data").ToArray().Last();
+				}
+
+				// write to file
+				File.WriteAllBytes(filePath, Convert.FromBase64String(data));
+			}
+
+			// file
+			else
+				context.Request.Files[0].SaveAs(filePath);
+
+			// response
+			await context.Response.Output.WriteAsync((new JObject()
+			{
+				{ "Uri", context.Request.Url.Scheme + "://" + context.Request.Url.Host + "/avatars/" + (DateTime.Now.ToIsoString() + "|" + context.User.Identity.Name).Url64Encode() + ".png"  }
+			}).ToString(Newtonsoft.Json.Formatting.None));
 		}
 		#endregion
 
