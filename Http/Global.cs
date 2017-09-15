@@ -219,11 +219,11 @@ namespace net.vieapps.Services.Files
 			Global.IncommingChannel.RealmProxy.Monitor.ConnectionEstablished += (sender, arguments) =>
 			{
 				Global.IncommingChannelSessionID = arguments.SessionId;
-				var subject = Global.IncommingChannel?.RealmProxy.Services.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages");
-				if (subject != null)
-					Global.InterCommunicationMessageUpdater = subject.Subscribe(
-						msg => Global.ProcessInterCommunicateMessage(msg),
-						ex => Global.WriteLogs(UtilityService.BlankUID, "Error occurred while fetching inter-communicate message", ex)
+				Global.IncommingChannel.RealmProxy.Services
+					.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
+					.Subscribe(
+						message => Global.ProcessInterCommunicateMessage(message),
+						exception => Global.WriteLogs(UtilityService.BlankUID, "Error occurred while fetching inter-communicate message", exception)
 					);
 			};
 
@@ -1078,7 +1078,7 @@ namespace net.vieapps.Services.Files
 					try
 					{
 						var task = Global.InitializeRTUServiceAsync();
-						task.Wait(678, Global.CancellationTokenSource.Token);
+						task.Wait(1234, Global.CancellationTokenSource.Token);
 					}
 					catch { }
 				return Global._RTUService;
