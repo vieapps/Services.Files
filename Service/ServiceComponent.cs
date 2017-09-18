@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var msg = string.IsNullOrWhiteSpace(info)
-				? ex != null ? ex.Message : ""
+				? ex?.Message ?? ""
 				: info;
 
 			// write to logs
@@ -34,10 +34,11 @@ namespace net.vieapps.Services.Files
 			// write to console
 			if (!Program.AsService)
 			{
-				Console.WriteLine("~~~~~~~~~~~~~~~~~~~~>");
 				Console.WriteLine(msg);
 				if (ex != null)
 					Console.WriteLine("-----------------------\r\n" + "==> [" + ex.GetType().GetTypeName(true) + "]: " + ex.Message + "\r\n" + ex.StackTrace + "\r\n-----------------------");
+				else
+					Console.WriteLine("~~~~~~~~~~~~~~~~~~~~>");
 			}
 		}
 
@@ -63,14 +64,8 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					await this.StartAsync(
-						() =>
-						{
-							this.WriteInfo(correlationID, "The service is registered - PID: " + Process.GetCurrentProcess().Id.ToString());
-						},
-						(ex) =>
-						{
-							this.WriteInfo(correlationID, "Error occurred while registering the service", ex);
-						}
+						service => this.WriteInfo(correlationID, "The service is registered - PID: " + Process.GetCurrentProcess().Id.ToString()),
+						exception => this.WriteInfo(correlationID, "Error occurred while registering the service", exception)
 					);
 				}
 				catch (Exception ex)

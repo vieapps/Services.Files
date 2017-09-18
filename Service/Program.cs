@@ -16,14 +16,13 @@ namespace net.vieapps.Services.Files
 
 		static void Main(string[] args)
 		{
-			// prepare
-			Console.OutputEncoding = System.Text.Encoding.UTF8;
-			Program.Component = new ServiceComponent();
-
 			// get flag to run or stop (when called from API Gateway)
 			var apiCall = args?.FirstOrDefault(a => a.IsStartsWith("/agc:"));
 			var apiCallToStop = apiCall != null && apiCall.IsEquals("/agc:s");
 			Program.AsService = apiCall != null;
+
+			// initialize the instance of service component
+			Program.Component = new ServiceComponent();
 
 			// prepare the signal to start/stop
 			EventWaitHandle waitHandle = null;
@@ -46,6 +45,12 @@ namespace net.vieapps.Services.Files
 			}
 
 			// start the service component
+			if (!Program.AsService)
+			{
+				Console.OutputEncoding = System.Text.Encoding.UTF8;
+				Console.WriteLine("Starting the service [" + Program.Component.ServiceURI + "]");
+				Console.WriteLine("=====> Press RETURN to terminate...");
+			}
 			Program.Component.Start(args);
 
 			// wait for exit
@@ -58,7 +63,6 @@ namespace net.vieapps.Services.Files
 			{
 				Program.ConsoleEventHandler = new ConsoleEventDelegate(Program.ConsoleEventCallback);
 				Program.SetConsoleCtrlHandler(Program.ConsoleEventHandler, true);
-				Console.WriteLine("=====> Press RETURN to terminate...");
 				Console.ReadLine();
 			}
 		}
@@ -68,9 +72,9 @@ namespace net.vieapps.Services.Files
 		{
 			switch (eventCode)
 			{
-				case 0:		// Ctrl + C
-				case 1:		// Ctrl + Break
-				case 2:		// Close
+				case 0:        // Ctrl + C
+				case 1:        // Ctrl + Break
+				case 2:        // Close
 				case 6:        // Shutdown
 					Program.Component.Dispose();
 					break;
@@ -78,9 +82,10 @@ namespace net.vieapps.Services.Files
 			return false;
 		}
 
-		static ConsoleEventDelegate ConsoleEventHandler;   // Keeps it from getting garbage collected
+		// keeps it from getting garbage collected
+		static ConsoleEventDelegate ConsoleEventHandler;
 
-		// Pinvoke
+		// invokes
 		private delegate bool ConsoleEventDelegate(int eventCode);
 
 		[DllImport("kernel32.dll", SetLastError = true)]
