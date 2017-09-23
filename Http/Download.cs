@@ -71,7 +71,7 @@ namespace net.vieapps.Services.Files
 				attachment = await Global.GetAttachmentAsync(identifier, Global.GetSession(context), cancellationToken);
 				if (attachment == null || string.IsNullOrEmpty(attachment.ID))
 					throw new FileNotFoundException();
-				if (!await Global.IsAbleToDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.EntityID, attachment.ObjectID))
+				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID))
 					throw new AccessDeniedException();
 			}
 			catch (AccessDeniedException ex)

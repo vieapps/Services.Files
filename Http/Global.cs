@@ -78,7 +78,7 @@ namespace net.vieapps.Services.Files
 			var origin = header?["origin"];
 			if (string.IsNullOrWhiteSpace(origin))
 				origin = urlReferrer?.AbsoluteUri;
-			if (string.IsNullOrWhiteSpace(origin))
+			if (string.IsNullOrWhiteSpace(origin) || origin.IsEquals("file://"))
 				origin = ipAddress;
 
 			return new Tuple<string, string, string>(name, platform, origin);
@@ -1035,28 +1035,28 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Authorization
-		internal static async Task<bool> IsAbleToUploadAsync(string serviceName, string systemID, string entityID, string objectID)
+		internal static async Task<bool> CanUploadAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
 			var service = await Global.GetServiceAsync(serviceName);
-			return await service.IsAbleToUploadAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+			return await service.CanContributeAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> IsAbleToDownloadAsync(string serviceName, string systemID, string entityID, string objectID)
+		internal static async Task<bool> CanDownloadAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
 			var service = await Global.GetServiceAsync(serviceName);
-			return await service.IsAbleToDownloadAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+			return await service.CanDownloadAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> IsAbleToDeleteAsync(string serviceName, string systemID, string entityID, string objectID)
+		internal static async Task<bool> CanDeleteAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
 			var service = await Global.GetServiceAsync(serviceName);
-			return await service.IsAbleToDeleteAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+			return await service.CanEditAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> IsAbleToRestoreAsync(string serviceName, string systemID, string entityID, string objectID)
+		internal static async Task<bool> CanRestoreAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
 			var service = await Global.GetServiceAsync(serviceName);
-			return await service.IsAbleToRestoreAsync(HttpContext.Current.User as User, systemID, entityID, objectID);
+			return await service.CanEditAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
 		}
 		#endregion
 

@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				var attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken);
-				return await Global.IsAbleToDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.EntityID, attachment.ObjectID);
+				return await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID);
 			}
 			catch (Exception ex)
 			{

@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Files
 				if (attachment.IsTemporary)
 					info.FilePath = Global.AttachmentFilesPath + @"temp\" + info.Identifier + "-" + info.Filename;
 
-				if (!await Global.IsAbleToDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.EntityID, attachment.ObjectID))
+				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID))
 					throw new AccessDeniedException();
 			}
 			catch (AccessDeniedException ex)

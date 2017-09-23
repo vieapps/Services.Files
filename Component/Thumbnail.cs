@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Files
 			this.ID = "";
 			this.ServiceName = "";
 			this.SystemID = "";
-			this.EntityID = "";
+			this.DefinitionID = "";
 			this.ObjectID = "";
 			this.Name = "";
 			this.Size = 0;
@@ -48,7 +48,7 @@ namespace net.vieapps.Services.Files
 		/// Gets or sets the identity of the entity definition that the attachment file is belong/related to
 		/// </summary>
 		[JsonIgnore, XmlIgnore, Property(MaxLength = 32), Sortable(IndexName = "System")]
-		public override string EntityID { get; set; }
+		public string DefinitionID { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business object that the attachment file is belong/related to
@@ -116,6 +116,9 @@ namespace net.vieapps.Services.Files
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string RepositoryID { get; set; }
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override string EntityID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override Privileges OriginalPrivileges { get; set; }
