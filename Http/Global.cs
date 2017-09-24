@@ -600,6 +600,7 @@ namespace net.vieapps.Services.Files
 		internal static void OnAppEnd()
 		{
 			Global.CancellationTokenSource.Cancel();
+			Global.CancellationTokenSource.Dispose();
 			Global.InterCommunicationMessageUpdater?.Dispose();
 
 			Global.ChannelsAreClosedBySystem = true;
@@ -627,20 +628,6 @@ namespace net.vieapps.Services.Files
 
 				return;
 			}
-
-			// decrypt session state cookie
-			var cookie = app.Request.Cookies?[Global.StateCookieName];
-			if (cookie != null)
-				try
-				{
-					cookie.Value = cookie.Value.StartsWith("VIEApps|")
-						? cookie.Value.ToArray('|', true).Last().Decrypt(Global.AESKey)
-						: "";
-				}
-				catch
-				{
-					cookie.Value = "";
-				}
 
 			// authentication: process passport token
 			if (!string.IsNullOrWhiteSpace(app.Context.Request.QueryString["x-passport-token"]))
@@ -740,16 +727,6 @@ namespace net.vieapps.Services.Files
 
 		internal static void OnAppEndRequest(HttpApplication app)
 		{
-			// encrypt session state cookie
-			var cookie = app.Response.Cookies?[Global.StateCookieName];
-			if (cookie != null && !string.IsNullOrWhiteSpace(cookie.Value))
-				try
-				{
-					cookie.Value = "VIEApps|" + cookie.Value.Encrypt(Global.AESKey);
-					cookie.HttpOnly = true;
-				}
-				catch { }
-
 #if DEBUG || REQUESTLOGS
 			// add execution times
 			if (!app.Context.Request.HttpMethod.Equals("OPTIONS") && app.Context.Items.Contains("StopWatch"))
@@ -764,23 +741,6 @@ namespace net.vieapps.Services.Files
 				catch { }
 			}
 #endif
-		}
-
-		static string _StateCookieName = null;
-
-		internal static string StateCookieName
-		{
-			get
-			{
-				if (Global._StateCookieName == null)
-				{
-					var section = ConfigurationManager.GetSection("system.web/sessionState") as SessionStateSection;
-					Global._StateCookieName = !string.IsNullOrWhiteSpace(section?.CookieName)
-						? section.CookieName
-						: "ASP.NET_SessionId";
-				}
-				return Global._StateCookieName;
-			}
 		}
 		#endregion
 
