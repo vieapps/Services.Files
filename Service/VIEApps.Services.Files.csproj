@@ -55,8 +55,8 @@
     <Reference Include="MongoDB.Driver.Core, Version=2.4.4.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\..\packages\MongoDB.Driver.Core.2.4.4\lib\net45\MongoDB.Driver.Core.dll</HintPath>
     </Reference>
-    <Reference Include="MySqlConnector, Version=0.27.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\MySqlConnector.0.27.0\lib\net46\MySqlConnector.dll</HintPath>
+    <Reference Include="MySqlConnector, Version=0.28.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\MySqlConnector.0.28.2\lib\net46\MySqlConnector.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\..\..\packages\Newtonsoft.Json.10.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
@@ -107,7 +107,7 @@
     <Reference Include="System.Windows" />
     <Reference Include="System.Xml" />
     <Reference Include="WampSharp, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\WampSharp.1.2.6.43-beta\lib\net45\WampSharp.dll</HintPath>
+      <HintPath>..\..\..\packages\WampSharp.1.2.6.44-beta\lib\net45\WampSharp.dll</HintPath>
     </Reference>
     <Reference Include="WindowsBase" />
   </ItemGroup>

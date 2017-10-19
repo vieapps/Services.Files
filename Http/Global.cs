@@ -78,7 +78,7 @@ namespace net.vieapps.Services.Files
 			var origin = header?["origin"];
 			if (string.IsNullOrWhiteSpace(origin))
 				origin = urlReferrer?.AbsoluteUri;
-			if (string.IsNullOrWhiteSpace(origin) || origin.IsEquals("file://"))
+			if (string.IsNullOrWhiteSpace(origin) || origin.IsStartsWith("file://") || origin.IsStartsWith("http://localhost"))
 				origin = ipAddress;
 
 			return new Tuple<string, string, string>(name, platform, origin);
