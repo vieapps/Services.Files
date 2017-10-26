@@ -32,13 +32,13 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static CacheManager _Cache = new CacheManager("VIEApps-Services-Files-Info", "Sliding", Utility.CacheTime);
+		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", "Sliding", Utility.CacheTime);
 
-		public static CacheManager Cache { get { return Utility._Cache; } }
+		public static Cache Cache { get { return Utility._Cache; } }
 
-		static CacheManager _DataCache = new CacheManager("VIEApps-Services-Files-Data", "Sliding", Utility.CacheTime);
+		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", "Sliding", Utility.CacheTime);
 
-		public static CacheManager DataCache { get { return Utility._DataCache; } }
+		public static Cache DataCache { get { return Utility._DataCache; } }
 
 		static string _HttpFilesUri = null;
 
