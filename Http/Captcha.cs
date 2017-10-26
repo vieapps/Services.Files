@@ -11,11 +11,13 @@ namespace net.vieapps.Services.Files
 {
 	public class CaptchaHandler : AbstractHttpHandler
 	{
-		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
+			// check
 			if (!context.Request.HttpMethod.IsEquals("GET"))
 				throw new InvalidRequestException();
 
+			// prepare
 			var requestUrl = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
 			while (requestUrl.StartsWith("/"))
 				requestUrl = requestUrl.Right(requestUrl.Length - 1);
@@ -30,8 +32,14 @@ namespace net.vieapps.Services.Files
 					useSmallImage = !requestInfo[2].Url64Decode().IsEquals("big");
 				}
 				catch { }
-			context.Response.GenerateImage(requestInfo[1].Url64Decode(), useSmallImage);
-			return Task.CompletedTask;
+
+			// generate captcha image
+			var image = Captcha.GenerateImage(requestInfo[1].Url64Decode(), useSmallImage);
+
+			// write to output stream
+			context.Response.Cache.SetNoStore();
+			context.Response.ContentType = "image/jpeg";
+			await context.Response.OutputStream.WriteAsync(image, 0, image.Length);
 		}
 	}
 }
