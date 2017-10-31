@@ -640,7 +640,7 @@ namespace net.vieapps.Services.Files
 					var sessionID = token.Item3;
 					var deviceID = token.Item4;
 
-					var ticket = User.ParseAuthenticateToken(accessToken, Global.RSA, Global.AESKey);
+					var ticket = AspNetSecurityService.ParseAuthenticateToken(accessToken, Global.RSA, Global.AESKey);
 					accessToken = ticket.Item2;
 
 					var user = User.ParseAccessToken(accessToken, Global.RSA, Global.AESKey);
@@ -651,7 +651,7 @@ namespace net.vieapps.Services.Files
 					app.Context.User = new UserPrincipal(user);
 					var authCookie = new HttpCookie(FormsAuthentication.FormsCookieName)
 					{
-						Value = User.GetAuthenticateToken(userID, accessToken, sessionID, deviceID, FormsAuthentication.Timeout.Minutes),
+						Value = AspNetSecurityService.GetAuthenticateToken(userID, accessToken, sessionID, deviceID, FormsAuthentication.Timeout.Minutes),
 						HttpOnly = true
 					};
 					app.Context.Response.SetCookie(authCookie);
@@ -752,7 +752,7 @@ namespace net.vieapps.Services.Files
 				var authCookie = app.Context.Request.Cookies?[FormsAuthentication.FormsCookieName];
 				if (authCookie != null)
 				{
-					var ticket = User.ParseAuthenticateToken(authCookie.Value, Global.RSA, Global.AESKey);
+					var ticket = AspNetSecurityService.ParseAuthenticateToken(authCookie.Value, Global.RSA, Global.AESKey);
 					var userID = ticket.Item1;
 					var accessToken = ticket.Item2;
 					var sessionID = ticket.Item3;

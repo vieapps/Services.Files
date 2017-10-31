@@ -12,6 +12,7 @@
     <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -34,25 +35,25 @@
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Web" />
-  </ItemGroup>
-  <ItemGroup>
     <Compile Include="AbstractHandler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Components\Utility\VIEApps.Components.Utility.csproj">
-      <Project>{995c1122-0acc-4cf4-8a89-775212a35d89}</Project>
-      <Name>VIEApps.Components.Utility</Name>
-    </ProjectReference>
     <ProjectReference Include="..\..\Base\VIEApps.Services.Base.csproj">
       <Project>{c496cef5-9ff8-4364-9860-fcdefed4e277}</Project>
       <Name>VIEApps.Services.Base</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <None Include="app.config" />
+    <PackageReference Include="NETStandard.Library">
+      <Version>2.0.1</Version>
+    </PackageReference>
+    <PackageReference Include="VIEApps.Components.Utility">
+      <Version>10.1.0.3</Version>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Web" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

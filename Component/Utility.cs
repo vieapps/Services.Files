@@ -32,11 +32,11 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", "Sliding", Utility.CacheTime);
+		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheTime);
 
 		public static Cache Cache { get { return Utility._Cache; } }
 
-		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", "Sliding", Utility.CacheTime);
+		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheTime);
 
 		public static Cache DataCache { get { return Utility._DataCache; } }
 
