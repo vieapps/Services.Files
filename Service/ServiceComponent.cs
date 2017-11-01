@@ -14,7 +14,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Files
 {
-	public class ServiceComponent : BaseService
+	public class ServiceComponent : ServiceBase
 	{
 
 		#region Start
