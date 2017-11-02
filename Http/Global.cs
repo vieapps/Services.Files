@@ -552,29 +552,29 @@ namespace net.vieapps.Services.Files
 			// default handlers
 			Global.Handlers = new Dictionary<string, Type>()
 			{
-				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler, VIEApps.Services.Files") },
-				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler, VIEApps.Services.Files") },
-				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
-				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
-				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
-				{ "thumbnailbigpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files") },
-				{ "files", Type.GetType("net.vieapps.Services.Files.FileHandler, VIEApps.Services.Files") },
-				{ "downloads", Type.GetType("net.vieapps.Services.Files.DownloadHandler, VIEApps.Services.Files") }
+				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler, VIEApps.Services.Files.Http") },
+				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler, VIEApps.Services.Files.Http") },
+				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
+				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
+				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
+				{ "thumbnailbigpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
+				{ "files", Type.GetType("net.vieapps.Services.Files.FileHandler, VIEApps.Services.Files.Http") },
+				{ "downloads", Type.GetType("net.vieapps.Services.Files.DownloadHandler, VIEApps.Services.Files.Http") }
 			};
 
 			// additional handlers
 			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is AppConfigurationSectionHandler config)
-				if (config.Section.SelectNodes("handler") is XmlNodeList handlerNodes)
-					foreach (XmlNode handlerNode in handlerNodes)
+				if (config.Section.SelectNodes("handler") is XmlNodeList nodes)
+					foreach (XmlNode node in nodes)
 					{
-						var settings = config.GetJson(handlerNode);
+						var info = config.GetJson(node);
 
-						var keyName = settings["key"] != null && settings["key"] is JValue && (settings["key"] as JValue).Value != null
-							? (settings["key"] as JValue).Value.ToString().ToLower()
+						var keyName = info["key"] != null && info["key"] is JValue && (info["key"] as JValue).Value != null
+							? (info["key"] as JValue).Value.ToString().ToLower()
 							: null;
 
-						var typeName = settings["type"] != null && settings["type"] is JValue && (settings["type"] as JValue).Value != null
-							? (settings["type"] as JValue).Value.ToString()
+						var typeName = info["type"] != null && info["type"] is JValue && (info["type"] as JValue).Value != null
+							? (info["type"] as JValue).Value.ToString()
 							: null;
 
 						if (!string.IsNullOrWhiteSpace(keyName) && !string.IsNullOrWhiteSpace(typeName) && !Global.Handlers.ContainsKey(keyName))

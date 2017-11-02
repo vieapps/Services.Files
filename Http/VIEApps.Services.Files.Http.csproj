@@ -10,7 +10,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>net.vieapps.Services.Files</RootNamespace>
-    <AssemblyName>VIEApps.Services.Files</AssemblyName>
+    <AssemblyName>VIEApps.Services.Files.Http</AssemblyName>
     <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <TargetFrameworkProfile />
     <NuGetPackageImportStamp>
@@ -49,7 +49,6 @@
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="netstandard" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Web" />
   </ItemGroup>
@@ -73,30 +72,27 @@
       <Project>{c496cef5-9ff8-4364-9860-fcdefed4e277}</Project>
       <Name>VIEApps.Services.Base</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\Books\Http\VIEApps.Services.Books.Http.csproj">
+    <ProjectReference Include="..\..\Books\Http.FileHandler\VIEApps.Services.Books.Http.FileHandler.csproj">
       <Project>{e6cb75ca-de48-4dc8-8c24-5919bcf308c9}</Project>
-      <Name>VIEApps.Services.Books.Http</Name>
+      <Name>VIEApps.Services.Books.Http.FileHandler</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Libraries\Http\VIEApps.Services.Libraries.Http.csproj">
       <Project>{0777ffea-441b-4cb3-a0fb-60a73e9d663d}</Project>
       <Name>VIEApps.Services.Libraries.Http</Name>
     </ProjectReference>
-    <ProjectReference Include="..\Component\VIEApps.Services.Files.Component.csproj">
-      <Project>{9e3accfe-0814-420e-af3d-575462be0ad6}</Project>
-      <Name>VIEApps.Services.Files.Component</Name>
-    </ProjectReference>
     <ProjectReference Include="..\Http.AbstractHandler\VIEApps.Services.Files.Http.AbstractHandler.csproj">
       <Project>{edd2f296-eb6d-4c3a-80be-03b0ddd982d3}</Project>
       <Name>VIEApps.Services.Files.Http.AbstractHandler</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Service\VIEApps.Services.Files.csproj">
+      <Project>{fef1a776-fb28-40d3-b317-07339977f17f}</Project>
+      <Name>VIEApps.Services.Files</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="web.config" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NETStandard.Library">
-      <Version>2.0.1</Version>
-    </PackageReference>
     <PackageReference Include="VIEApps.Components.Caching.AspNet.Memcached">
       <Version>10.1.1.1711</Version>
     </PackageReference>
