@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>net.vieapps.Services.Files</RootNamespace>
-    <AssemblyName>VIEApps.Services.Files.AbstractHandler</AssemblyName>
+    <AssemblyName>VIEApps.Services.Files.Http.AbstractHandler</AssemblyName>
     <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />

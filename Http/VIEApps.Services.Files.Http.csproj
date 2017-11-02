@@ -76,9 +76,9 @@
       <Project>{e6cb75ca-de48-4dc8-8c24-5919bcf308c9}</Project>
       <Name>VIEApps.Services.Books.Http.FileHandler</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\Libraries\Http\VIEApps.Services.Libraries.Http.csproj">
+    <ProjectReference Include="..\..\Libraries\Http.FileHandler\VIEApps.Services.Libraries.Http.FileHandler.csproj">
       <Project>{0777ffea-441b-4cb3-a0fb-60a73e9d663d}</Project>
-      <Name>VIEApps.Services.Libraries.Http</Name>
+      <Name>VIEApps.Services.Libraries.Http.FileHandler</Name>
     </ProjectReference>
     <ProjectReference Include="..\Http.AbstractHandler\VIEApps.Services.Files.Http.AbstractHandler.csproj">
       <Project>{edd2f296-eb6d-4c3a-80be-03b0ddd982d3}</Project>
