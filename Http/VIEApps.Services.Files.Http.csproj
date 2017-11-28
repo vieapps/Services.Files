@@ -92,11 +92,11 @@
     <Content Include="web.config" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="VIEApps.Components.Caching.AspNet.Memcached">
-      <Version>10.1.1.1711</Version>
+    <PackageReference Include="VIEApps.Components.Caching.AspNet">
+      <Version>10.1.4.1712</Version>
     </PackageReference>
     <PackageReference Include="VIEApps.Components.Utility.AspNet">
-      <Version>10.1.1.1711</Version>
+      <Version>10.1.3.1712</Version>
     </PackageReference>
   </ItemGroup>
   <PropertyGroup>

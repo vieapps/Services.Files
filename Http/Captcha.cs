@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Files
 			// write to output stream
 			context.Response.Cache.SetNoStore();
 			context.Response.ContentType = "image/jpeg";
-			await context.Response.OutputStream.WriteAsync(image, 0, image.Length);
+			await context.Response.OutputStream.WriteAsync(image, 0, image.Length).ConfigureAwait(false);
 		}
 
 		#region Generate captcha image

@@ -16,15 +16,15 @@ namespace net.vieapps.Services.Files
 	{
 		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			await Global.SendInterCommunicateMessageAsync(message);
+			await Global.SendInterCommunicateMessageAsync(message).ConfigureAwait(false);
 		}
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (context.Request.HttpMethod.IsEquals("GET") || context.Request.HttpMethod.IsEquals("HEAD"))
-				await this.FlushAsync(context, cancellationToken);
+				await this.FlushAsync(context, cancellationToken).ConfigureAwait(false);
 			else if (context.Request.HttpMethod.IsEquals("POST"))
-				await this.UpdateAsync(context, cancellationToken);
+				await this.UpdateAsync(context, cancellationToken).ConfigureAwait(false);
 			else
 				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
@@ -75,11 +75,11 @@ namespace net.vieapps.Services.Files
 			Attachment attachment = null;
 			try
 			{
-				attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken);
+				attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
 				if (attachment.IsTemporary)
 					info.FilePath = Global.AttachmentFilesPath + @"temp\" + info.Identifier + "-" + info.Filename;
 
-				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID))
+				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
 					throw new AccessDeniedException();
 			}
 			catch (AccessDeniedException ex)
@@ -121,12 +121,11 @@ namespace net.vieapps.Services.Files
 				context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
 				context.Response.Cache.SetETag(eTag);
 
-				// flush thumbnail image to output stream
-				await context.WriteFileToOutputAsync(fileInfo, info.ContentType, eTag, info.IsReadable() ? null : info.Filename, cancellationToken);
-
-				// update counter & logs
-				if (!attachment.IsTemporary)
-					await Global.UpdateCounterAsync(context, attachment);
+				// flush thumbnail image to output stream, update counter & logs
+				await Task.WhenAll(
+					context.WriteFileToOutputAsync(fileInfo, info.ContentType, eTag, info.IsReadable() ? null : info.Filename, cancellationToken),
+					attachment.IsTemporary ? Global.UpdateCounterAsync(context, attachment) : Task.CompletedTask
+				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -137,9 +136,9 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Update (receive uploaded files from the client)
-		async Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
+		Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			await Task.Delay(0);
+			throw new NotImplementedException();
 		}
 		#endregion
 

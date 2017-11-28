@@ -16,7 +16,7 @@ namespace net.vieapps.Services.Files
 	{
 		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			await Global.SendInterCommunicateMessageAsync(message);
+			await Global.SendInterCommunicateMessageAsync(message).ConfigureAwait(false);
 		}
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
@@ -68,10 +68,10 @@ namespace net.vieapps.Services.Files
 			Attachment attachment = null;
 			try
 			{
-				attachment = await Global.GetAttachmentAsync(identifier, Global.GetSession(context), cancellationToken);
+				attachment = await Global.GetAttachmentAsync(identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
 				if (attachment == null || string.IsNullOrEmpty(attachment.ID))
 					throw new FileNotFoundException();
-				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID))
+				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
 					throw new AccessDeniedException();
 			}
 			catch (AccessDeniedException ex)
@@ -113,15 +113,15 @@ namespace net.vieapps.Services.Files
 				context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
 				context.Response.Cache.SetETag(eTag);
 
-				// flush thumbnail image to output stream
+				// flush thumbnail image to output stream, update counter & logs
 				var contentDisposition = attachment.IsReadable() && direct
 					? null
 					: attachment.Name.Right(attachment.Name.Length - 33);
-				await context.WriteFileToOutputAsync(fileInfo, attachment.ContentType, eTag, contentDisposition, cancellationToken);
 
-				// update counter & logs
-				if (!attachment.IsTemporary)
-					await Global.UpdateCounterAsync(context, attachment);
+				await Task.WhenAll(
+					context.WriteFileToOutputAsync(fileInfo, attachment.ContentType, eTag, contentDisposition, cancellationToken),
+					attachment.IsTemporary ? Global.UpdateCounterAsync(context, attachment) : Task.CompletedTask
+				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{

@@ -17,7 +17,7 @@ namespace net.vieapps.Services.Files
 	public class ServiceComponent : ServiceBase
 	{
 
-		public ServiceComponent() { }
+		public ServiceComponent() : base() { }
 
 		public override string ServiceName { get { return "files"; } }
 
@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Files
 						break;
 
 					case "captcha":
-						return await this.GenerateCaptchaAsync(requestInfo, cancellationToken);
+						return await UtilityService.ExecuteTask<JObject>(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
 				}
 
 				// unknown
@@ -55,24 +55,17 @@ namespace net.vieapps.Services.Files
 			} 
 		}
 
-		Task<JObject> GenerateCaptchaAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		JObject GenerateCaptcha(RequestInfo requestInfo)
 		{
 			if (!requestInfo.Verb.IsEquals("GET"))
 				throw new MethodAccessException(requestInfo.Verb);
 
-			try
+			var code = Captcha.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+			return new JObject()
 			{
-				var code = Captcha.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
-				return Task.FromResult(new JObject()
-				{
-					{ "Code", code },
-					{ "Uri", UtilityService.GetAppSetting("HttpUri", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
-				});
-			}
-			catch (Exception ex)
-			{
-				return Task.FromException<JObject>(ex);
-			}
+				{ "Code", code },
+				{ "Uri", UtilityService.GetAppSetting("HttpUri", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+			};
 		}
 
 		#region Process inter-communicate messages

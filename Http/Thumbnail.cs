@@ -18,15 +18,15 @@ namespace net.vieapps.Services.Files
 	{
 		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			await Global.SendInterCommunicateMessageAsync(message);
+			await Global.SendInterCommunicateMessageAsync(message).ConfigureAwait(false);
 		}
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (context.Request.HttpMethod.IsEquals("GET") || context.Request.HttpMethod.IsEquals("HEAD"))
-				await this.ShowAsync(context, cancellationToken);
+				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
 			else if (context.Request.HttpMethod.IsEquals("POST"))
-				await this.UpdateAsync(context, cancellationToken);
+				await this.UpdateAsync(context, cancellationToken).ConfigureAwait(false);
 			else
 				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
@@ -43,7 +43,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (!context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
+					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 				return;
 			}
 
@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// wait for completed
-				await checkTask;
+				await checkTask.ConfigureAwait(false);
 
 				// no permission
 				if (!checkTask.Result)
@@ -103,7 +103,7 @@ namespace net.vieapps.Services.Files
 
 						// generate thumbnail with error message
 						else
-							await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken);
+							await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 					}
 
 					// stop process
@@ -112,7 +112,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
+				await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 				cts.Cancel();
 				return;
 			}
@@ -128,7 +128,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// wait for completed
-				await generateTask;
+				await generateTask.ConfigureAwait(false);
 
 				// generate
 				if (context.Response.IsClientConnected)
@@ -151,13 +151,13 @@ namespace net.vieapps.Services.Files
 					context.Response.Cache.SetETag(eTag);
 
 					// flush thumbnail image to output stream
-					await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken);
+					await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken);
+					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 			}
 		}
 		#endregion
@@ -213,8 +213,8 @@ namespace net.vieapps.Services.Files
 			// check permissions on attachment file
 			try
 			{
-				var attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken);
-				return await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID);
+				var attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
+				return await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -227,36 +227,24 @@ namespace net.vieapps.Services.Files
 		#region Generate thumbnail
 		Task<byte[]> GenerateThumbnailAsync(ThumbnailInfo info, CancellationToken cancellationToken)
 		{
-			using (cancellationToken.Register(
-				() => { },
-				useSynchronizationContext: false)
-			)
+			return UtilityService.ExecuteTask(() =>
 			{
-				try
+				using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.Cropped, info.CroppedPosition))
 				{
-					using (var image = this.GenerateThumbnail(info.FilePath, info.Width, info.Height, info.AsBig, info.Cropped, info.CroppedPosition))
+					// add watermark
+					if (info.UseWatermark)
 					{
-						// add watermark
-						if (info.UseWatermark)
-						{
 
-						}
+					}
 
-						// export image
-						using (var stream = new MemoryStream())
-						{
-							image.Save(stream, info.AsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-							return Task.FromResult(stream.ToArray());
-						}
+					// export image
+					using (var stream = new MemoryStream())
+					{
+						image.Save(stream, info.AsPng ? ImageFormat.Png : ImageFormat.Jpeg);
+						return stream.GetBuffer();
 					}
 				}
-				catch (Exception ex)
-				{
-					return cancellationToken.IsCancellationRequested
-						? Task.FromException<byte[]>(new OperationCanceledException(ex.Message, ex, cancellationToken))
-						: Task.FromException<byte[]>(ex);
-				}
-			}
+			}, cancellationToken);
 		}
 
 		Bitmap GenerateThumbnail(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
@@ -348,7 +336,7 @@ namespace net.vieapps.Services.Files
 					using (var stream = new MemoryStream())
 					{
 						bitmap.Save(stream, ImageFormat.Jpeg);
-						return stream.ToArray();
+						return stream.GetBuffer();
 					}
 				}
 			}
@@ -356,9 +344,9 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Update thumbnails (receive uploaded images from the client)
-		async Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
+		Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			await Task.Delay(0);
+			throw new NotImplementedException();
 		}
 		#endregion
 

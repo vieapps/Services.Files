@@ -18,15 +18,15 @@ namespace net.vieapps.Services.Files
 	{
 		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			await Global.SendInterCommunicateMessageAsync(message);
+			await Global.SendInterCommunicateMessageAsync(message).ConfigureAwait(false);
 		}
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (context.Request.HttpMethod.IsEquals("GET"))
-				await this.ShowAvatarAsync(context, cancellationToken);
+				await this.ShowAvatarAsync(context, cancellationToken).ConfigureAwait(false);
 			else if (context.Request.HttpMethod.IsEquals("POST"))
-				await this.UpdateAvatarAsync(context, cancellationToken);
+				await this.UpdateAvatarAsync(context, cancellationToken).ConfigureAwait(false);
 			else
 				throw new MethodNotAllowedException(context.Request.HttpMethod);
 		}
@@ -75,7 +75,7 @@ namespace net.vieapps.Services.Files
 				context.Response.Cache.SetETag(eTag);
 
 				// flush the file to output
-				await context.WriteFileToOutputAsync(fileInfo, "image/png", eTag, null, cancellationToken);
+				await context.WriteFileToOutputAsync(fileInfo, "image/png", eTag, null, cancellationToken).ConfigureAwait(false);
 			}
 			catch (FileNotFoundException ex)
 			{
@@ -111,23 +111,23 @@ namespace net.vieapps.Services.Files
 				var data = "";
 				using (var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding))
 				{
-					var body = await reader.ReadToEndAsync();
+					var body = await reader.ReadToEndAsync().ConfigureAwait(false);
 					data = body.ToExpandoObject().Get<string>("Data").ToArray().Last();
 				}
 
 				// write to file
-				File.WriteAllBytes(filePath, Convert.FromBase64String(data));
+				await UtilityService.ExecuteTask(() => File.WriteAllBytes(filePath, Convert.FromBase64String(data)), cancellationToken).ConfigureAwait(false);
 			}
 
 			// file
 			else
-				context.Request.Files[0].SaveAs(filePath);
+				await UtilityService.ExecuteTask(() => context.Request.Files[0].SaveAs(filePath), cancellationToken).ConfigureAwait(false);
 
 			// response
 			await context.Response.Output.WriteAsync((new JObject()
 			{
 				{ "Uri", context.Request.Url.Scheme + "://" + context.Request.Url.Host + "/avatars/" + (DateTime.Now.ToIsoString() + "|" + context.User.Identity.Name).Url64Encode() + ".png"  }
-			}).ToString(Newtonsoft.Json.Formatting.None));
+			}).ToString(Newtonsoft.Json.Formatting.None)).ConfigureAwait(false);
 		}
 		#endregion
 

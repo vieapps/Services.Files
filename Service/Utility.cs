@@ -15,14 +15,14 @@ namespace net.vieapps.Services.Files
 
 		static int _CacheTime = 0;
 
-		internal static int CacheTime
+		internal static int CacheExpirationTime
 		{
 			get
 			{
 				if (Utility._CacheTime < 1)
 					try
 					{
-						Utility._CacheTime = UtilityService.GetAppSetting("CacheTime", "30").CastAs<int>();
+						Utility._CacheTime = UtilityService.GetAppSetting("CacheExpirationTime", "30").CastAs<int>();
 					}
 					catch
 					{
@@ -32,11 +32,11 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheTime);
+		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider"));
 
 		public static Cache Cache { get { return Utility._Cache; } }
 
-		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheTime);
+		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider"));
 
 		public static Cache DataCache { get { return Utility._DataCache; } }
 

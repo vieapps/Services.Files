@@ -236,7 +236,7 @@ namespace net.vieapps.Services.Files
 			if (onConnectionError != null)
 				Global.IncommingChannel.RealmProxy.Monitor.ConnectionError += new EventHandler<WampConnectionErrorEventArgs>(onConnectionError);
 
-			await Global.IncommingChannel.Open();
+			await Global.IncommingChannel.Open().ConfigureAwait(false);
 		}
 
 		internal static void CloseIncomingChannel()
@@ -256,7 +256,7 @@ namespace net.vieapps.Services.Files
 					await Task.Delay(delay > 0 ? delay : 0);
 					try
 					{
-						await Global.IncommingChannel.Open();
+						await Global.IncommingChannel.Open().ConfigureAwait(false);
 						onSuccess?.Invoke();
 					}
 					catch (Exception ex)
@@ -287,8 +287,8 @@ namespace net.vieapps.Services.Files
 				{
 					try
 					{
-						await Global.InitializeManagementServiceAsync();
-						await Global.InitializeRTUServiceAsync();
+						await Global.InitializeManagementServiceAsync().ConfigureAwait(false);
+						await Global.InitializeRTUServiceAsync().ConfigureAwait(false);
 					}
 					catch { }
 				}).ConfigureAwait(false);
@@ -303,7 +303,7 @@ namespace net.vieapps.Services.Files
 			if (onConnectionError != null)
 				Global.OutgoingChannel.RealmProxy.Monitor.ConnectionError += new EventHandler<WampConnectionErrorEventArgs>(onConnectionError);
 
-			await Global.OutgoingChannel.Open();
+			await Global.OutgoingChannel.Open().ConfigureAwait(false);
 		}
 
 		internal static void CloseOutgoingChannel()
@@ -323,7 +323,7 @@ namespace net.vieapps.Services.Files
 					await Task.Delay(delay > 0 ? delay : 0);
 					try
 					{
-						await Global.OutgoingChannel.Open();
+						await Global.OutgoingChannel.Open().ConfigureAwait(false);
 						onSuccess?.Invoke();
 					}
 					catch (Exception ex)
@@ -366,7 +366,7 @@ namespace net.vieapps.Services.Files
 				{
 					Global.WriteLogs("Got an error of incoming connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
 				}
-			);
+			).ConfigureAwait(false);
 
 			await Global.OpenOutgoingChannelAsync(
 				(sender, arguments) =>
@@ -399,7 +399,7 @@ namespace net.vieapps.Services.Files
 				{
 					Global.WriteLogs("Got an error of outgoing connection: " + (arguments.Exception != null ? arguments.Exception.Message : "None"), arguments.Exception);
 				}
-			);
+			).ConfigureAwait(false);
 		}
 		#endregion
 
@@ -431,7 +431,7 @@ namespace net.vieapps.Services.Files
 		{
 			if (Global.ManagementService == null)
 			{
-				await Global.OpenOutgoingChannelAsync();
+				await Global.OpenOutgoingChannelAsync().ConfigureAwait(false);
 				Global.ManagementService = Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IManagementService>();
 			}
 		}
@@ -461,13 +461,13 @@ namespace net.vieapps.Services.Files
 			// write logs
 			try
 			{
-				await Global.InitializeManagementServiceAsync();
+				await Global.InitializeManagementServiceAsync().ConfigureAwait(false);
 				while (Global.Logs.Count > 0)
 				{
 					var log = Global.Logs.Dequeue();
-					await Global.ManagementService.WriteLogsAsync(log.Item1, "files", "http", log.Item2, log.Item3, log.Item4, Global.CancellationTokenSource.Token);
+					await Global.ManagementService.WriteLogsAsync(log.Item1, "files", "http", log.Item2, log.Item3, log.Item4, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 				}
-				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, simpleStack, fullStack, Global.CancellationTokenSource.Token);
+				await Global.ManagementService.WriteLogsAsync(correlationID, "files", "http", logs, simpleStack, fullStack, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 			}
 			catch
 			{
@@ -567,7 +567,7 @@ namespace net.vieapps.Services.Files
 				if (config.Section.SelectNodes("handler") is XmlNodeList nodes)
 					foreach (XmlNode node in nodes)
 					{
-						var info = config.GetJson(node);
+						var info = node.ToJson();
 
 						var keyName = info["key"] != null && info["key"] is JValue && (info["key"] as JValue).Value != null
 							? (info["key"] as JValue).Value.ToString().ToLower()
@@ -1264,9 +1264,9 @@ namespace net.vieapps.Services.Files
 								: path.IsEndsWith(".html") || path.IsEndsWith(".htm")
 									? "html"
 									: "plain");
-					var staticContent = await UtilityService.ReadTextFileAsync(fileInfo.FullName);
+					var staticContent = await UtilityService.ReadTextFileAsync(fileInfo.FullName).ConfigureAwait(false);
 					context.Response.ContentType = contentType;
-					await context.Response.Output.WriteAsync(contentType.IsEquals("application/json") ? JObject.Parse(staticContent).ToString(Newtonsoft.Json.Formatting.Indented) : staticContent);
+					await context.Response.Output.WriteAsync(contentType.IsEquals("application/json") ? JObject.Parse(staticContent).ToString(Newtonsoft.Json.Formatting.Indented) : staticContent).ConfigureAwait(false);
 				}
 				catch (FileNotFoundException ex)
 				{
@@ -1290,7 +1290,7 @@ namespace net.vieapps.Services.Files
 				if (type != null)
 					try
 					{
-						await (type.CreateInstance() as AbstractHttpHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token);
+						await (type.CreateInstance() as AbstractHttpHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 					}
 					catch (OperationCanceledException) { }
 					catch (Exception ex)
