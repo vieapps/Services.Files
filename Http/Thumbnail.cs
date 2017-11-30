@@ -218,7 +218,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				Global.WriteLogs("Error occurred while working with attachment & related privileges/permissions", ex);
+				Base.AspNet.Global.WriteLogs("Error occurred while working with attachment & related privileges/permissions", ex);
 				throw ex;
 			}
 		}

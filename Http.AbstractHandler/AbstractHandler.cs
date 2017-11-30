@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Files
 		protected virtual Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (AbstractHttpHandler._RTUService == null)
-				AbstractHttpHandler._RTUService = ObjectService.GetStaticObject("net.vieapps.Services.Files.Global, VIEApps.Services.Files.Http", "RTUService") as IRTUService;
+				AbstractHttpHandler._RTUService = ObjectService.GetStaticObject("net.vieapps.Services.Base.AspNet.Global, VIEApps.Services.Base.AspNet", "RTUService") as IRTUService;
 
 			return AbstractHttpHandler._RTUService != null
 				? AbstractHttpHandler._RTUService.SendInterCommunicateMessageAsync(message, cancellationToken)
