@@ -32,25 +32,37 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static Cache _Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider"));
+		static Cache _Cache = null;
 
-		public static Cache Cache { get { return Utility._Cache; } }
-
-		static Cache _DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider"));
-
-		public static Cache DataCache { get { return Utility._DataCache; } }
-
-		static string _HttpFilesUri = null;
-
-		static string HttpFilesUri
+		public static Cache Cache
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Utility._HttpFilesUri))
-					Utility._HttpFilesUri = UtilityService.GetAppSetting("HttpFilesUri", "https://afs.vieapps.net");
-				while (Utility._HttpFilesUri.EndsWith("/"))
-					Utility._HttpFilesUri = Utility._HttpFilesUri.Left(Utility._HttpFilesUri.Length - 1);
-				return Utility._HttpFilesUri;
+				return Utility._Cache ?? (Utility._Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider")));
+			}
+		}
+
+		static Cache _DataCache = null;
+
+		public static Cache DataCache
+		{
+			get
+			{
+				return Utility._DataCache ?? (Utility._DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider")));
+			}
+		}
+
+		static string _FilesHttpUri = null;
+
+		static string FilesHttpUri
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
+					Utility._FilesHttpUri = UtilityService.GetAppSetting("FilesHttpUri", "https://afs.vieapps.net");
+				while (Utility._FilesHttpUri.EndsWith("/"))
+					Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
+				return Utility._FilesHttpUri;
 			}
 		}
 

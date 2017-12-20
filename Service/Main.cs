@@ -50,7 +50,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				this.WriteLog(requestInfo.CorrelationID, "Error occurred while processing\r\n==> Request:\r\n" + requestInfo.ToJson().ToString(Formatting.Indented), ex);
+				this.WriteLog(requestInfo.CorrelationID, $"Error occurred while processing; {ex.Message} [{ex.GetType().ToString()}]", ex);
 				throw this.GetRuntimeException(requestInfo, ex);
 			} 
 		}
@@ -64,7 +64,7 @@ namespace net.vieapps.Services.Files
 			return new JObject()
 			{
 				{ "Code", code },
-				{ "Uri", UtilityService.GetAppSetting("HttpUri", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+				{ "Uri", UtilityService.GetAppSetting("FilesHttpUri", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
 			};
 		}
 

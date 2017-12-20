@@ -507,7 +507,7 @@ namespace net.vieapps.Services.Files
 		{
 			context = context ?? HttpContext.Current;
 			url = url ?? context.Request.Url.Scheme + "://" + context.Request.Url.Host + context.Request.RawUrl;
-			return Global.HttpUsersUri + "validator"
+			return Global.UsersHttpUri + "validator"
 				+ "?aut=" + (UtilityService.NewUID.Left(5) + "-" + (context.Request.IsAuthenticated ? "ON" : "OFF")).Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
 				+ "&uid=" + (context.Request.IsAuthenticated ? (context.User as User).ID : "").Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
 				+ "&uri=" + url.Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
@@ -660,17 +660,17 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static string _HttpUsersUri = null;
+		static string _UsersHttpUri = null;
 
-		internal static string HttpUsersUri
+		internal static string UsersHttpUri
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Global._HttpUsersUri))
-					Global._HttpUsersUri = UtilityService.GetAppSetting("HttpUsersUri", "https://aid.vieapps.net");
-				if (!Global._HttpUsersUri.EndsWith("/"))
-					Global._HttpUsersUri += "/";
-				return Global._HttpUsersUri;
+				if (string.IsNullOrWhiteSpace(Global._UsersHttpUri))
+					Global._UsersHttpUri = UtilityService.GetAppSetting("UsersHttpUri", "https://aid.vieapps.net");
+				if (!Global._UsersHttpUri.EndsWith("/"))
+					Global._UsersHttpUri += "/";
+				return Global._UsersHttpUri;
 			}
 		}
 		#endregion
@@ -762,18 +762,17 @@ namespace net.vieapps.Services.Files
 					context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
 					context.Response.Cache.SetETag(eTag);
 
+					// prepare content
+					var staticMimeType = MimeMapping.GetMimeMapping(fileInfo.Name);
+					if (string.IsNullOrWhiteSpace(staticMimeType))
+						staticMimeType = "text/plain";
+					var staticContent = await UtilityService.ReadTextFileAsync(fileInfo).ConfigureAwait(false);
+					if (staticMimeType.IsEndsWith("json"))
+						staticContent = JObject.Parse(staticContent).ToString(Newtonsoft.Json.Formatting.Indented);
+
 					// write content
-					var contentType = path.IsEndsWith(".json") || path.IsEndsWith(".js")
-						? "application/" + (path.IsEndsWith(".js") ? "javascript" : "json")
-						: "text/"
-							+ (path.IsEndsWith(".css")
-								? "css"
-								: path.IsEndsWith(".html") || path.IsEndsWith(".htm")
-									? "html"
-									: "plain");
-					var staticContent = await UtilityService.ReadTextFileAsync(fileInfo.FullName).ConfigureAwait(false);
-					context.Response.ContentType = contentType;
-					await context.Response.Output.WriteAsync(contentType.IsEquals("application/json") ? JObject.Parse(staticContent).ToString(Newtonsoft.Json.Formatting.Indented) : staticContent).ConfigureAwait(false);
+					context.Response.ContentType = staticMimeType;
+					await context.Response.Output.WriteAsync(staticContent).ConfigureAwait(false);
 				}
 				catch (FileNotFoundException ex)
 				{
