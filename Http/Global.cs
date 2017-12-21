@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Files
 		internal static Dictionary<string, Type> Handlers = new Dictionary<string, Type>();
 
 		internal static Dictionary<string, IService> Services = new Dictionary<string, IService>();
-		internal static IDisposable InterCommunicationMessageUpdater = null;
+		internal static IDisposable InterCommunicateMessageUpdater = null;
 		#endregion
 
 		#region Start/End the app
@@ -60,7 +60,7 @@ namespace net.vieapps.Services.Files
 				await Base.AspNet.Global.OpenChannelsAsync(
 					(sender, args) =>
 					{
-						Base.AspNet.Global.IncommingChannel.RealmProxy.Services
+						Global.InterCommunicateMessageUpdater = Base.AspNet.Global.IncommingChannel.RealmProxy.Services
 							.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 							.Subscribe(
 								message => Global.ProcessInterCommunicateMessage(message),
@@ -71,8 +71,10 @@ namespace net.vieapps.Services.Files
 					{
 						Task.Run(async () =>
 						{
-							await Base.AspNet.Global.InitializeLoggingServiceAsync().ConfigureAwait(false);
-							await Base.AspNet.Global.InitializeRTUServiceAsync().ConfigureAwait(false);
+							await Task.WhenAll(
+								Base.AspNet.Global.InitializeLoggingServiceAsync(),
+								Base.AspNet.Global.InitializeRTUServiceAsync()
+							).ConfigureAwait(false);
 						}).ConfigureAwait(false);
 					}
 				).ConfigureAwait(false);
@@ -128,12 +130,12 @@ namespace net.vieapps.Services.Files
 			};
 
 			stopwatch.Stop();
-			Base.AspNet.Global.WriteLogs("*** The HTTP Files is ready for serving. The app is initialized in " + stopwatch.GetElapsedTimes());
+			Base.AspNet.Global.WriteLogs("*** The File HTTP Service is ready for serving. The app is initialized in " + stopwatch.GetElapsedTimes());
 		}
 
 		internal static void OnAppEnd()
 		{
-			Global.InterCommunicationMessageUpdater?.Dispose();
+			Global.InterCommunicateMessageUpdater?.Dispose();
 			Base.AspNet.Global.CancellationTokenSource.Cancel();
 			Base.AspNet.Global.CancellationTokenSource.Dispose();
 			Base.AspNet.Global.CloseChannels();
