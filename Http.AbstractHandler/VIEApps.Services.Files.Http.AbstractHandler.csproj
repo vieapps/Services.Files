@@ -47,5 +47,10 @@
   <ItemGroup>
     <Reference Include="System.Web" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="VIEApps.Components.Utility.AspNet">
+      <Version>10.1.4.1801-rc8</Version>
+    </PackageReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

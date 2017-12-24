@@ -1,8 +1,10 @@
 ﻿#region Related components
 using System;
+using System.Linq;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
+using System.Collections.Generic;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -23,9 +25,19 @@ namespace net.vieapps.Services.Files
 
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
-#if DEBUG
-			this.WriteLog(requestInfo.CorrelationID, "Process the request\r\n==> Request:\r\n" + requestInfo.ToJson().ToString(Formatting.Indented));
+			// track
+			var stopwatch = new Stopwatch();
+			stopwatch.Start();
+			var uri = $"[{requestInfo.Verb}]: /{this.ServiceName}";
+			if (!string.IsNullOrWhiteSpace(requestInfo.ObjectName))
+				uri += requestInfo.ObjectName + "/" + (requestInfo.GetObjectIdentity() ?? "");
+			var logs = new List<string>() { $"Process the request {uri}" };
+#if DEBUG || REQUESTLOGS
+			logs.Add($"Request ==> {requestInfo.ToJson().ToString(Formatting.Indented)}");
 #endif
+			await this.WriteLogsAsync(requestInfo.CorrelationID, logs).ConfigureAwait(false);
+
+			// process
 			try
 			{
 				switch (requestInfo.ObjectName.ToLower())
@@ -41,18 +53,18 @@ namespace net.vieapps.Services.Files
 					case "captcha":
 						return await UtilityService.ExecuteTask<JObject>(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
 				}
-
-				// unknown
-				var msg = "The request is invalid [" + this.ServiceURI + "]: " + requestInfo.Verb + " /";
-				if (!string.IsNullOrWhiteSpace(requestInfo.ObjectName))
-					msg += requestInfo.ObjectName + (requestInfo.Query.ContainsKey("object-identity") ? "/" + requestInfo.Query["object-identity"] : "");
-				throw new InvalidRequestException(msg);
+				throw new InvalidRequestException("The request is invalid [" + this.ServiceURI + "]: " + uri);
 			}
 			catch (Exception ex)
 			{
-				this.WriteLog(requestInfo.CorrelationID, $"Error occurred while processing; {ex.Message} [{ex.GetType().ToString()}]", ex);
+				await this.WriteLogAsync(requestInfo.CorrelationID, "Error occurred while processing", ex).ConfigureAwait(false);
 				throw this.GetRuntimeException(requestInfo, ex);
-			} 
+			}
+			finally
+			{
+				stopwatch.Stop();
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"The request is completed - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+			}
 		}
 
 		JObject GenerateCaptcha(RequestInfo requestInfo)

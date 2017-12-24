@@ -139,6 +139,7 @@ namespace net.vieapps.Services.Files
 			Base.AspNet.Global.CancellationTokenSource.Cancel();
 			Base.AspNet.Global.CancellationTokenSource.Dispose();
 			Base.AspNet.Global.CloseChannels();
+			Base.AspNet.Global.RSA.Dispose();
 		}
 		#endregion
 
