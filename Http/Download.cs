@@ -93,7 +93,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// check exist
-			var fileInfo = new FileInfo(Global.AttachmentFilesPath + (attachment.IsTemporary ? @"temp\" : attachment.SystemID + @"\") + attachment.Name);
+			var fileInfo = new FileInfo(Path.Combine(Global.AttachmentFilesPath, attachment.IsTemporary ? "temp" : attachment.SystemID, attachment.Name));
 			if (!fileInfo.Exists)
 			{
 				if (context.Response.IsClientConnected)

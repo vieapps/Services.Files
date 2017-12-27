@@ -1,10 +1,10 @@
 ﻿#region Related component
 using System;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Web;
 using System.IO;
 using System.Net;
+using System.Web;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Newtonsoft.Json.Linq;
 
@@ -126,7 +126,7 @@ namespace net.vieapps.Services.Files
 			// response
 			await context.Response.Output.WriteAsync((new JObject()
 			{
-				{ "Uri", context.Request.Url.Scheme + "://" + context.Request.Url.Host + "/avatars/" + (DateTime.Now.ToIsoString() + "|" + context.User.Identity.Name).Url64Encode() + ".png"  }
+				{ "Uri", context.Request.Url.Scheme + "://" + context.Request.Url.Host + "/avatars/" + (DateTime.Now.ToIsoString() + "|" + context.User.Identity.Name).Url64Encode() + ".png" }
 			}).ToString(Newtonsoft.Json.Formatting.None)).ConfigureAwait(false);
 		}
 		#endregion

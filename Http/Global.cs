@@ -417,53 +417,34 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		#region Get & call services
-		internal static async Task<IService> GetServiceAsync(string name)
+		#region Call services
+		internal static Task<JObject> CallServiceAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			if (!Global.Services.TryGetValue(name, out IService service))
-			{
-				await Base.AspNet.Global.OpenOutgoingChannelAsync().ConfigureAwait(false);
-				lock (Global.Services)
+			return Base.AspNet.Global.CallServiceAsync(requestInfo, Base.AspNet.Global.CancellationTokenSource.Token,
+				(info) =>
 				{
-					if (!Global.Services.TryGetValue(name, out service))
-					{
-						service = Base.AspNet.Global.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<IService>(ProxyInterceptor.Create(name));
-						Global.Services.Add(name, service);
-					}
+#if DEBUG || PROCESSLOGS
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Call the service [net.vieapps.services.{info.ServiceName}]\r\n{info.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+#endif
+				},
+				(info, json) =>
+				{
+#if DEBUG || PROCESSLOGS
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Results from the service [net.vieapps.services.{info.ServiceName}]\r\n{json.ToString(Newtonsoft.Json.Formatting.Indented)}");
+#endif
+				},
+				(info, ex) =>
+				{
+#if DEBUG || PROCESSLOGS
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Error occurred while calling the service [net.vieapps.services.{info.ServiceName}]", ex);
+#endif
 				}
-			}
-			return service;
+			);
 		}
 
-		internal static async Task<JObject> CallServiceAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		internal static Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, string body = null, Dictionary<string, string> extra = null, string correlationID = null)
 		{
-			var name = requestInfo.ServiceName.Trim().ToLower();
-
-#if DEBUG
-			Base.AspNet.Global.WriteLogs(requestInfo.CorrelationID, null, "Call the service [net.vieapps.services." + name + "]" + "\r\n" + requestInfo.ToJson().ToString(Newtonsoft.Json.Formatting.Indented));
-#endif
-
-			JObject json = null;
-			try
-			{
-				var service = await Global.GetServiceAsync(name);
-				json = await service.ProcessRequestAsync(requestInfo, cancellationToken);
-			}
-			catch (Exception)
-			{
-				throw;
-			}
-
-#if DEBUG
-			Base.AspNet.Global.WriteLogs(requestInfo.CorrelationID, null, "Result of the service [net.vieapps.services." + name + "]" + "\r\n" + json.ToString(Newtonsoft.Json.Formatting.Indented));
-#endif
-
-			return json;
-		}
-
-		internal static async Task<JObject> CallServiceAsync(Session session, string serviceName, string objectName, string verb = "GET", Dictionary<string, string> header = null, Dictionary<string, string> query = null, string body = null, Dictionary<string, string> extra = null, string correlationID = null)
-		{
-			return await Global.CallServiceAsync(new RequestInfo()
+			return Global.CallServiceAsync(new RequestInfo()
 			{
 				Session = session ?? Global.GetSession(),
 				ServiceName = serviceName ?? "unknown",
@@ -474,8 +455,7 @@ namespace net.vieapps.Services.Files
 				Body = body,
 				Extra = extra ?? new Dictionary<string, string>(),
 				CorrelationID = correlationID ?? Base.AspNet.Global.GetCorrelationID()
-			},
-			Base.AspNet.Global.CancellationTokenSource.Token).ConfigureAwait(false);
+			}, Base.AspNet.Global.CancellationTokenSource.Token);
 		}
 		#endregion
 
@@ -529,28 +509,24 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Authorization
-		internal static async Task<bool> CanUploadAsync(string serviceName, string systemID, string definitionID, string objectID)
+		internal static Task<bool> CanUploadAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
-			var service = await Global.GetServiceAsync(serviceName);
-			return await service.CanContributeAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
+			return Base.AspNet.Global.CanContributeAsync(HttpContext.Current.User.Identity as User, serviceName, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> CanDownloadAsync(string serviceName, string systemID, string definitionID, string objectID)
+		internal static Task<bool> CanDownloadAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
-			var service = await Global.GetServiceAsync(serviceName);
-			return await service.CanDownloadAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
+			return Base.AspNet.Global.CanDownloadAsync(HttpContext.Current.User.Identity as User, serviceName, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> CanDeleteAsync(string serviceName, string systemID, string definitionID, string objectID)
+		internal static Task<bool> CanDeleteAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
-			var service = await Global.GetServiceAsync(serviceName);
-			return await service.CanEditAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
+			return Base.AspNet.Global.CanEditAsync(HttpContext.Current.User.Identity as User, serviceName, systemID, definitionID, objectID);
 		}
 
-		internal static async Task<bool> CanRestoreAsync(string serviceName, string systemID, string definitionID, string objectID)
+		internal static Task<bool> CanRestoreAsync(string serviceName, string systemID, string definitionID, string objectID)
 		{
-			var service = await Global.GetServiceAsync(serviceName);
-			return await service.CanEditAsync(HttpContext.Current.User as User, systemID, definitionID, objectID);
+			return Base.AspNet.Global.CanEditAsync(HttpContext.Current.User.Identity as User, serviceName, systemID, definitionID, objectID);
 		}
 		#endregion
 
@@ -625,9 +601,7 @@ namespace net.vieapps.Services.Files
 				{
 					Global._UserAvatarFilesPath = UtilityService.GetAppSetting("UserAvatarFilesPath");
 					if (string.IsNullOrWhiteSpace(Global._UserAvatarFilesPath))
-						Global._UserAvatarFilesPath = HttpRuntime.AppDomainAppPath + @"\data-files\user-avatars";
-					if (!Global._UserAvatarFilesPath.EndsWith(@"\"))
-						Global._UserAvatarFilesPath += @"\";
+						Global._UserAvatarFilesPath = Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "user-avatars");
 				}
 				return Global._UserAvatarFilesPath;
 			}
@@ -655,9 +629,7 @@ namespace net.vieapps.Services.Files
 				{
 					Global._AttachmentFilesPath = UtilityService.GetAppSetting("AttachmentFilesPath");
 					if (string.IsNullOrWhiteSpace(Global._AttachmentFilesPath))
-						Global._AttachmentFilesPath = HttpRuntime.AppDomainAppPath + @"\data-files\attachments";
-					if (!Global._AttachmentFilesPath.EndsWith(@"\"))
-						Global._AttachmentFilesPath += @"\";
+						Global._AttachmentFilesPath = Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "attachments");
 				}
 				return Global._AttachmentFilesPath;
 			}

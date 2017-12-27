@@ -1,10 +1,10 @@
 ﻿#region Related component
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.IO;
 using System.Net;
 using System.Web;
+using System.Threading;
+using System.Threading.Tasks;
 
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Files
 					throw new InvalidRequestException();
 
 				info = new AttachmentInfo(requestInfo[1], requestInfo[2].Replace("=", "/"), requestInfo[3], requestInfo[4]);
-				info.FilePath = Global.AttachmentFilesPath + info.SystemID + @"\" + info.Identifier + "-" + info.Filename;
+				info.FilePath = Path.Combine(Global.AttachmentFilesPath, info.SystemID, info.Identifier + "-" + info.Filename);
 			}
 			catch (Exception ex)
 			{
@@ -77,7 +77,7 @@ namespace net.vieapps.Services.Files
 			{
 				attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
 				if (attachment.IsTemporary)
-					info.FilePath = Global.AttachmentFilesPath + @"temp\" + info.Identifier + "-" + info.Filename;
+					info.FilePath = Path.Combine(Global.AttachmentFilesPath, "temp", info.Identifier + "-" + info.Filename);
 
 				if (!await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
 					throw new AccessDeniedException();

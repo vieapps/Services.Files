@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Files
 			// track
 			var stopwatch = new Stopwatch();
 			stopwatch.Start();
-			var logs = new List<string>() { $"Process the request ({requestInfo.Verb}): {requestInfo.URI}" };
+			var logs = new List<string>() { $"Begin process ({requestInfo.Verb}): {requestInfo.URI}" };
 #if DEBUG || REQUESTLOGS
 			logs.Add($"Request ==> {requestInfo.ToJson().ToString(Formatting.Indented)}");
 #endif
@@ -60,7 +60,7 @@ namespace net.vieapps.Services.Files
 			finally
 			{
 				stopwatch.Stop();
-				await this.WriteLogAsync(requestInfo.CorrelationID, $"The request is completed - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+				await this.WriteLogAsync(requestInfo.CorrelationID, $"End process - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 		}
 

@@ -186,7 +186,7 @@ namespace net.vieapps.Services.Files
 				+ (info.IsAttachment
 					? "-" + requestInfo[6]
 					: (requestInfo.Length > 6 && requestInfo[6].Length.Equals(1) && !requestInfo[6].Equals("0") ? "-" + requestInfo[6] : "") + ".jpg");
-			info.FilePath = Global.AttachmentFilesPath + info.SystemID + @"\" + info.Filename;
+			info.FilePath = Path.Combine(Global.AttachmentFilesPath, info.SystemID, info.Filename);
 
 			info.Cropped = requestUrl.IsContains("--crop") || context.Request.QueryString["crop"] != null;
 			info.CroppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.Request.QueryString["cropPos"])
