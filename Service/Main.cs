@@ -73,7 +73,7 @@ namespace net.vieapps.Services.Files
 			return new JObject()
 			{
 				{ "Code", code },
-				{ "Uri", UtilityService.GetAppSetting("FilesHttpUri", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+				{ "Uri", UtilityService.GetAppSetting("HttpUri:Files", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
 			};
 		}
 

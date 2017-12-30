@@ -44,11 +44,11 @@ namespace net.vieapps.Services.Files
 				if (info.IndexOf("?") > 0)
 					info = info.Left(info.IndexOf("?"));
 
-				fileInfo = new FileInfo(Global.UserAvatarFilesPath + info.ToArray('/', true)[1].Replace(".png", "").Url64Decode().ToArray('|').Last() + ".png");
+				fileInfo = new FileInfo(Path.Combine(Global.UserAvatarFilesPath, info.ToArray('/', true)[1].Replace(".png", "").Url64Decode().ToArray('|').Last() + ".png"));
 			}
 			catch { }
 			if (fileInfo == null || !fileInfo.Exists)
-				fileInfo = new FileInfo(Global.UserAvatarFilesPath + Global.DefaultUserAvatarFilename);
+				fileInfo = new FileInfo(Global.DefaultUserAvatarFilePath);
 
 			var eTag = "Avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GetMD5();
 
@@ -96,7 +96,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// delete old file
-			var filePath = Global.UserAvatarFilesPath + context.User.Identity.Name + ".png";
+			var filePath = Path.Combine(Global.UserAvatarFilesPath, context.User.Identity.Name + ".png");
 			try
 			{
 				if (File.Exists(filePath))

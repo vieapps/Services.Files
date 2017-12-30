@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Files
 				if (Utility._CacheTime < 1)
 					try
 					{
-						Utility._CacheTime = UtilityService.GetAppSetting("CacheExpirationTime", "30").CastAs<int>();
+						Utility._CacheTime = UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>();
 					}
 					catch
 					{
@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Files
 		{
 			get
 			{
-				return Utility._Cache ?? (Utility._Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider")));
+				return Utility._Cache ?? (Utility._Cache = new Cache("VIEApps-Services-Files-Info", Utility.CacheExpirationTime, UtilityService.GetAppSetting("Cache:Provider")));
 			}
 		}
 
@@ -48,7 +48,7 @@ namespace net.vieapps.Services.Files
 		{
 			get
 			{
-				return Utility._DataCache ?? (Utility._DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider")));
+				return Utility._DataCache ?? (Utility._DataCache = new Cache("VIEApps-Services-Files-Data", Utility.CacheExpirationTime, UtilityService.GetAppSetting("Cache:Provider")));
 			}
 		}
 
@@ -59,7 +59,7 @@ namespace net.vieapps.Services.Files
 			get
 			{
 				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
-					Utility._FilesHttpUri = UtilityService.GetAppSetting("FilesHttpUri", "https://afs.vieapps.net");
+					Utility._FilesHttpUri = UtilityService.GetAppSetting("HttpUri:Files", "https://afs.vieapps.net");
 				while (Utility._FilesHttpUri.EndsWith("/"))
 					Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
 				return Utility._FilesHttpUri;

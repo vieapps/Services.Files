@@ -28,13 +28,8 @@ namespace net.vieapps.Services.Files
 	public static class Global
 	{
 
-		#region Attributes
-		internal static HashSet<string> HiddenSegments = null, BypassSegments = null, StaticSegments = null;
 		internal static Dictionary<string, Type> Handlers = new Dictionary<string, Type>();
-
-		internal static Dictionary<string, IService> Services = new Dictionary<string, IService>();
 		internal static IDisposable InterCommunicateMessageUpdater = null;
-		#endregion
 
 		#region Start/End the app
 		internal static void OnAppStart(HttpContext context)
@@ -79,11 +74,6 @@ namespace net.vieapps.Services.Files
 					}
 				).ConfigureAwait(false);
 			}).ConfigureAwait(false);
-
-			// special segments
-			Global.BypassSegments = UtilityService.GetAppSetting("BypassSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
-			Global.HiddenSegments = UtilityService.GetAppSetting("HiddenSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
-			Global.StaticSegments = UtilityService.GetAppSetting("StaticSegments")?.Trim().ToLower().ToHashSet('|', true) ?? new HashSet<string>();
 
 			// default handlers
 			Global.Handlers = new Dictionary<string, Type>()
@@ -135,9 +125,13 @@ namespace net.vieapps.Services.Files
 
 		internal static void OnAppEnd()
 		{
-			Global.InterCommunicateMessageUpdater?.Dispose();
-			Base.AspNet.Global.CancellationTokenSource.Cancel();
+			try
+			{
+				Base.AspNet.Global.CancellationTokenSource.Cancel();
+			}
+			catch { }
 			Base.AspNet.Global.CancellationTokenSource.Dispose();
+			Global.InterCommunicateMessageUpdater?.Dispose();
 			Base.AspNet.Global.CloseChannels();
 			Base.AspNet.Global.RSA.Dispose();
 		}
@@ -205,11 +199,11 @@ namespace net.vieapps.Services.Files
 				: requestTo.ToLower().ToArray('/', true).First();
 
 			// by-pass segments
-			if (Global.BypassSegments.Count > 0 && Global.BypassSegments.Contains(requestTo))
+			if (Base.AspNet.Global.BypassSegments.Count > 0 && Base.AspNet.Global.BypassSegments.Contains(requestTo))
 				return;
 
 			// hidden segments
-			else if (Global.HiddenSegments.Count > 0 && Global.HiddenSegments.Contains(requestTo))
+			else if (Base.AspNet.Global.HiddenSegments.Count > 0 && Base.AspNet.Global.HiddenSegments.Contains(requestTo))
 			{
 				app.Context.ShowError(403, "Forbidden", "AccessDeniedException", null);
 				app.Context.Response.End();
@@ -420,7 +414,7 @@ namespace net.vieapps.Services.Files
 		#region Call services
 		internal static Task<JObject> CallServiceAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			return Base.AspNet.Global.CallServiceAsync(requestInfo, Base.AspNet.Global.CancellationTokenSource.Token,
+			return Base.AspNet.Global.CallServiceAsync(requestInfo, cancellationToken,
 				(info) =>
 				{
 #if DEBUG || PROCESSLOGS
@@ -553,13 +547,13 @@ namespace net.vieapps.Services.Files
 			return string.IsNullOrWhiteSpace(id)
 				? null
 				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
-					{
-						ServiceName = "files",
-						ObjectName = "attachment", 
-						Verb = "GET",
-						Query = new Dictionary<string, string>() { { "object-identity", id } },
-						CorrelationID = Base.AspNet.Global.GetCorrelationID()
-					}, cancellationToken)
+				{
+					ServiceName = "files",
+					ObjectName = "attachment",
+					Verb = "GET",
+					Query = new Dictionary<string, string>() { { "object-identity", id } },
+					CorrelationID = Base.AspNet.Global.GetCorrelationID()
+				}, cancellationToken)
 				 ).FromJson<Attachment>();
 		}
 
@@ -597,25 +591,17 @@ namespace net.vieapps.Services.Files
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Global._UserAvatarFilesPath))
-				{
-					Global._UserAvatarFilesPath = UtilityService.GetAppSetting("UserAvatarFilesPath");
-					if (string.IsNullOrWhiteSpace(Global._UserAvatarFilesPath))
-						Global._UserAvatarFilesPath = Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "user-avatars");
-				}
-				return Global._UserAvatarFilesPath;
+				return Global._UserAvatarFilesPath ?? (Global._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "user-avatars")));
 			}
 		}
 
-		static string _DefaultUserAvatarFilename = null;
+		static string _DefaultUserAvatarFilePath = null;
 
-		internal static string DefaultUserAvatarFilename
+		internal static string DefaultUserAvatarFilePath
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Global._DefaultUserAvatarFilename))
-					Global._DefaultUserAvatarFilename = UtilityService.GetAppSetting("DefaultUserAvatarFileName", "@default.png");
-				return Global._DefaultUserAvatarFilename;
+				return Global._DefaultUserAvatarFilePath ?? (Global._DefaultUserAvatarFilePath = UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Global.UserAvatarFilesPath, "@default.png")));
 			}
 		}
 
@@ -625,13 +611,7 @@ namespace net.vieapps.Services.Files
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Global._AttachmentFilesPath))
-				{
-					Global._AttachmentFilesPath = UtilityService.GetAppSetting("AttachmentFilesPath");
-					if (string.IsNullOrWhiteSpace(Global._AttachmentFilesPath))
-						Global._AttachmentFilesPath = Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "attachments");
-				}
-				return Global._AttachmentFilesPath;
+				return Global._AttachmentFilesPath ?? (Global._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(HttpRuntime.AppDomainAppPath, "data-files", "attachments")));
 			}
 		}
 
@@ -642,7 +622,7 @@ namespace net.vieapps.Services.Files
 			get
 			{
 				if (string.IsNullOrWhiteSpace(Global._UsersHttpUri))
-					Global._UsersHttpUri = UtilityService.GetAppSetting("UsersHttpUri", "https://aid.vieapps.net");
+					Global._UsersHttpUri = UtilityService.GetAppSetting("HttpUri:Users", "https://aid.vieapps.net");
 				if (!Global._UsersHttpUri.EndsWith("/"))
 					Global._UsersHttpUri += "/";
 				return Global._UsersHttpUri;
@@ -703,7 +683,7 @@ namespace net.vieapps.Services.Files
 				: requestTo.ToLower().ToArray('/', true).First();
 
 			// static resources
-			if (Global.StaticSegments.Contains(requestTo))
+			if (Base.AspNet.Global.StaticSegments.Contains(requestTo))
 			{
 				// check "If-Modified-Since" request to reduce traffict
 				var eTag = "StaticResource#" + context.Request.RawUrl.ToLower().GetMD5();
