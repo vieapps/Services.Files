@@ -49,7 +49,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="VIEApps.Components.Utility.AspNet">
-      <Version>10.1.5.1801</Version>
+      <Version>10.1.6.1801</Version>
     </PackageReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
