@@ -30,7 +30,7 @@ namespace net.vieapps.Services.Files
 			stopwatch.Start();
 			var logs = new List<string>() { $"Begin process ({requestInfo.Verb}): {requestInfo.URI}" };
 #if DEBUG || REQUESTLOGS
-			logs.Add($"Request ==> {requestInfo.ToJson().ToString(Formatting.Indented)}");
+			logs.Add($"Request:\r\n{requestInfo.ToJson().ToString(Formatting.Indented)}");
 #endif
 			await this.WriteLogsAsync(requestInfo.CorrelationID, logs).ConfigureAwait(false);
 

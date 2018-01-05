@@ -54,6 +54,7 @@
     <Content Include="Global.asax" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="OTPs.cs" />
     <Compile Include="Download.cs" />
     <Compile Include="File.cs" />
     <Compile Include="Thumbnail.cs" />

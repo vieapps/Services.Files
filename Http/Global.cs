@@ -80,6 +80,7 @@ namespace net.vieapps.Services.Files
 			{
 				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler, VIEApps.Services.Files.Http") },
 				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler, VIEApps.Services.Files.Http") },
+				{ "otps", Type.GetType("net.vieapps.Services.Files.OTPsHandler, VIEApps.Services.Files.Http") },
 				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
 				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
 				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
