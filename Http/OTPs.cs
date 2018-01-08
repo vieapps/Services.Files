@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Files
 			// generate
 			try
 			{
-				var image = CryptoService.Decrypt(data.HexToBytes());
+				var image = CryptoService.Decrypt(data.Base64UrlToBytes(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionKey(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionIV());
 				context.Response.Cache.SetNoStore();
 				context.Response.ContentType = "image/png";
 				await context.Response.OutputStream.WriteAsync(image, 0, image.Length).ConfigureAwait(false);

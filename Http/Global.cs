@@ -163,16 +163,16 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					// parse
-					var token = User.ParsePassportToken(app.Context.Request.QueryString["x-passport-token"], Base.AspNet.Global.AESKey, Base.AspNet.Global.GenerateJWTKey());
+					var token = User.ParsePassportToken(app.Context.Request.QueryString["x-passport-token"], Base.AspNet.Global.EncryptionKey, Base.AspNet.Global.JWTKey);
 					var userID = token.Item1;
 					var accessToken = token.Item2;
 					var sessionID = token.Item3;
 					var deviceID = token.Item4;
 
-					var ticket = AspNetSecurityService.ParseAuthenticateToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.AESKey);
+					var ticket = AspNetSecurityService.ParseAuthenticateToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.EncryptionKey);
 					accessToken = ticket.Item2;
 
-					var user = User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.AESKey);
+					var user = User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.EncryptionKey);
 					if (!user.ID.Equals(ticket.Item1) || !user.ID.Equals(userID))
 						throw new InvalidTokenException("Token is invalid (User identity is invalid)");
 
@@ -281,13 +281,13 @@ namespace net.vieapps.Services.Files
 				var authCookie = app.Context.Request.Cookies?[FormsAuthentication.FormsCookieName];
 				if (authCookie != null)
 				{
-					var ticket = AspNetSecurityService.ParseAuthenticateToken(authCookie.Value, Base.AspNet.Global.RSA, Base.AspNet.Global.AESKey);
+					var ticket = AspNetSecurityService.ParseAuthenticateToken(authCookie.Value, Base.AspNet.Global.RSA, Base.AspNet.Global.EncryptionKey);
 					var userID = ticket.Item1;
 					var accessToken = ticket.Item2;
 					var sessionID = ticket.Item3;
 					var deviceID = ticket.Item4;
 
-					app.Context.User = new UserPrincipal(User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.AESKey));
+					app.Context.User = new UserPrincipal(User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.EncryptionKey));
 					app.Context.Items["Session-ID"] = sessionID;
 					app.Context.Items["Device-ID"] = deviceID;
 				}
@@ -306,7 +306,7 @@ namespace net.vieapps.Services.Files
 			context.Items["Session-ID"] = sessionID;
 			var cookie = new HttpCookie(".VIEApps-Authenticated-Session-ID")
 			{
-				Value = "VIEApps|" + sessionID.Encrypt(Base.AspNet.Global.AESKey),
+				Value = "VIEApps|" + sessionID.Encrypt(Base.AspNet.Global.EncryptionKey),
 				HttpOnly = true,
 				Expires = DateTime.Now.AddDays(180)
 			};
@@ -322,7 +322,7 @@ namespace net.vieapps.Services.Files
 				if (cookie != null && cookie.Value.StartsWith("VIEApps|"))
 					try
 					{
-						context.Items["Session-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Base.AspNet.Global.AESKey);
+						context.Items["Session-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Base.AspNet.Global.EncryptionKey);
 					}
 					catch { }
 			}
@@ -335,7 +335,7 @@ namespace net.vieapps.Services.Files
 			context.Items["Device-ID"] = sessionID;
 			var cookie = new HttpCookie(".VIEApps-Authenticated-Device-ID")
 			{
-				Value = "VIEApps|" + sessionID.Encrypt(Base.AspNet.Global.AESKey),
+				Value = "VIEApps|" + sessionID.Encrypt(Base.AspNet.Global.EncryptionKey),
 				HttpOnly = true,
 				Expires = DateTime.Now.AddDays(180)
 			};
@@ -351,7 +351,7 @@ namespace net.vieapps.Services.Files
 				if (cookie != null && cookie.Value.StartsWith("VIEApps|"))
 					try
 					{
-						context.Items["Device-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Base.AspNet.Global.AESKey);
+						context.Items["Device-ID"] = cookie.Value.ToArray('|').Last().Decrypt(Base.AspNet.Global.EncryptionKey);
 					}
 					catch { }
 			}
@@ -419,19 +419,19 @@ namespace net.vieapps.Services.Files
 				(info) =>
 				{
 #if DEBUG || PROCESSLOGS
-					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Call the service [net.vieapps.services.{info.ServiceName}]\r\n{info.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Call the service [net.vieapps.services.{info.ServiceName.ToLower()}]\r\n{info.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 #endif
 				},
 				(info, json) =>
 				{
 #if DEBUG || PROCESSLOGS
-					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Results from the service [net.vieapps.services.{info.ServiceName}]\r\n{json.ToString(Newtonsoft.Json.Formatting.Indented)}");
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Results from the service [net.vieapps.services.{info.ServiceName.ToLower()}]\r\n{json.ToString(Newtonsoft.Json.Formatting.Indented)}");
 #endif
 				},
 				(info, ex) =>
 				{
 #if DEBUG || PROCESSLOGS
-					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Error occurred while calling the service [net.vieapps.services.{info.ServiceName}]", ex);
+					Base.AspNet.Global.WriteLogs(info.CorrelationID, null, $"Error occurred while calling the service [net.vieapps.services.{info.ServiceName.ToLower()}]", ex);
 #endif
 				}
 			);
@@ -445,10 +445,10 @@ namespace net.vieapps.Services.Files
 				ServiceName = serviceName ?? "unknown",
 				ObjectName = objectName ?? "unknown",
 				Verb = string.IsNullOrWhiteSpace(verb) ? "GET" : verb,
-				Query = query ?? new Dictionary<string, string>(),
-				Header = header ?? new Dictionary<string, string>(),
-				Body = body,
-				Extra = extra ?? new Dictionary<string, string>(),
+				Query = new Dictionary<string, string>(query ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase),
+				Header = new Dictionary<string, string>(header ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase),
+				Body = body ?? "",
+				Extra = new Dictionary<string, string>(extra ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase),
 				CorrelationID = correlationID ?? Base.AspNet.Global.GetCorrelationID()
 			}, Base.AspNet.Global.CancellationTokenSource.Token);
 		}
@@ -486,10 +486,10 @@ namespace net.vieapps.Services.Files
 			context = context ?? HttpContext.Current;
 			url = url ?? context.Request.Url.Scheme + "://" + context.Request.Url.Host + context.Request.RawUrl;
 			return Global.UsersHttpUri + "validator"
-				+ "?aut=" + (UtilityService.NewUID.Left(5) + "-" + (context.Request.IsAuthenticated ? "ON" : "OFF")).Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
-				+ "&uid=" + (context.Request.IsAuthenticated ? (context.User as User).ID : "").Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
-				+ "&uri=" + url.Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true)
-				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Base.AspNet.Global.AESKey).ToBase64Url(true);
+				+ "?aut=" + (UtilityService.NewUID.Left(5) + "-" + (context.Request.IsAuthenticated ? "ON" : "OFF")).Encrypt(Base.AspNet.Global.EncryptionKey).ToBase64Url(true)
+				+ "&uid=" + (context.Request.IsAuthenticated ? (context.User as User).ID : "").Encrypt(Base.AspNet.Global.EncryptionKey).ToBase64Url(true)
+				+ "&uri=" + url.Encrypt(Base.AspNet.Global.EncryptionKey).ToBase64Url(true)
+				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Base.AspNet.Global.EncryptionKey).ToBase64Url(true);
 		}
 
 		internal static async Task<bool> ExistsAsync(this Session session)
@@ -652,7 +652,7 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					// parse token
-					var info = User.ParseJSONWebToken(appToken, Base.AspNet.Global.AESKey, Base.AspNet.Global.GenerateJWTKey());
+					var info = User.ParseJSONWebToken(appToken, Base.AspNet.Global.EncryptionKey, Base.AspNet.Global.JWTKey);
 					var userID = info.Item1;
 					var accessToken = info.Item2;
 					var sessionID = info.Item3;
@@ -664,7 +664,7 @@ namespace net.vieapps.Services.Files
 					context.Items["Device-ID"] = session.DeviceID;
 
 					// prepare user
-					session.User = User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.AESKey);
+					session.User = User.ParseAccessToken(accessToken, Base.AspNet.Global.RSA, Base.AspNet.Global.EncryptionKey);
 					if (session.User.ID.Equals(userID) && await session.ExistsAsync())
 						context.User = new UserPrincipal(session.User);
 				}
