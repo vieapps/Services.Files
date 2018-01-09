@@ -24,23 +24,35 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// prepare
-			var data = context.Request.QueryString["v"] ?? context.Request.QueryString["provisioning"];
-			if (string.IsNullOrWhiteSpace(data))
-				throw new InvalidRequestException();
-
-			// generate
+			byte[] data = null;
+			var offset = 0;
+			var contentType = "image/png";
 			try
 			{
-				var image = CryptoService.Decrypt(data.Base64UrlToBytes(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionKey(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionIV());
-				context.Response.Cache.SetNoStore();
-				context.Response.ContentType = "image/png";
-				await context.Response.OutputStream.WriteAsync(image, 0, image.Length).ConfigureAwait(false);
+				// prepare
+				var base64 = context.Request.QueryString["v"] ?? context.Request.QueryString["provisioning"];
+				if (string.IsNullOrWhiteSpace(base64))
+					throw new InvalidRequestException();
+
+				data = CryptoService.Decrypt(base64.Base64UrlToBytes(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionKey(), Base.AspNet.Global.EncryptionKey.GenerateEncryptionIV());
+				var timestamp = new byte[8];
+				Buffer.BlockCopy(data, 0, timestamp, 0, 8);
+				if (DateTime.Now.ToUnixTimestamp() - BitConverter.ToInt64(timestamp, 0) > 60)
+					throw new InvalidRequestException();
+				else
+					offset = 8;
 			}
 			catch (Exception ex)
 			{
 				await Base.AspNet.Global.WriteLogsAsync("Error occurred while generating the OTP provisioning image", ex).ConfigureAwait(false);
-				throw new InvalidRequestException(ex);
+				data = ThumbnailHandler.GenerateErrorImage(ex.Message, 300, 300);
+				contentType = "image/jpeg";
 			}
+
+			// generate
+			context.Response.Cache.SetNoStore();
+			context.Response.ContentType = contentType;
+			await context.Response.OutputStream.WriteAsync(data, offset, data.Length - offset).ConfigureAwait(false);
 		}
 	}
 }

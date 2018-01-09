@@ -43,7 +43,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (!context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+					await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 				return;
 			}
 
@@ -103,7 +103,7 @@ namespace net.vieapps.Services.Files
 
 						// generate thumbnail with error message
 						else
-							await context.WriteDataToOutputAsync(this.GenerateThumbnail("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+							await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 					}
 
 					// stop process
@@ -112,7 +112,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+				await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 				cts.Cancel();
 				return;
 			}
@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				if (context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(this.GenerateThumbnail(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+					await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
 			}
 		}
 		#endregion
@@ -324,7 +324,7 @@ namespace net.vieapps.Services.Files
 				}
 		}
 
-		byte[] GenerateThumbnail(string message, int width = 300, int height = 100)
+		internal static byte[] GenerateErrorImage(string message, int width = 300, int height = 100)
 		{
 			using (var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555))
 			{
