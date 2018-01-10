@@ -324,7 +324,7 @@ namespace net.vieapps.Services.Files
 				}
 		}
 
-		internal static byte[] GenerateErrorImage(string message, int width = 300, int height = 100)
+		internal static byte[] GenerateErrorImage(string message, int width = 300, int height = 100, bool exportAsPng = false)
 		{
 			using (var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555))
 			{
@@ -335,7 +335,7 @@ namespace net.vieapps.Services.Files
 					graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
 					using (var stream = new MemoryStream())
 					{
-						bitmap.Save(stream, ImageFormat.Jpeg);
+						bitmap.Save(stream, exportAsPng ? ImageFormat.Png : ImageFormat.Jpeg);
 						return stream.GetBuffer();
 					}
 				}

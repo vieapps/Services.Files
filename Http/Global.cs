@@ -78,15 +78,15 @@ namespace net.vieapps.Services.Files
 			// default handlers
 			Global.Handlers = new Dictionary<string, Type>()
 			{
-				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler, VIEApps.Services.Files.Http") },
-				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler, VIEApps.Services.Files.Http") },
-				{ "otps", Type.GetType("net.vieapps.Services.Files.OTPsHandler, VIEApps.Services.Files.Http") },
-				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
-				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
-				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
-				{ "thumbnailbigpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler, VIEApps.Services.Files.Http") },
-				{ "files", Type.GetType("net.vieapps.Services.Files.FileHandler, VIEApps.Services.Files.Http") },
-				{ "downloads", Type.GetType("net.vieapps.Services.Files.DownloadHandler, VIEApps.Services.Files.Http") }
+				{ "avatars", Type.GetType("net.vieapps.Services.Files.AvatarHandler,VIEApps.Services.Files.Http") },
+				{ "captchas", Type.GetType("net.vieapps.Services.Files.CaptchaHandler,VIEApps.Services.Files.Http") },
+				{ "qrcodes", Type.GetType("net.vieapps.Services.Files.QRCodeHandler,VIEApps.Services.Files.Http") },
+				{ "thumbnails", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler,VIEApps.Services.Files.Http") },
+				{ "thumbnailbigs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler,VIEApps.Services.Files.Http") },
+				{ "thumbnailpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler,VIEApps.Services.Files.Http") },
+				{ "thumbnailbigpngs", Type.GetType("net.vieapps.Services.Files.ThumbnailHandler,VIEApps.Services.Files.Http") },
+				{ "files", Type.GetType("net.vieapps.Services.Files.FileHandler,VIEApps.Services.Files.Http") },
+				{ "downloads", Type.GetType("net.vieapps.Services.Files.DownloadHandler,VIEApps.Services.Files.Http") }
 			};
 
 			// additional handlers
