@@ -2,6 +2,10 @@
 using System;
 using System.Collections.Specialized;
 using System.Configuration;
+using System.Xml.Serialization;
+
+using Newtonsoft.Json;
+using MongoDB.Bson.Serialization.Attributes;
 
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
@@ -72,5 +76,15 @@ namespace net.vieapps.Services.Files
 
 	[Serializable]
 	[Repository]
-	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
+	public abstract class Repository<T> : RepositoryBase<T> where T : class
+	{
+		/// <summary>
+		/// Gets the name of the service that associates with this repository
+		/// </summary>
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override string ServiceName
+		{
+			get { return "Files"; }
+		}
+	}
 }

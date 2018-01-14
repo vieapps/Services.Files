@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Files
 			if (!requestInfo.Verb.IsEquals("GET"))
 				throw new MethodAccessException(requestInfo.Verb);
 
-			var code = Captcha.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+			var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
 			return new JObject()
 			{
 				{ "Code", code },
