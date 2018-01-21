@@ -13,7 +13,7 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Files
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Name = {Name}")]
-	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheStorageType = typeof(Utility), CacheStorageName = "Cache", Searchable = true)]
+	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public class Attachment : Repository<Attachment>
 	{
 		public Attachment() : base()
