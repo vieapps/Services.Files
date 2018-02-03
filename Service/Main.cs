@@ -21,46 +21,31 @@ namespace net.vieapps.Services.Files
 
 		public ServiceComponent() : base() { }
 
-		public override string ServiceName { get { return "files"; } }
+		public override string ServiceName { get { return "Files"; } }
 
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			// track
-			var stopwatch = new Stopwatch();
-			stopwatch.Start();
-			var logs = new List<string>() { $"Begin process ({requestInfo.Verb}): {requestInfo.URI}" };
-#if DEBUG || REQUESTLOGS
-			logs.Add($"Request:\r\n{requestInfo.ToJson().ToString(Formatting.Indented)}");
-#endif
-			await this.WriteLogsAsync(requestInfo.CorrelationID, logs).ConfigureAwait(false);
-
-			// process
 			try
 			{
 				switch (requestInfo.ObjectName.ToLower())
 				{
 					case "thumbnail":
-						await Task.Delay(0);
-						break;
+						return new JObject();
 
 					case "attachment":
-						await Task.Delay(0);
-						break;
+						return new JObject();
 
 					case "captcha":
 						return await UtilityService.ExecuteTask<JObject>(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
+
+					default:
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
 				}
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
 			}
 			catch (Exception ex)
 			{
 				await this.WriteLogAsync(requestInfo.CorrelationID, "Error occurred while processing", ex).ConfigureAwait(false);
 				throw this.GetRuntimeException(requestInfo, ex);
-			}
-			finally
-			{
-				stopwatch.Stop();
-				await this.WriteLogAsync(requestInfo.CorrelationID, $"End process - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 		}
 
@@ -76,13 +61,6 @@ namespace net.vieapps.Services.Files
 				{ "Uri", UtilityService.GetAppSetting("HttpUri:Files", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
 			};
 		}
-
-		#region Process inter-communicate messages
-		protected override void ProcessInterCommunicateMessage(CommunicateMessage message)
-		{
-
-		}
-		#endregion
 
 	}
 }
