@@ -1,34 +1,35 @@
 ﻿#region Related component
 using System;
+using System.IO;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
-using System.IO;
-using System.Net;
-using System.Web;
+
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
 {
-	public class ThumbnailHandler : AbstractHttpHandler
+	public class ThumbnailHandler : FileHttpHandler
 	{
-		protected override async Task SendInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default(CancellationToken))
-		{
-			await Global.SendInterCommunicateMessageAsync(message).ConfigureAwait(false);
-		}
+		ILogger Logger { get; set; }
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			if (context.Request.HttpMethod.IsEquals("GET") || context.Request.HttpMethod.IsEquals("HEAD"))
+			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
+
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
 				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
-			else if (context.Request.HttpMethod.IsEquals("POST"))
+			else if (context.Request.Method.IsEquals("POST"))
 				await this.UpdateAsync(context, cancellationToken).ConfigureAwait(false);
 			else
-				throw new MethodNotAllowedException(context.Request.HttpMethod);
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		#region Generate & show the thumbnail image
@@ -42,23 +43,22 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				if (!context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+				try
+				{
+					await context.WriteAsync(ThumbnailHandler.GenerateErrorImage(ex.Message).ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+				}
+				catch { }
 				return;
 			}
 
-			// stop if the client is disconnected
-			if (!context.Response.IsClientConnected)
-				return;
-
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "Thumbnail#" + context.Request.RawUrl.Trim().ToLower().GetMD5();
-			if (context.Request.Headers["If-Modified-Since"] != null && eTag.Equals(context.Request.Headers["If-None-Match"]))
+			var requestUri = context.GetRequestUri();
+			var eTag = "Thumbnail#" + $"{requestUri}".ToLower().GetMD5();
+			if (eTag.IsEquals(context.Request.Headers["If-None-Match"].First()) && !context.Request.Headers["If-Modified-Since"].First().Equals(""))
 			{
-				context.Response.Cache.SetCacheability(HttpCacheability.Public);
-				context.Response.StatusCode = (int)HttpStatusCode.NotModified;
-				context.Response.StatusDescription = "Not Modified";
-				context.Response.Headers.Add("ETag", "\"" + eTag + "\"");
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				if (Global.IsDebugLogEnabled)
+					context.WriteLogs(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})");
 				return;
 			}
 
@@ -66,21 +66,15 @@ namespace net.vieapps.Services.Files
 			var fileInfo = new FileInfo(info.FilePath);
 			if (!fileInfo.Exists)
 			{
-				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
+				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 				return;
 			}
 
 			// perform actions
-			var cts = new CancellationTokenSource();
+			var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token);
+			var queryString = requestUri.ParseQuery();
 			var generateTask = this.GenerateThumbnailAsync(info, cts.Token);
 			var checkTask = this.CheckPermissionAsync(context, info, cts.Token);
-
-			// stop if the client is disconnected
-			if (!context.Response.IsClientConnected)
-			{
-				cts.Cancel();
-				return;
-			}
 
 			// permission
 			try
@@ -94,17 +88,13 @@ namespace net.vieapps.Services.Files
 					// stop the generating process
 					cts.Cancel();
 
-					// redirect or show error image
-					if (context.Response.IsClientConnected)
-					{
-						// if has no right to download and un-authorized, then transfer to passport to re-authenticate
-						if (!context.Request.IsAuthenticated && context.Request.QueryString["x-app-token"] == null && context.Request.QueryString["x-passport-token"] == null)
-							context.Response.Redirect(Global.GetTransferToPassportUrl(context));
+					// if has no right to download and un-authorized, then transfer to passport to re-authenticate
+					if (!context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+						context.Response.Redirect(Handler.GetTransferToPassportUrl(context));
 
-						// generate thumbnail with error message
-						else
-							await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage("403 - Forbidden"), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
-					}
+					// generate thumbnail with error message
+					else
+						await context.WriteAsync(ThumbnailHandler.GenerateErrorImage("403 - Forbidden").ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 
 					// stop process
 					return;
@@ -112,14 +102,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
-				cts.Cancel();
-				return;
-			}
-
-			// stop if the client is disconnected
-			if (!context.Response.IsClientConnected)
-			{
+				await context.WriteAsync(ThumbnailHandler.GenerateErrorImage(ex.Message).ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 				cts.Cancel();
 				return;
 			}
@@ -130,34 +113,16 @@ namespace net.vieapps.Services.Files
 				// wait for completed
 				await generateTask.ConfigureAwait(false);
 
-				// generate
-				if (context.Response.IsClientConnected)
-				{
-					// set cache policy at client-side
-					context.Response.Cache.SetCacheability(HttpCacheability.Public);
-					context.Response.Cache.SetExpires(DateTime.Now.AddDays(365));
-					context.Response.Cache.SetSlidingExpiration(true);
-					if (context.Request.QueryString["crop"] != null)
-						context.Response.Cache.VaryByParams["crop"] = true;
-					if (context.Request.QueryString["cropPos"] != null)
-						context.Response.Cache.VaryByParams["cropPos"] = true;
-					if (info.UseWatermark && context.Request.QueryString["btwm"] != null)
-						context.Response.Cache.VaryByParams["btwm"] = true;
-					if (context.Request.QueryString["nw"] != null)
-						context.Response.Cache.VaryByParams["nw"] = true;
-					context.Response.Cache.SetOmitVaryStar(true);
-					context.Response.Cache.SetValidUntilExpires(true);
-					context.Response.Cache.SetLastModified(fileInfo.LastWriteTime);
-					context.Response.Cache.SetETag(eTag);
-
-					// flush thumbnail image to output stream
-					await context.WriteDataToOutputAsync(generateTask.Result, "image/" + (info.AsPng ? "png" : "jpeg"), eTag, fileInfo.LastWriteTime.ToHttpString(), null, cancellationToken).ConfigureAwait(false);
-				}
+				// flush thumbnail image to output stream
+				await context.WriteAsync(generateTask.Result.ToBytes(), "image/" + (info.AsPng ? "png" : "jpeg"), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				if (context.Response.IsClientConnected)
-					await context.WriteDataToOutputAsync(ThumbnailHandler.GenerateErrorImage(ex.Message), "image/jpeg", null, null, null, cancellationToken).ConfigureAwait(false);
+				try
+				{
+					await context.WriteAsync(ThumbnailHandler.GenerateErrorImage(ex.Message).ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+				}
+				catch { }
 			}
 		}
 		#endregion
@@ -165,13 +130,9 @@ namespace net.vieapps.Services.Files
 		#region Prepare information
 		ThumbnailInfo Prepare(HttpContext context)
 		{
-			var requestUrl = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
-			while (requestUrl.StartsWith("/"))
-				requestUrl = requestUrl.Right(requestUrl.Length - 1);
-			if (requestUrl.IndexOf("?") > 0)
-				requestUrl = requestUrl.Left(requestUrl.IndexOf("?"));
+			var requestUri = context.GetRequestUri();
+			var requestInfo = requestUri.GetRequestPathSegments();
 
-			var requestInfo = requestUrl.ToArray('/', true);
 			if (requestInfo.Length < 6 || !requestInfo[1].IsValidUUID() || !requestInfo[5].IsValidUUID())
 				throw new InvalidRequestException();
 
@@ -186,16 +147,19 @@ namespace net.vieapps.Services.Files
 				+ (info.IsAttachment
 					? "-" + requestInfo[6]
 					: (requestInfo.Length > 6 && requestInfo[6].Length.Equals(1) && !requestInfo[6].Equals("0") ? "-" + requestInfo[6] : "") + ".jpg");
-			info.FilePath = Path.Combine(Global.AttachmentFilesPath, info.SystemID, info.Filename);
+			info.FilePath = Path.Combine(Handler.AttachmentFilesPath, info.SystemID, info.Filename);
 
-			info.Cropped = requestUrl.IsContains("--crop") || context.Request.QueryString["crop"] != null;
-			info.CroppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.Request.QueryString["cropPos"])
+			var requestUrl = $"{requestUri}";
+			var queryString = requestUri.ParseQuery();
+
+			info.Cropped = requestUrl.IsContains("--crop") || queryString.ContainsKey("crop");
+			info.CroppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(queryString.ContainsKey("cropPos") ? queryString["cropPos"] : null)
 				? "top"
-				: requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.Request.QueryString["cropPos"])
+				: requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(queryString.ContainsKey("cropPos") ? queryString["cropPos"] : null)
 					? "bottom"
 					: "auto";
 
-			info.UseAdditionalWatermark = context.Request.QueryString["nw"] != null
+			info.UseAdditionalWatermark = queryString.ContainsKey("nw")
 				? false
 				: requestUrl.IsContains("--btwm");
 
@@ -213,19 +177,19 @@ namespace net.vieapps.Services.Files
 			// check permissions on attachment file
 			try
 			{
-				var attachment = await Global.GetAttachmentAsync(info.Identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
-				return await Global.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+				var attachment = await Handler.GetAttachmentAsync(info.Identifier, context.GetSession(), cancellationToken).ConfigureAwait(false);
+				return await context.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				Base.AspNet.Global.WriteLogs("Error occurred while working with attachment & related privileges/permissions", ex);
+				await Global.WriteLogsAsync(this.Logger, "Thumbnails", "Error occurred while working with attachment & related privileges/permissions", ex);
 				throw ex;
 			}
 		}
 		#endregion
 
 		#region Generate thumbnail
-		Task<byte[]> GenerateThumbnailAsync(ThumbnailInfo info, CancellationToken cancellationToken)
+		Task<ArraySegment<byte>> GenerateThumbnailAsync(ThumbnailInfo info, CancellationToken cancellationToken)
 		{
 			return UtilityService.ExecuteTask(() =>
 			{
@@ -238,10 +202,10 @@ namespace net.vieapps.Services.Files
 					}
 
 					// export image
-					using (var stream = new MemoryStream())
+					using (var stream = UtilityService.CreateMemoryStream())
 					{
 						image.Save(stream, info.AsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-						return stream.GetBuffer();
+						return stream.ToArraySegment();
 					}
 				}
 			}, cancellationToken);
@@ -324,7 +288,7 @@ namespace net.vieapps.Services.Files
 				}
 		}
 
-		internal static byte[] GenerateErrorImage(string message, int width = 300, int height = 100, bool exportAsPng = false)
+		internal static ArraySegment<byte> GenerateErrorImage(string message, int width = 300, int height = 100, bool exportAsPng = false)
 		{
 			using (var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555))
 			{
@@ -333,10 +297,10 @@ namespace net.vieapps.Services.Files
 					graphics.SmoothingMode = SmoothingMode.AntiAlias;
 					graphics.Clear(Color.White);
 					graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-					using (var stream = new MemoryStream())
+					using (var stream = UtilityService.CreateMemoryStream())
 					{
 						bitmap.Save(stream, exportAsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-						return stream.GetBuffer();
+						return stream.ToArraySegment();
 					}
 				}
 			}

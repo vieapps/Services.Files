@@ -44,7 +44,6 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				await this.WriteLogAsync(requestInfo.CorrelationID, "Error occurred while processing", ex).ConfigureAwait(false);
 				throw this.GetRuntimeException(requestInfo, ex);
 			}
 		}

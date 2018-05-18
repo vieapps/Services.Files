@@ -1,7 +1,8 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Web;
+using System.Net;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing;
@@ -9,43 +10,41 @@ using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
 using System.Collections.Generic;
 
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
 
 namespace net.vieapps.Services.Files
 {
-	public class CaptchaHandler : AbstractHttpHandler
+	public class CaptchaHandler : FileHttpHandler
 	{
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			// check
-			if (!context.Request.HttpMethod.IsEquals("GET"))
+			if (!context.Request.Method.IsEquals("GET"))
 				throw new InvalidRequestException();
 
 			// prepare
-			var requestUrl = context.Request.RawUrl.Substring(context.Request.ApplicationPath.Length);
-			while (requestUrl.StartsWith("/"))
-				requestUrl = requestUrl.Right(requestUrl.Length - 1);
-			if (requestUrl.IndexOf("?") > 0)
-				requestUrl = requestUrl.Left(requestUrl.IndexOf("?"));
-
-			var requestInfo = requestUrl.ToArray('/', true);
+			var requestInfo = context.GetRequestPathSegments().Skip(1).ToArray();
 			var useSmallImage = true;
-			if (requestInfo.Length > 2)
+			if (requestInfo.Length > 1)
 				try
 				{
-					useSmallImage = !requestInfo[2].Url64Decode().IsEquals("big");
+					useSmallImage = !requestInfo[1].Url64Decode().IsEquals("big");
 				}
 				catch { }
 
-			// generate captcha image
-			var image = CaptchaHandler.GenerateImage(requestInfo[1].Url64Decode(), useSmallImage);
-
-			// write to output stream
-			context.Response.Cache.SetNoStore();
-			context.Response.ContentType = "image/jpeg";
-			await context.Response.OutputStream.WriteAsync(image, 0, image.Length).ConfigureAwait(false);
+			// response
+			var image = CaptchaHandler.GenerateImage(requestInfo[0].Url64Decode(), useSmallImage);
+			context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
+			{
+				{ "Content-Type", "image/jpeg; charset=utf-8" },
+				{ "Cache-Control", "private, no-store, no-cache" }
+			});
+			await context.WriteAsync(image, cancellationToken).ConfigureAwait(false);
 		}
 
 		#region Generate captcha image
@@ -56,14 +55,14 @@ namespace net.vieapps.Services.Files
 		/// <param name="useSmallImage">true to use small image</param>
 		/// <param name="noises">The collection of noise texts</param>
 		/// <returns>The stream that contains captcha image in JPEG format</returns>
-		public static byte[] GenerateImage(string code, bool useSmallImage = true, List<string> noises = null)
+		public static ArraySegment<byte> GenerateImage(string code, bool useSmallImage = true, List<string> noises = null)
 		{
 			// check code
 			if (!code.Equals(""))
 			{
 				try
 				{
-					code = code.Decrypt(CryptoService.DefaultEncryptionKey, true).ToArray('-').Last();
+					code = code.Decrypt(CaptchaService.EncryptionKey, true).ToArray('-').Last();
 					var tempCode = "";
 					var space = " ";
 					var spaceP = "";
@@ -94,10 +93,10 @@ namespace net.vieapps.Services.Files
 
 			// create new graphic from the bitmap with random background color
 			var backgroundColors = useSmallImage
-				? new Color[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.White }
-				: new Color[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Violet, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.LightGray, Color.Tomato, Color.LightGreen, Color.White };
+				? new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.White }
+				: new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Violet, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.LightGray, Color.Tomato, Color.LightGreen, Color.White };
 
-			var securityBitmap = CaptchaHandler.CreateBackroundImage(width, height, new Color[] { backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)] });
+			var securityBitmap = CaptchaHandler.CreateBackroundImage(width, height, new[] { backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)] });
 			var securityGraph = Graphics.FromImage(securityBitmap);
 			securityGraph.SmoothingMode = SmoothingMode.AntiAlias;
 
@@ -161,9 +160,9 @@ namespace net.vieapps.Services.Files
 			}
 
 			// put the security code into the image with random font and brush
-			var fonts = new string[] { "Verdana", "Arial", "Times New Roman", "Courier", "Courier New", "Comic Sans MS" };
-
-			var brushs = new Brush[] {
+			var fonts = new[] { "Verdana", "Arial", "Times New Roman", "Courier", "Courier New" };
+			var brushs = new[]
+			{
 				new SolidBrush(Color.Black), new SolidBrush(Color.Blue), new SolidBrush(Color.DarkBlue), new SolidBrush(Color.DarkGreen),
 				new SolidBrush(Color.Magenta), new SolidBrush(Color.Red), new SolidBrush(Color.DarkRed), new SolidBrush(Color.Black),
 				new SolidBrush(Color.Firebrick), new SolidBrush(Color.DarkGreen), new SolidBrush(Color.Green), new SolidBrush(Color.DarkViolet)
@@ -291,13 +290,13 @@ namespace net.vieapps.Services.Files
 				}
 
 			// export as JPEG image
-			using (var stream = new MemoryStream())
+			using (var stream = UtilityService.CreateMemoryStream())
 			{
 				noisedBitmap.Save(stream, ImageFormat.Jpeg);
 				securityGraph.Dispose();
 				securityBitmap.Dispose();
 				noisedBitmap.Dispose();
-				return stream.ToArray();
+				return stream.ToArraySegment();
 			}
 		}
 
