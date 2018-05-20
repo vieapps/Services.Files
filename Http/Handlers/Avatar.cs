@@ -89,7 +89,7 @@ namespace net.vieapps.Services.Files
 							: "bmp";
 
 				await Task.WhenAll(
-					context.WriteAsync(fileInfo, $"image/{contentType}", null, eTag, cancellationToken),
+					context.WriteAsync(fileInfo, $"image/{contentType}; charset=utf-8", null, eTag, cancellationToken),
 					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)")
 				).ConfigureAwait(false);
 			}

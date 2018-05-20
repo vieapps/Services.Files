@@ -60,14 +60,10 @@ namespace net.vieapps.Services.Files
 			{
 				await this._next.Invoke(context).ConfigureAwait(false);
 			}
-			catch (InvalidOperationException ex)
-			{
-				if (Global.IsDebugLogEnabled)
-					Global.Logger.LogError($"Error occurred while invoking the next middleware: {ex.Message}", ex);
-			}
+			catch (InvalidOperationException) { }
 			catch (Exception ex)
 			{
-				Global.Logger.LogError($"Error occurred while invoking the next middleware: {ex.Message}", ex);
+				Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
 			}
 		}
 
@@ -180,30 +176,26 @@ namespace net.vieapps.Services.Files
 
 				// headers to reduce traffic
 				var eTag = "Static#" + $"{requestUri}".ToLower().GenerateUUID();
-				if (eTag.IsEquals(context.Request.Headers["If-None-Match"].First()))
+				if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")))
 				{
 					var isNotModified = true;
-					var lastModifed = DateTime.Now;
-
-					// last-modified
-					if (!context.Request.Headers["If-Modified-Since"].First().Equals(""))
+					var lastModifed = DateTime.Now.ToUnixTimestamp();
+					if (context.GetHeaderParameter("If-Modified-Since") != null)
 					{
 						fileInfo = new FileInfo(filePath);
 						if (fileInfo.Exists)
 						{
-							lastModifed = fileInfo.LastWriteTime;
-							isNotModified = lastModifed <= context.Request.Headers["If-Modified-Since"].First().FromHttpDateTime();
+							lastModifed = fileInfo.LastWriteTime.ToUnixTimestamp();
+							isNotModified = lastModifed <= context.GetHeaderParameter("If-Modified-Since").FromHttpDateTime().ToUnixTimestamp();
 						}
 						else
 							isNotModified = false;
 					}
-
-					// update header and stop
 					if (isNotModified)
 					{
-						context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModifed.ToUnixTimestamp(), "public", context.GetCorrelationID());
+						context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModifed, "public", context.GetCorrelationID());
 						if (Global.IsDebugLogEnabled)
-							context.WriteLogs("StaticFiles", $"Response to request with status code 304 to reduce traffic ({filePath})");
+							await context.WriteLogsAsync("StaticFiles", $"Response with status code 304 to reduce traffic ({filePath})").ConfigureAwait(false);
 						return;
 					}
 				}
@@ -229,13 +221,14 @@ namespace net.vieapps.Services.Files
 					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
 					{ "X-CorrelationID", context.GetCorrelationID() }
 				});
-				await context.WriteAsync(fileContent.ToArraySegment(), Global.CancellationTokenSource.Token).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					context.WriteLogs("StaticFiles", $"Response to request successful ({filePath} - {fileInfo.Length:#,##0} bytes)");
+				await Task.WhenAll(
+					context.WriteAsync(fileContent, Global.CancellationTokenSource.Token),
+					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync("StaticFiles", $"Success response ({filePath} - {fileInfo.Length:#,##0} bytes)")
+				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				context.WriteLogs("StaticFiles", $"Error occurred while processing [{requestUri}]", ex);
+				await context.WriteLogsAsync("StaticFiles", $"Failure response [{requestUri}]", ex).ConfigureAwait(false);
 				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}

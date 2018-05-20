@@ -83,7 +83,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Task.WhenAll(
-					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
+					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg; charset=utf-8", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
 					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while preparing:{ex.Message}", ex)
 				).ConfigureAwait(false);
 				return;
@@ -170,7 +170,7 @@ namespace net.vieapps.Services.Files
 					}
 				}
 				await Task.WhenAll(
-					context.WriteAsync(thumbnnail, "image/" + (info.AsPng ? "png" : "jpeg"), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken),
+					context.WriteAsync(thumbnnail, $"image/{(info.AsPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken),
 					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Thumbnails", $"Successfully show thumbnail image [{fileInfo.FullName}]")
 				).ConfigureAwait(false);
 			}
@@ -181,7 +181,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Task.WhenAll(
-					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
+					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg; charset=utf-8", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
 					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while processing:{ex.Message}", ex)
 				).ConfigureAwait(false);
 			}
