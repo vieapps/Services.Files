@@ -54,7 +54,7 @@ namespace net.vieapps.Services.Files
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = "File#" + info.Identifier.ToLower();
-			if (eTag.IsEquals(context.Request.Headers["If-None-Match"].First()) && !context.Request.Headers["If-Modified-Since"].First().Equals(""))
+			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
 				if (Global.IsDebugLogEnabled)
@@ -76,7 +76,7 @@ namespace net.vieapps.Services.Files
 			catch (AccessDeniedException ex)
 			{
 				if (!context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-					context.Response.Redirect(Handler.GetTransferToPassportUrl(context));
+					context.Response.Redirect(context.GetTransferToPassportUrl());
 				else
 					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 				return;
@@ -101,7 +101,7 @@ namespace net.vieapps.Services.Files
 				// flush thumbnail image to output stream, update counter & logs
 				await Task.WhenAll(
 					context.WriteAsync(fileInfo, info.ContentType, info.IsReadable() ? null : info.Filename, eTag, cancellationToken),
-					attachment.IsTemporary ? Handler.UpdateCounterAsync(context, attachment) : Task.CompletedTask
+					attachment.IsTemporary ? context.UpdateCounterAsync(attachment) : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 			catch (Exception ex)

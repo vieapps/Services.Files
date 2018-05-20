@@ -6,6 +6,7 @@ using System.Net;
 using System.Text;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
@@ -46,11 +47,12 @@ namespace net.vieapps.Services.Files
 				.Run();
 
 			// dispose objects
-			WAMPConnections.CloseChannels();
 			Global.InterCommunicateMessageUpdater?.Dispose();
+			WAMPConnections.CloseChannels();
+
+			Global.RSA.Dispose();
 			Global.CancellationTokenSource.Cancel();
 			Global.CancellationTokenSource.Dispose();
-			Global.RSA.Dispose();
 			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is stopped");
 		}
 
@@ -66,10 +68,10 @@ namespace net.vieapps.Services.Files
 			services.AddCache(options => this.Configuration.GetSection("Cache").Bind(options));
 			services.AddHttpContextAccessor();
 
-			 // session state
+			// session state
 			services.AddSession(options =>
 			{
-				options.IdleTimeout = TimeSpan.FromMinutes(30);
+				options.IdleTimeout = TimeSpan.FromMinutes(5);
 				options.Cookie.Name = "VIEApps-Session";
 				options.Cookie.HttpOnly = true;
 			});
@@ -80,7 +82,7 @@ namespace net.vieapps.Services.Files
 				{
 					options.Cookie.Name = "VIEApps-Auth";
 					options.Cookie.HttpOnly = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
 					options.SlidingExpiration = true;
 				});
 			services.AddDataProtection()
@@ -93,11 +95,12 @@ namespace net.vieapps.Services.Files
 				});
 
 			// IIS integration
-			services.Configure<IISOptions>(options =>
-			{
-				options.ForwardClientCertificate = false;
-				options.AutomaticAuthentication = true;
-			});
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+				services.Configure<IISOptions>(options =>
+				{
+					options.ForwardClientCertificate = false;
+					options.AutomaticAuthentication = false;
+				});
 		}
 
 		public void Configure(IApplicationBuilder app, IHostingEnvironment environment)
@@ -119,16 +122,19 @@ namespace net.vieapps.Services.Files
 
 			Logger.AssignLoggerFactory(loggerFactory);
 			Global.Logger = loggerFactory.CreateLogger<Startup>();
+
 			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is starting");
-			Global.Logger.LogInformation($"Logging is enabled [{logLevel}]");
-			if (!string.IsNullOrWhiteSpace(path))
-				Global.Logger.LogInformation($"Rolling log files is enabled [{path}]");
+			Global.Logger.LogInformation($"Version: {typeof(Startup).Assembly.GetVersion()}");
+			Global.Logger.LogInformation($"Platform: {RuntimeInformation.FrameworkDescription} @ {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? $"Windows {RuntimeInformation.OSArchitecture}" : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? $"Linux {RuntimeInformation.OSArchitecture}" : $"Other {RuntimeInformation.OSArchitecture} OS")} ({RuntimeInformation.OSDescription.Trim()})");
+#if DEBUG
+			Global.Logger.LogInformation($"Working mode: DEBUG ({(environment.IsDevelopment() ? "Development" : "Production")})");
+#else
+			Global.Logger.LogInformation($"Working mode: RELEASE ({(environment.IsDevelopment() ? "Development" : "Production")})");
+#endif
 
-			Global.ServiceProvider = app.ApplicationServices;
 			Global.CreateRSA();
-
-			Handler.RootPath = environment.ContentRootPath;
-			Handler.PrepareHandlers();
+			Global.ServiceProvider = app.ApplicationServices;
+			Global.RootPath = environment.ContentRootPath;
 
 			JsonConvert.DefaultSettings = () => new JsonSerializerSettings()
 			{
@@ -137,8 +143,12 @@ namespace net.vieapps.Services.Files
 				DateTimeZoneHandling = DateTimeZoneHandling.Local
 			};
 
-			// WAMP
+			// prepare handlers
+			Handler.PrepareHandlers();
 			Handler.OpenWAMPChannels();
+
+			// common caching
+			FileHttpHandler.Cache = new Cache("VIEApps-Files-HTTP", this.Configuration.GetAppSetting("Cache/ExpirationTime", 30), false, this.Configuration.GetAppSetting("Cache/Provider", "Redis"), loggerFactory);
 
 			// middleware
 			app.UseStatusCodeHandler();
@@ -148,7 +158,22 @@ namespace net.vieapps.Services.Files
 			app.UseAuthentication();
 			app.UseMiddleware<Handler>();
 
-			// done
+			// final
+			if (environment.IsDevelopment())
+				Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen")}");
+			Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterInfo().Item1}");
+			Global.Logger.LogInformation($"API Gateway HTTP service URI: {UtilityService.GetAppSetting("HttpUri:APIs")}");
+			Global.Logger.LogInformation($"Files HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Files")}");
+			Global.Logger.LogInformation($"Users HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Users")}");
+			Global.Logger.LogInformation($"Root path: {Global.RootPath}");
+			Global.Logger.LogInformation($"Logs path: {UtilityService.GetAppSetting("Path:Logs")}");
+			Global.Logger.LogInformation($"Default logging level: {logLevel}");
+			if (!string.IsNullOrWhiteSpace(path))
+				Global.Logger.LogInformation($"Rolling log files is enabled - Path format: {path}");
+			Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");
+			Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
+			Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
+
 			stopwatch.Stop();
 			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - Execution times: {stopwatch.GetElapsedTimes()}");
 			Global.Logger = loggerFactory.CreateLogger<Handler>();

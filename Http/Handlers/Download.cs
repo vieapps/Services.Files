@@ -48,11 +48,11 @@ namespace net.vieapps.Services.Files
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = "Attachment#" + identifier.ToLower();
-			if (eTag.IsEquals(context.Request.Headers["If-None-Match"].First()) && !context.Request.Headers["If-Modified-Since"].First().Equals(""))
+			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
 				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})");
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
@@ -60,7 +60,7 @@ namespace net.vieapps.Services.Files
 			Attachment attachment = null;
 			try
 			{
-				attachment = await Handler.GetAttachmentAsync(identifier, Global.GetSession(context), cancellationToken).ConfigureAwait(false);
+				attachment = await Handler.GetAttachmentAsync(identifier, context.GetSession(), cancellationToken).ConfigureAwait(false);
 				if (attachment == null || string.IsNullOrEmpty(attachment.ID))
 					throw new FileNotFoundException();
 				if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
@@ -68,8 +68,8 @@ namespace net.vieapps.Services.Files
 			}
 			catch (AccessDeniedException ex)
 			{
-				if (!context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-					context.Response.Redirect(Handler.GetTransferToPassportUrl(context));
+				if (!context.User.Identity.IsAuthenticated)
+					context.Response.Redirect(context.GetTransferToPassportUrl());
 				else
 					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 				return;
@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Files
 
 				await Task.WhenAll(
 					context.WriteAsync(fileInfo, attachment.ContentType, contentDisposition, eTag, cancellationToken),
-					attachment.IsTemporary ? Handler.UpdateCounterAsync(context, attachment) : Task.CompletedTask
+					attachment.IsTemporary ? context.UpdateCounterAsync(attachment) : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 			catch (Exception ex)

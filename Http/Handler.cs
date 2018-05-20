@@ -13,12 +13,15 @@ using System.Xml;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 using Microsoft.Extensions.Logging;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 #endregion
@@ -57,7 +60,11 @@ namespace net.vieapps.Services.Files
 			{
 				await this._next.Invoke(context).ConfigureAwait(false);
 			}
-			catch (InvalidOperationException) { }
+			catch (InvalidOperationException ex)
+			{
+				if (Global.IsDebugLogEnabled)
+					Global.Logger.LogError($"Error occurred while invoking the next middleware: {ex.Message}", ex);
+			}
 			catch (Exception ex)
 			{
 				Global.Logger.LogError($"Error occurred while invoking the next middleware: {ex.Message}", ex);
@@ -69,40 +76,92 @@ namespace net.vieapps.Services.Files
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
 
-			// authenticate
-			if (context.User.Identity.IsAuthenticated)
-				context.User = context.User.Identity is UserIdentity
-					? new UserPrincipal(context.User.Identity as UserIdentity)
-					: new UserPrincipal(context.User);
-
-			// TO DO : automatic sign-in with authenticate ticket from passport
-			// ......
-
 			// request to favicon.ico file
 			var requestPath = context.GetRequestPathSegments().First().ToLower();
 			if (requestPath.IsEquals("favicon.ico"))
+			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				return;
+			}
 
 			// request to static segments
-			else if (Global.StaticSegments.Count > 0 && Global.StaticSegments.Contains(requestPath))
-				await this.ProcessStaticRequestAsync(context).ConfigureAwait(false);
-
-			// request to files
-			else
+			else if (Global.StaticSegments.Contains(requestPath))
 			{
-				if (Handler.Handlers.TryGetValue(requestPath, out Type type) && type != null)
-					try
-					{
-						await (type.CreateInstance() as FileHttpHandler).ProcessRequestAsync(context,Global.CancellationTokenSource.Token).ConfigureAwait(false);
-					}
-					catch (OperationCanceledException) { }
-					catch (Exception ex)
-					{
-						await Global.WriteLogsAsync(requestPath, $"Error occurred while processing with file: {ex.Message}", ex);
-						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-					}
-				else
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				await this.ProcessStaticRequestAsync(context).ConfigureAwait(false);
+				return;
+			}
+
+			// request  to filess
+			if (!Handler.Handlers.TryGetValue(requestPath, out Type type))
+			{
+				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				return;
+			}
+
+			// get session
+			var session = context.GetSession();
+
+			// get authenticate token
+			var header = context.Request.Headers.ToDictionary();
+			var query = context.GetRequestUri().ParseQuery();
+
+			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
+			if (string.IsNullOrWhiteSpace(authenticateToken)) // Bearer token
+			{
+				authenticateToken = context.GetHeaderParameter("authorization");
+				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
+			}
+
+			// no authenticate tokenn
+			if (string.IsNullOrWhiteSpace(authenticateToken))
+				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+
+			// authenticate with token
+			else
+				try
+				{
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken).ConfigureAwait(false);
+					if (Global.IsDebugLogEnabled)
+						await context.WriteLogsAsync("Authenticate", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+				}
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync("Authenticate", $"Failure authenticate a token: {ex.Message}", ex);
+				}
+
+			// store session
+			var appName = context.GetParameter("x-app-name");
+			if (!string.IsNullOrWhiteSpace(appName))
+				session.AppName = appName;
+
+			var appPlatform = context.GetParameter("x-app-platform");
+			if (!string.IsNullOrWhiteSpace(appPlatform))
+				session.AppPlatform = appPlatform;
+
+			var deviceID = context.GetParameter("x-device-id");
+			if (!string.IsNullOrWhiteSpace(deviceID))
+				session.DeviceID = deviceID;
+
+			context.Items["Session"] = session;
+
+			// sign-in with authenticate token of passport
+			if (session.User.IsAuthenticated && context.GetParameter("x-passport-token") != null)
+				await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+
+			// or just update user information
+			else
+				context.User = new UserPrincipal(session.User);
+
+			// process the request to files
+			try
+			{
+				await (type.CreateInstance() as FileHttpHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) { }
+			catch (Exception ex)
+			{
+				await Global.WriteLogsAsync(requestPath, ex.Message, ex);
+				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
 
@@ -113,10 +172,10 @@ namespace net.vieapps.Services.Files
 			{
 				// prepare
 				FileInfo fileInfo = null;
-				var pathSegments = context.GetRequestPathSegments();
+				var pathSegments = requestUri.GetRequestPathSegments();
 				var filePath = pathSegments[0].IsEquals("statics")
-					? UtilityService.GetAppSetting("Path:StaticFiles", Handler.RootPath + "/data-files/statics")
-					: Handler.RootPath;
+					? UtilityService.GetAppSetting("Path:StaticFiles", Global.RootPath + "/data-files/statics")
+					: Global.RootPath;
 				filePath += ("/" + string.Join("/", pathSegments)).Replace("/statics/", "/").Replace("//", "/").Replace(@"\", "/").Replace("/", Path.DirectorySeparatorChar.ToString());
 
 				// headers to reduce traffic
@@ -202,27 +261,19 @@ namespace net.vieapps.Services.Files
 			// additional handlers
 			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is AppConfigurationSectionHandler config)
 				if (config.Section.SelectNodes("handler") is XmlNodeList nodes)
-					foreach (XmlNode node in nodes)
-					{
-						var info = node.ToJson();
-						var keyName = info.Get<string>("key");
-						var typeName = info.Get<string>("type");
-						if (!string.IsNullOrWhiteSpace(keyName) && !string.IsNullOrWhiteSpace(typeName) && !Handler.Handlers.ContainsKey(keyName))
-							try
-							{
-								var type = Type.GetType(typeName);
-								if (type != null && type.CreateInstance() is FileHttpHandler)
-									Handler.Handlers[keyName] = type;
-							}
-							catch { }
-					}
+					nodes.ToList()
+						.Where(node => !string.IsNullOrWhiteSpace(node.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(node.Attributes["key"].Value))
+						.ForEach(node =>
+						{
+							var type = Type.GetType(node.Attributes["type"].Value);
+							if (type != null && type.CreateInstance() is FileHttpHandler)
+								Handler.Handlers[node.Attributes["key"].Value] = type;
+						});
 		}
-
-		internal static string RootPath { get; set; }
 
 		static string _UserAvatarFilesPath = null;
 
-		internal static string UserAvatarFilesPath => Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Handler.RootPath, "data-files", "user-avatars")));
+		internal static string UserAvatarFilesPath => Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
 
 		static string _DefaultUserAvatarFilePath = null;
 
@@ -230,7 +281,7 @@ namespace net.vieapps.Services.Files
 
 		static string _AttachmentFilesPath = null;
 
-		internal static string AttachmentFilesPath => Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Handler.RootPath, "data-files", "attachments")));
+		internal static string AttachmentFilesPath => Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments")));
 
 		static string _UsersHttpUri = null;
 
@@ -250,35 +301,17 @@ namespace net.vieapps.Services.Files
 			=> string.IsNullOrWhiteSpace(id)
 				? null
 				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
-					{
-						ServiceName = "files",
-						ObjectName = "attachment",
-						Verb = "GET",
-						Query = new Dictionary<string, string>
+				{
+					ServiceName = "files",
+					ObjectName = "attachment",
+					Verb = "GET",
+					Query = new Dictionary<string, string>
 						{
 							{ "object-identity", id }
 						},
-						CorrelationID = Global.GetCorrelationID()
-					}, cancellationToken)
+					CorrelationID = Global.GetCorrelationID()
+				}, cancellationToken)
 				 ).FromJson<Attachment>();
-
-
-		internal static async Task UpdateCounterAsync(HttpContext context, Attachment attachment)
-		{
-			var session = Global.GetSession(context);
-			await Task.Delay(0);
-		}
-
-		internal static string GetTransferToPassportUrl(HttpContext context = null, string url = null)
-		{
-			context = context ?? Global.CurrentHttpContext;
-			url = url ?? $"{context.GetRequestUri()}";
-			return Handler.UsersHttpUri + "validator"
-				+ "?aut=" + (UtilityService.NewUUID.Left(5) + "-" + (context.User.Identity.IsAuthenticated ? "ON" : "OFF")).Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&uid=" + (context.User.Identity.IsAuthenticated ? (context.User.Identity as UserIdentity).ID : "").Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&uri=" + url.Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Global.EncryptionKey).ToBase64Url(true);
-		}
 		#endregion
 
 		#region Helper: WAMP connections & real-time updaters
@@ -345,25 +378,21 @@ namespace net.vieapps.Services.Files
 
 		internal static bool IsReadable(this AttachmentInfo @object) => @object.ContentType.IsReadable();
 
-		internal static Task<bool> CanUploadAsync(this HttpContext context, string serviceName, string systemID, string definitionID, string objectID)
-			=> context.User != null && context.User.Identity != null && context.User.Identity is UserIdentity
-				? (context.User.Identity as UserIdentity).CanContributeAsync(serviceName, systemID, definitionID, objectID)
-				: Task.FromResult(false);
+		internal static async Task UpdateCounterAsync(this HttpContext context, Attachment attachment)
+		{
+			var session = context.GetSession();
+			await Task.Delay(0);
+		}
 
-		internal static Task<bool> CanDownloadAsync(this HttpContext context, string serviceName, string systemID, string definitionID, string objectID)
-			=> context.User != null && context.User.Identity != null && context.User.Identity is UserIdentity
-				? (context.User.Identity as UserIdentity).CanDownloadAsync(serviceName, systemID, definitionID, objectID)
-				: Task.FromResult(false);
-
-		internal static Task<bool> CanDeleteAsync(this HttpContext context, string serviceName, string systemID, string definitionID, string objectID)
-			=> context.User != null && context.User.Identity != null && context.User.Identity is UserIdentity
-				? (context.User.Identity as UserIdentity).CanEditAsync(serviceName, systemID, definitionID, objectID)
-				: Task.FromResult(false);
-
-		internal static Task<bool> CanRestoreAsync(this HttpContext context, string serviceName, string systemID, string definitionID, string objectID)
-			=> context.User != null && context.User.Identity != null && context.User.Identity is UserIdentity
-				? (context.User.Identity as UserIdentity).CanEditAsync(serviceName, systemID, definitionID, objectID)
-				: Task.FromResult(false);
+		internal static string GetTransferToPassportUrl(this HttpContext context, string url = null)
+		{
+			url = url ?? $"{context.GetRequestUri()}";
+			return Handler.UsersHttpUri + "validator"
+				+ "?aut=" + (UtilityService.NewUUID.Left(5) + "-" + (context.User.Identity.IsAuthenticated ? "ON" : "OFF")).Encrypt(Global.EncryptionKey).ToBase64Url(true)
+				+ "&uid=" + (context.User.Identity.IsAuthenticated ? (context.User.Identity as UserIdentity).ID : "").Encrypt(Global.EncryptionKey).ToBase64Url(true)
+				+ "&uri=" + url.Encrypt(Global.EncryptionKey).ToBase64Url(true)
+				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Global.EncryptionKey).ToBase64Url(true);
+		}
 	}
 	#endregion
 

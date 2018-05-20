@@ -81,7 +81,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCode", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = ThumbnailHandler.GenerateErrorImage(ex.Message, 300, 300, true);
+				data = ThumbnailHandler.Generate(ex.Message, 300, 300, true);
 			}
 
 			// display

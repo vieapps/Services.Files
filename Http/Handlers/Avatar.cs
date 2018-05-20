@@ -22,6 +22,7 @@ namespace net.vieapps.Services.Files
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
+			// prepare
 			this.Logger = Components.Utility.Logger.CreateLogger<AvatarHandler>();
 
 			// show
@@ -40,27 +41,34 @@ namespace net.vieapps.Services.Files
 		#region Show avatar image
 		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
+			var requestUri = context.GetRequestUri();
 			try
 			{
 				// prepare
-				var filename = context.GetRequestPathSegments()[1].Replace(".png", "");
-				filename = filename.Url64Decode().ToArray('|').Last() + ".png";
+				var fileName = requestUri.GetRequestPathSegments()[1];
+				if (fileName.IndexOf(".") > 0)
+				{
+					fileName = fileName.Left(fileName.IndexOf("."));
+					fileName = fileName.Url64Decode().ToArray('|').Last();
+				}
+				else
+					fileName = fileName.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
 
-				var fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, filename));
+				var fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, fileName));
 				if (!fileInfo.Exists)
 				{
 					if (Global.IsDebugLogEnabled)
-						context.WriteLogs(this.Logger, "Avatars", $"The file is not existed, then use default avatar ({fileInfo.FullName})");
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use default avatar)").ConfigureAwait(false);
 					fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 				}
 
 				// check request headers to reduce traffict
 				var eTag = "Avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID();
-				if (eTag.IsEquals(context.Request.Headers["If-None-Match"].First()) && !context.Request.Headers["If-Modified-Since"].First().Equals(""))
+				if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 				{
 					context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
 					if (Global.IsDebugLogEnabled)
-						context.WriteLogs(this.Logger, "Avatars", $"Response to request with status code 304 to reduce traffic ({context.GetRequestUri()})");
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 					return;
 				}
 
@@ -71,13 +79,23 @@ namespace net.vieapps.Services.Files
 					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
 					{ "X-CorrelationID", context.GetCorrelationID() }
 				});
-				await context.WriteAsync(fileInfo, "image/png", null, eTag, cancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)");
+
+				var contentType = fileInfo.Name.IsEndsWith(".png")
+					? "png"
+					: fileInfo.Name.IsEndsWith(".jpg") || fileInfo.Name.IsEndsWith(".jpeg")
+						? "jpeg"
+						: fileInfo.Name.IsEndsWith(".gif")
+							? "gif"
+							: "bmp";
+
+				await Task.WhenAll(
+					context.WriteAsync(fileInfo, $"image/{contentType}", null, eTag, cancellationToken),
+					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)")
+				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				context.WriteLogs(this.Logger, "Avatars", $"Error occurred while processing [{context.GetRequestUri()}]", ex);
+				await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while processing [{requestUri}]", ex).ConfigureAwait(false);
 				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
@@ -87,51 +105,85 @@ namespace net.vieapps.Services.Files
 		async Task UpdateAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
-			if (context.User == null || !context.User.Identity.IsAuthenticated)
+			if (!context.User.Identity.IsAuthenticated)
 				throw new AccessDeniedException();
 
-			// delete old file
-			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name + ".png");
-			try
-			{
-				if (File.Exists(filePath))
-					File.Delete(filePath);
-			}
-			catch { }
+			var fileSize = 0;
+			var fileExtension = "png";
+			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name) + ".";
 
-			// base64 image
-			if (!context.Request.Headers["x-as-base64"].First().Equals(""))
+			// base64
+			if (context.GetHeaderParameter("x-as-base64") != null)
 			{
-				// parse
+				// prepare
 				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
 				var data = body.Get<string>("Data").ToArray();
+
+				fileExtension = data.First().ToArray(";").First().ToArray(":").Last();
+				fileExtension = fileExtension.IsEndsWith("png")
+					? "png"
+					: fileExtension.IsEndsWith("bmp")
+						? "bmp"
+						: fileExtension.IsEndsWith("gif")
+							? "gif"
+							: "jpg";
+				filePath += fileExtension;
+
 				var content = data.Last().Base64ToBytes();
+				fileSize = content.Length;
+
+				if (File.Exists(filePath))
+					try
+					{
+						File.Delete(filePath);
+					}
+					catch { }
 
 				// write to file
 				await UtilityService.WriteBinaryFileAsync(filePath, content, cancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Avatars", $"New avatar (base64) has been uploaded ({filePath} - {content.Length:#,##0} bytes)");
 			}
 
 			// file
 			else
+			{
+				// prepare
+				if (context.Request.Form.Files.Count < 1)
+					throw new InvalidRequestException("No uploaded file is found");
+
+				var file = context.Request.Form.Files[0];
+				if (file == null || file.Length < 1)
+					throw new InvalidRequestException("No uploaded file is found");
+
+				fileSize = (int)file.Length;
+				fileExtension = Path.GetExtension(file.FileName);
+				filePath += fileExtension;
+
+				if (File.Exists(filePath))
+					try
+					{
+						File.Delete(filePath);
+					}
+					catch { }
+
+				// write to file
 				using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, TextFileReader.BufferSize, true))
 				{
-					await context.Request.Form.Files[0].CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
-					if (Global.IsDebugLogEnabled)
-						context.WriteLogs(this.Logger, "Avatars", $"New avatar (file) has been uploaded ({filePath} - {stream.Position:#,##0} bytes)");
+					await file.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
 				}
+			}
+
+			// prepare uri
+			var info = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger).ConfigureAwait(false);
+			var uri = $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}.{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{info.Get<string>("Name").GetANSIUri()}.{fileExtension}";
 
 			// response
-			var requestUri = context.GetRequestUri();
-			var uri = requestUri.Scheme + "://" + requestUri.Host;
-			if (requestUri.Port != 80 && requestUri.Port != 443)
-				uri += $":{requestUri.Port}";
-			uri += "/avatars/" + (DateTime.Now.ToIsoString() + "|" + context.User.Identity.Name).Url64Encode() + ".png";
-
-			await context.WriteAsync(new JObject { { "Uri", uri } }, cancellationToken).ConfigureAwait(false);
-			if (Global.IsDebugLogEnabled)
-				context.WriteLogs(this.Logger, "Avatars", $"New URI: {uri}");
+			await Task.WhenAll(
+				context.WriteAsync(new JObject
+				{
+					{ "Uri", uri }
+				}, cancellationToken),
+				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Avatars", $"New avatar of {info.Get<string>("Name")} ({info.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:#,##0} bytes)")
+			).ConfigureAwait(false);
 		}
 		#endregion
 
