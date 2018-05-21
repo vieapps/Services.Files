@@ -1,0 +1,182 @@
+﻿body {
+	margin: 0;
+	font-family: sans-serif;
+	background-color: #fff;
+}
+
+	body > header {
+		clear: both;
+		overflow: hidden;
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 50px;
+		margin: 0;
+		padding: 5px 0;
+		background-color: #fff;
+	}
+
+		body > header > h1 {
+			display: block;
+			float: left;
+			margin: 0 0.5rem;
+			height: 50px;
+			width: 300px;
+			line-height: 50px;
+			color: #0d5cab;
+			/*
+			background-image: url(vieapps.png);
+			background-repeat: no-repeat;
+			background-position: left center;
+			background-size: auto 100%;
+			*/
+		}
+
+		body > header > span {
+			display: inline-block;
+			float: right;
+			margin: 0 0.5rem;
+			color: #000;
+			line-height: 50px;
+		}
+
+			body > header > span > a {
+				color: #0d5cab;
+			}
+
+	body > footer {
+		clear: both;
+		overflow: hidden;
+		position: fixed;
+		bottom: 0;
+		left: 0;
+		width: 100%;
+		height: 30px;
+		color: #fff;
+		background-color: #0d5cab;
+		font-size: 0.7rem;
+		font-weight: bold;
+	}
+
+		body > footer > div {
+			display: inline-block;
+			float: left;
+		}
+
+			body > footer > div > span {
+				margin: 0 0.5rem;
+				line-height: 30px;
+			}
+
+		body > footer > span {
+			display: inline-block;
+			float: right;
+			line-height: 30px;
+			margin: 0 0.5rem;
+		}
+
+			body > footer > span > label {
+				margin: 0 0.5rem;
+			}
+
+			body > footer > span > a {
+				color: #fff;
+				font-weight: normal;
+				margin-left: 0.5rem;
+			}
+
+	body > div {
+		clear: both;
+		overflow: hidden;
+		padding: 0.5rem;
+		margin-top: 60px;
+		margin-bottom: 30px;
+	}
+
+		body > div > form {
+			clear: both;
+			overflow: hidden;
+		}
+
+			body > div > form > span {
+				clear: both;
+				overflow: hidden;
+				margin: 7px 0;
+				color: red;
+			}
+
+			body > div > form > div, body > div > form > section {
+				clear: both;
+				overflow: hidden;
+				padding: 0.5rem 0;
+			}
+
+				body > div > form > div > label {
+					display: inline-block;
+					min-width: 100px;
+				}
+
+				body > div > form > div > input {
+					font-size: 1rem;
+					border: solid 1px #ccc;
+					border-radius: 3px;
+					min-width: 300px;
+					min-height: 24px;
+					width: 95%;
+				}
+
+					body > div > form > div > input#OTP {
+						min-width: 150px;
+						max-width: 150px;
+					}
+
+				body > div > form > section > input[type="submit"] {
+					min-width: 153px;
+					min-height: 30px;
+					margin-left: 100px;
+					font-size: 1rem;
+					border: solid 1px #ccc;
+					background-color: #fff;
+					border-radius: 3px;
+				}
+
+				body > div > form > section > span {
+					margin-left: 100px;
+				}
+
+					body > div > form > section > span > a {
+						color: blue;
+					}
+
+		body > div > div {
+			clear: both;
+			overflow: hidden;
+			padding: 0.5rem 0;
+		}
+
+			body > div > div:nth-child(2n+1) {
+				background-color: #eee;
+			}
+
+			body > div > div > span {
+				font-weight: bold;
+				float: left;
+				margin-left: 0.5rem;
+			}
+
+				body > div > div > span > a {
+					color: darkgreen;
+				}
+
+			body > div > div > label {
+				float: right;
+				margin-left: 1rem;
+				margin-right: 0.5rem;
+			}
+
+@media screen and (min-width: 415px) {
+	body > div > form > div > input {
+		width: auto;
+	}
+}

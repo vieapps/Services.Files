@@ -3,23 +3,23 @@
 	<PropertyGroup>
 		<TargetFramework>netcoreapp2.0</TargetFramework>
 		<OutputType>Exe</OutputType>
-		<StartupObject>net.vieapps.Services.Files.Startup</StartupObject>
-		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
-		<AssemblyName>VIEApps.Services.Files.Http</AssemblyName>
-		<AssemblyTitle>VIEApps NGX Files HTTP</AssemblyTitle>
+		<StartupObject>net.vieapps.Services.Files.Storages.Startup</StartupObject>
+		<RootNamespace>net.vieapps.Services.Files.Storages</RootNamespace>
+		<AssemblyName>VIEApps.Services.Files.Http.Storages</AssemblyName>
+		<AssemblyTitle>VIEApps NGX Files HTTP Storages</AssemblyTitle>
 		<AssemblyVersion>10.2.0.1806</AssemblyVersion>
 		<FileVersion>10.2.0.1806</FileVersion>
 		<InformationalVersion>v10.2.netstandard-2+rev:2018.06.01</InformationalVersion>
 		<Product>VIEApps NGX</Product>
 		<Company>VIEApps.net</Company>
 		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-		<PackageId>VIEApps.Services.Files.Http</PackageId>
+		<PackageId>VIEApps.Services.Files.Http.Storages</PackageId>
 		<Version>10.2.0.1806</Version>
 		<SignAssembly>false</SignAssembly>
 		<DelaySign>false</DelaySign>
 		<AssemblyOriginatorKeyFile>../VIEApps.Components.snk</AssemblyOriginatorKeyFile>
 		<Title>VIEApps NGX API Gateway</Title>
-		<Description>Files HTTP service of all microservices in the VIEApps NGX</Description>
+		<Description>File HTTP Storages service in the VIEApps NGX</Description>
 		<Authors>VIEApps.net</Authors>
 		<Copyright>© 2018 VIEApps.net</Copyright>
 		<PackageTags>files;files.http;microservices;vieapps;vieapps.components</PackageTags>
@@ -31,12 +31,12 @@
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
 		<WarningLevel>3</WarningLevel>
-		<DocumentationFile>bin\Debug\netcoreapp2.0\VIEApps.Services.Files.Http.xml</DocumentationFile>
+		<DocumentationFile>bin\Debug\netcoreapp2.0\VIEApps.Services.Files.Http.Storages.xml</DocumentationFile>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
 		<WarningLevel>3</WarningLevel>
-		<DocumentationFile>bin\Release\netcoreapp2.0\VIEApps.Services.Files.Http.xml</DocumentationFile>
+		<DocumentationFile>bin\Release\netcoreapp2.0\VIEApps.Services.Files.Http.Storages.xml</DocumentationFile>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -47,21 +47,22 @@
 		<None Remove=".DS_Store" />
 		<None Remove=".gitattributes" />
 		<None Remove=".gitignore" />
+		<None Remove="_assets\style.css" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Content Include="_assets\style.css" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.AspNetCore.All" Version="2.0.8" />
-		<PackageReference Include="QRCoder" Version="1.3.3" />
 		<PackageReference Include="Serilog.Extensions.Logging.File" Version="1.1.0" />
-		<PackageReference Include="System.Drawing.Common" Version="4.5.0-rc1" />
 		<PackageReference Include="VIEApps.Components.Utility.AspNetCore" Version="10.2.2.1806" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\Base.Http\VIEApps.Services.Base.Http.csproj" />
 		<ProjectReference Include="..\..\Base\VIEApps.Services.Base.csproj" />
-		<ProjectReference Include="..\..\Books\Http\VIEApps.Services.Books.Http.csproj" />
-		<ProjectReference Include="..\Service\VIEApps.Services.Files.csproj" />
 	</ItemGroup>
 
 </Project>

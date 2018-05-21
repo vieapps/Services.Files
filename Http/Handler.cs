@@ -30,9 +30,9 @@ namespace net.vieapps.Services.Files
 {
 	public class Handler
 	{
-		readonly RequestDelegate _next;
+		RequestDelegate Next { get; }
 
-		public Handler(RequestDelegate next) => this._next = next;
+		public Handler(RequestDelegate next) => this.Next = next;
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Files
 			// invoke next middleware
 			try
 			{
-				await this._next.Invoke(context).ConfigureAwait(false);
+				await this.Next.Invoke(context).ConfigureAwait(false);
 			}
 			catch (InvalidOperationException) { }
 			catch (Exception ex)
