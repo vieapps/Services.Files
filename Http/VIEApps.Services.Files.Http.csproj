@@ -3,13 +3,13 @@
 	<PropertyGroup>
 		<TargetFramework>netcoreapp2.0</TargetFramework>
 		<OutputType>Exe</OutputType>
-		<StartupObject>net.vieapps.Services.Files.Startup</StartupObject>
 		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
+		<StartupObject>net.vieapps.Services.Files.Startup</StartupObject>
 		<AssemblyName>VIEApps.Services.Files.Http</AssemblyName>
 		<AssemblyTitle>VIEApps NGX Files HTTP</AssemblyTitle>
 		<AssemblyVersion>10.2.0.1806</AssemblyVersion>
 		<FileVersion>10.2.0.1806</FileVersion>
-		<InformationalVersion>v10.2.netstandard-2+rev:2018.06.01</InformationalVersion>
+		<InformationalVersion>v10.2.netcore-2+rev:2018.06.01</InformationalVersion>
 		<Product>VIEApps NGX</Product>
 		<Company>VIEApps.net</Company>
 		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
@@ -26,7 +26,6 @@
 		<PackageReleaseNotes>Upgrade to latest components to avoid potential bugs</PackageReleaseNotes>
 		<PackageProjectUrl>https://github.com/vieapps/Services.Files</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/vieapps/Services.Files</RepositoryUrl>
-		<ApplicationIcon></ApplicationIcon>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

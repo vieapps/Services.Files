@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Files.Storages
 
 			// static segments
 			else if (Global.StaticSegments.Contains(requestPath))
-				await this.ProcessRequestOfStaticFileAsync(context).ConfigureAwait(false);
+				await this.ProcessStaticFileRequestAsync(context).ConfigureAwait(false);
 
 			// other
 			else
@@ -147,12 +147,12 @@ namespace net.vieapps.Services.Files.Storages
 				if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
 					context.Redirect(requestUri.ToString().Replace("http://", "https://"));
 				else
-					await this.ProcessRequestOfOtherFileAsync(context).ConfigureAwait(false);
+					await this.ProcessStorageRequestAsync(context).ConfigureAwait(false);
 			}
 		}
 
 		#region Static files
-		internal async Task ProcessRequestOfStaticFileAsync(HttpContext context)
+		internal async Task ProcessStaticFileRequestAsync(HttpContext context)
 		{
 			var requestUri = context.GetRequestUri();
 			try
@@ -225,7 +225,7 @@ namespace net.vieapps.Services.Files.Storages
 		}
 		#endregion
 
-		internal async Task ProcessRequestOfOtherFileAsync(HttpContext context)
+		internal async Task ProcessStorageRequestAsync(HttpContext context)
 		{
 			var requestPath = context.GetRequestPathSegments().First().ToLower();
 
@@ -245,15 +245,15 @@ namespace net.vieapps.Services.Files.Storages
 					context.Redirect("/_signin");
 
 				else if (!requestPath.IsEquals("") && !requestPath.IsEquals("/"))
-					await this.ProcessRequestOfDownloadAsync(context).ConfigureAwait(false);
+					await this.ProcessDownloadRequestAsync(context).ConfigureAwait(false);
 
 				else
-					await this.ProcessRequestOfBrowseAsync(context).ConfigureAwait(false);
+					await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
 			}
 		}
 
 		#region Show listing of files
-		async Task ProcessRequestOfBrowseAsync(HttpContext context)
+		async Task ProcessBrowseRequestAsync(HttpContext context)
 		{
 			// get files
 			var paths = (this.Maps.ContainsKey(context.User.Identity.Name)
@@ -306,7 +306,7 @@ namespace net.vieapps.Services.Files.Storages
 		#endregion
 
 		#region Download a file
-		async Task ProcessRequestOfDownloadAsync(HttpContext context)
+		async Task ProcessDownloadRequestAsync(HttpContext context)
 		{
 			try
 			{
@@ -435,7 +435,7 @@ namespace net.vieapps.Services.Files.Storages
 			return (@"<!DOCTYPE html>
 			<html xmlns='http://www.w3.org/1999/xhtml'>
 			<head>
-			<title>" + requestUri.Host.ToArray('.').First() + @" - VIEApps NGX HTTP File Storages</title>
+			<title>" + requestUri.Host.ToArray('.').First() + @" - VIEApps NGX File HTTP Storages</title>
 			<meta name='viewport' content='width=device-width, initial-scale=1'/>
 			<link rel='stylesheet' type='text/css' href='./_assets/style.css'/>
 			</head>
