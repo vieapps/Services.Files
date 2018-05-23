@@ -320,8 +320,19 @@ namespace net.vieapps.Services.Files.Storages
 				var path = folders[paths[0]] + Path.DirectorySeparatorChar.ToString() + paths.Skip(1).ToString(Path.DirectorySeparatorChar.ToString());
 
 				var fileInfo = new FileInfo(path);
-				var fileMime = fileInfo.GetMimeType();
-				await context.WriteAsync(fileInfo, fileMime, this.DirectFlush ? null : fileInfo.Name, fileInfo.FullName.GetMD5(), Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				var headers = new Dictionary<string, string>
+				{
+					{ "Content-Type", fileInfo.GetMimeType() },
+					{ "ETag", fileInfo.FullName.GetMD5() }
+				};
+
+				if (!this.DirectFlush)
+					headers["Content-Disposition"] = $"Attachment; Filename=\"{fileInfo.Name.UrlEncode()}\"";
+
+				using (var stream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true))
+				{
+					await context.WriteAsync(stream, headers, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				}
 			}
 			catch (Exception ex)
 			{
