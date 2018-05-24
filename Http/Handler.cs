@@ -316,6 +316,7 @@ namespace net.vieapps.Services.Files
 				(sender, args) =>
 				{
 					Global.Logger.LogInformation($"Incomming channel to WAMP router is established - Session ID: {args.SessionId}");
+					Global.InterCommunicateMessageUpdater?.Dispose();
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 						.Subscribe(
