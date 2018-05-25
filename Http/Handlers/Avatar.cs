@@ -46,19 +46,38 @@ namespace net.vieapps.Services.Files
 			{
 				// prepare
 				var fileName = requestUri.GetRequestPathSegments()[1];
-				if (fileName.IndexOf(".") > 0)
+				try
 				{
-					fileName = fileName.Left(fileName.IndexOf("."));
-					fileName = fileName.Url64Decode().ToArray('|').Last();
+					if (fileName.IndexOf(".") > 0)
+					{
+						fileName = fileName.Left(fileName.IndexOf("."));
+						fileName = fileName.Url64Decode().ToArray('|').Last();
+					}
+					else
+						fileName = fileName.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
 				}
-				else
-					fileName = fileName.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-
-				var fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, fileName));
-				if (!fileInfo.Exists)
+				catch (Exception ex)
 				{
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use default avatar)").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
+					fileName = null;
+				}
+
+				FileInfo fileInfo = null;
+				try
+				{
+					fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, fileName ?? "@default.png"));
+					if (!fileInfo.Exists)
+					{
+						if (Global.IsDebugLogEnabled)
+							await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use default avatar)").ConfigureAwait(false);
+						fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
+					}
+				}
+				catch (Exception ex)
+				{
+					if (Global.IsDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
 					fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 				}
 

@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Files.Storages
 				.CaptureStartupErrors(true)
 				.UseStartup<Startup>()
 				.UseKestrel()
-				.UseUrls((args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace(StringComparison.OrdinalIgnoreCase, "/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027")))
+				.UseUrls((args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027")))
 				.Build()
 				.Run();
 		}
