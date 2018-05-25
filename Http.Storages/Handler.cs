@@ -130,7 +130,9 @@ namespace net.vieapps.Services.Files.Storages
 		{
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
-			var requestPath = context.GetRequestPathSegments().First().ToLower();
+
+			var requestUri = context.GetRequestUri();
+			var requestPath = requestUri.GetRequestPathSegments().First().ToLower();
 
 			// favicon.ico
 			if (requestPath.IsEquals("favicon.ico"))
@@ -143,9 +145,8 @@ namespace net.vieapps.Services.Files.Storages
 			// other
 			else
 			{
-				var requestUri = context.GetRequestUri();
 				if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
-					context.Redirect(requestUri.ToString().Replace("http://", "https://"));
+					context.Redirect($"{requestUri}".Replace("http://", "https://"));
 				else
 					await this.ProcessStorageRequestAsync(context).ConfigureAwait(false);
 			}
@@ -474,8 +475,7 @@ namespace net.vieapps.Services.Files.Storages
 		#region Helper: WAMP connections
 		internal static void OpenWAMPChannels(int waitingTimes = 6789)
 		{
-			var routerInfo = WAMPConnections.GetRouterInfo();
-			Global.Logger.LogInformation($"Attempting to connect to WAMP router [{routerInfo.Item1}{(routerInfo.Item1.EndsWith("/") ? "" : "/")}{routerInfo.Item2}]");
+			Global.Logger.LogInformation($"Attempting to connect to WAMP router [{WAMPConnections.GetRouterStrInfo()}]");
 			Global.OpenWAMPChannels(
 				(sender, args) =>
 				{
@@ -483,19 +483,7 @@ namespace net.vieapps.Services.Files.Storages
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 						.Subscribe(
-							async (message) =>
-							{
-								try
-								{
-									await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
-									if (Global.IsDebugLogEnabled)
-										await Global.WriteLogsAsync(Global.Logger, "RTU", $"Process an inter-communicate message successful {message?.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}").ConfigureAwait(false);
-								}
-								catch (Exception ex)
-								{
-									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex).ConfigureAwait(false);
-								}
-							},
+							async (message) => await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false),
 							exception => Global.WriteLogs(Global.Logger, "RTU", $"{exception.Message}", exception)
 						);
 				},

@@ -139,7 +139,7 @@ namespace net.vieapps.Services.Files.Storages
 			{
 				if (environment.IsDevelopment() || Environment.UserInteractive)
 					Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen")}");
-				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterInfo().Item1}");
+				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"Root path: {Global.RootPath}");
 				Global.Logger.LogInformation($"Logs path: {UtilityService.GetAppSetting("Path:Logs")}");
 				Global.Logger.LogInformation($"Default logging level: {logLevel} [ASP.NET Core always set logging level by value of appsettings.json]");
