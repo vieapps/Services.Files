@@ -75,7 +75,7 @@ namespace net.vieapps.Services.Files.Storages
 				});
 			services.AddDataProtection()
 				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
-				.SetApplicationName("VIEApps-NGX-HTTP-Storages")
+				.SetApplicationName("VIEApps-NGX-Storages")
 				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
 				{
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
@@ -104,7 +104,7 @@ namespace net.vieapps.Services.Files.Storages
 			Logger.AssignLoggerFactory(loggerFactory);
 			Global.Logger = loggerFactory.CreateLogger<Startup>();
 
-			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is starting");
+			Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is starting");
 			Global.Logger.LogInformation($"Version: {typeof(Startup).Assembly.GetVersion()}");
 			Global.Logger.LogInformation($"Platform: {RuntimeInformation.FrameworkDescription} @ {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "Linux" : $"Other OS")} {RuntimeInformation.OSArchitecture} ({RuntimeInformation.OSDescription.Trim()})");
 #if DEBUG
@@ -150,7 +150,7 @@ namespace net.vieapps.Services.Files.Storages
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
 
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is started - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 
@@ -167,7 +167,7 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStopped.Register(() =>
 			{
 				Global.CancellationTokenSource.Dispose();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is stopped");
+				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is stopped");
 			});
 
 			// don't terminate the process immediately, wait for the Main thread to exit gracefully
