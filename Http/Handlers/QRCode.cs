@@ -34,6 +34,8 @@ namespace net.vieapps.Services.Files
 			// generate
 			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
 			var data = new ArraySegment<byte>(new byte[0]);
+			var size = 300;
+			var stopwatch = Stopwatch.StartNew();
 
 			try
 			{
@@ -48,15 +50,14 @@ namespace net.vieapps.Services.Files
 				if (query.ContainsKey("t"))
 				{
 					var timestamp = query["t"].ToBase64(false, true).Decrypt(Global.EncryptionKey).CastAs<long>();
-					if (DateTime.Now.ToUnixTimestamp() - timestamp > 60)
+					if (DateTime.Now.ToUnixTimestamp() - timestamp > 90)
 						throw new InvalidRequestException();
 				}
 
-				var size = (query.ContainsKey("s") ? query["s"] : "300").CastAs<int>();
+				size = (query.ContainsKey("s") ? query["s"] : "300").CastAs<int>();
+
 				if (!Enum.TryParse(query.ContainsKey("ecl") ? query["ecl"] : "M", out QRCodeGenerator.ECCLevel level))
 					level = QRCodeGenerator.ECCLevel.M;
-
-				var stopwatch = Stopwatch.StartNew();
 
 				// generate QR code using QRCoder
 				if ("QRCoder".IsEquals(UtilityService.GetAppSetting("QRCode:Provider")))
@@ -81,7 +82,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCode", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = ThumbnailHandler.Generate(ex.Message, 300, 300, true);
+				data = ThumbnailHandler.Generate(ex.Message, size, size, true);
 			}
 
 			// display
@@ -98,17 +99,17 @@ namespace net.vieapps.Services.Files
 			using (var generator = new QRCodeGenerator())
 			using (var data = generator.CreateQrCode(value, level))
 			using (var code = new QRCode(data))
-			using (var big = code.GetGraphic(20))
-			using (var small = new Bitmap(size, size))
-			using (var graphics = Graphics.FromImage(small))
+			using (var bigBmp = code.GetGraphic(20))
+			using (var smallBmp = new Bitmap(size, size))
+			using (var graphics = Graphics.FromImage(smallBmp))
 			{
 				graphics.SmoothingMode = SmoothingMode.HighQuality;
 				graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
 				graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-				graphics.DrawImage(big, new Rectangle(0, 0, size, size));
+				graphics.DrawImage(bigBmp, new Rectangle(0, 0, size, size));
 				using (var stream = UtilityService.CreateMemoryStream())
 				{
-					small.Save(stream, ImageFormat.Png);
+					smallBmp.Save(stream, ImageFormat.Png);
 					return stream.ToArraySegment();
 				}
 			}

@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStarted.Register(() =>
 			{
 				if (environment.IsDevelopment() || Environment.UserInteractive)
-					Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen")}");
+					Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027")}");
 				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"Root path: {Global.RootPath}");
 				Global.Logger.LogInformation($"Logs path: {UtilityService.GetAppSetting("Path:Logs")}");
