@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Files.Storages
 
 		#region Prepare attributes
 		bool AlwaysUseSecureConnections { get; set; } = true;
-		Dictionary<string, List<string>> Maps { get; set; } = new Dictionary<string, List<string>>();
+		Dictionary<string, List<string>> Maps { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 		string AccountDomain { get; set; } = "company.com";
 		string AccountOtp { get; set; } = "AuthenticatorOTP";
 		string AccountOtpDomain { get; set; } = "company.com";
@@ -77,7 +77,7 @@ namespace net.vieapps.Services.Files.Storages
 			this.AlwaysUseSecureConnections = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "true"));
 
 			// maps
-			if (ConfigurationManager.GetSection("net.vieapps.http.files.maps") is AppConfigurationSectionHandler config)
+			if (ConfigurationManager.GetSection("net.vieapps.maps") is AppConfigurationSectionHandler config)
 			{
 				this.AccountDomain = config.Section.Attributes["accountDomain"]?.Value ?? "company.com";
 				this.AccountOtp = config.Section.Attributes["accountOtp"]?.Value ?? "AuthenticatorOTP";
@@ -187,7 +187,7 @@ namespace net.vieapps.Services.Files.Storages
 					{
 						context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModifed, "public", context.GetCorrelationID());
 						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync("StaticFiles", $"Response with status code 304 to reduce traffic ({filePath})").ConfigureAwait(false);
+							await context.WriteLogsAsync("StaticFiles", $"Success response with status code 304 to reduce traffic ({filePath})").ConfigureAwait(false);
 						return;
 					}
 				}
@@ -481,7 +481,7 @@ namespace net.vieapps.Services.Files.Storages
 				{
 					Global.Logger.LogInformation($"Incomming channel to WAMP router is established - Session ID: {args.SessionId}");
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
+						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
 							async (message) => await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false),
 							exception => Global.WriteLogs(Global.Logger, "RTU", $"{exception.Message}", exception)

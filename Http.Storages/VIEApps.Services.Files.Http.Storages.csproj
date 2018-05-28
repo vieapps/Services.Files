@@ -12,36 +12,21 @@
 		<InformationalVersion>v10.2.netcore-2+rev:2018.06.01</InformationalVersion>
 		<Product>VIEApps NGX</Product>
 		<Company>VIEApps.net</Company>
-		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-		<PackageId>VIEApps.Services.Files.Http.Storages</PackageId>
-		<Version>10.2.0.1806</Version>
 		<SignAssembly>false</SignAssembly>
 		<DelaySign>false</DelaySign>
 		<AssemblyOriginatorKeyFile>../VIEApps.Components.snk</AssemblyOriginatorKeyFile>
-		<Title>VIEApps NGX API Gateway</Title>
-		<Description>File HTTP Storages service in the VIEApps NGX</Description>
-		<Authors>VIEApps.net</Authors>
-		<Copyright>© 2018 VIEApps.net</Copyright>
-		<PackageTags>files;files.http;microservices;vieapps;vieapps.components</PackageTags>
-		<PackageReleaseNotes>Upgrade to latest components to avoid potential bugs</PackageReleaseNotes>
-		<PackageProjectUrl>https://github.com/vieapps/Services.Files</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/vieapps/Services.Files</RepositoryUrl>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
 		<WarningLevel>3</WarningLevel>
-		<DocumentationFile>bin\Debug\netcoreapp2.0\VIEApps.Services.Files.Http.Storages.xml</DocumentationFile>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
 		<WarningLevel>3</WarningLevel>
-		<DocumentationFile>bin\Release\netcoreapp2.0\VIEApps.Services.Files.Http.Storages.xml</DocumentationFile>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<None Remove=".DS_Store" />
-		<None Remove=".gitattributes" />
-		<None Remove=".gitignore" />
 	</ItemGroup>
 
 	<ItemGroup>
