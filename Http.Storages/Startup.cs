@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Files.Storages
 		{
 			// mandatory services
 			services.AddResponseCompression(options => options.EnableForHttps = true);
-			services.AddLogging(builder => builder.SetMinimumLevel(this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).ToEnum<LogLevel>()));
+			services.AddLogging(builder => builder.SetMinimumLevel(this.Configuration.GetAppSetting("Logging/LogLevel/Default", "Information").ToEnum<LogLevel>()));
 			services.AddCache(options => this.Configuration.GetSection("Cache").Bind(options));
 			services.AddHttpContextAccessor();
 
@@ -91,7 +91,7 @@ namespace net.vieapps.Services.Files.Storages
 			Console.OutputEncoding = Encoding.UTF8;
 
 			var loggerFactory = app.ApplicationServices.GetService<ILoggerFactory>();
-			var logLevel = this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).ToEnum<LogLevel>();
+			var logLevel = this.Configuration.GetAppSetting("Logging/LogLevel/Default", "Information").ToEnum<LogLevel>();
 			var path = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
 			{
