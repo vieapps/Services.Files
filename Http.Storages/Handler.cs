@@ -325,7 +325,7 @@ namespace net.vieapps.Services.Files.Storages
 				var fileInfo = new FileInfo(path);
 				var headers = new Dictionary<string, string>
 				{
-					{ "Content-Type", fileInfo.GetMimeType() },
+					{ "Content-Type", $"{fileInfo.GetMimeType()}; charset=utf-8" },
 					{ "ETag", fileInfo.FullName.GetMD5() }
 				};
 
