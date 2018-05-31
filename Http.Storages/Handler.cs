@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -32,10 +33,12 @@ namespace net.vieapps.Services.Files.Storages
 	public class Handler
 	{
 		RequestDelegate Next { get; }
+		ICache Cache { get; }
 
-		public Handler(RequestDelegate next)
+		public Handler(RequestDelegate next, IServiceProvider serviceProvider)
 		{
 			this.Next = next;
+			this.Cache = serviceProvider.GetService<ICache>();
 			this.Prepare();
 		}
 
@@ -332,19 +335,31 @@ namespace net.vieapps.Services.Files.Storages
 					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false });
 					context.User = userPrincipal;
 
+					// remove the awaiting flag
+					await this.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false);
+
 					// redirect to home
 					context.Redirect("/");
 					return;
 				}
-				catch (WampException exception)
-				{
-					await context.WriteLogsAsync("SignIn", "Error occurred while signing-in", exception).ConfigureAwait(false);
-					error = exception.GetDetails().Item2;
-				}
 				catch (Exception exception)
 				{
+					// wait
+					var attempt = await this.Cache.ExistsAsync($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
+						? await this.Cache.GetAsync<int>($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
+						: 0;
+					attempt++;
+
+					await Task.WhenAll(
+						Task.Delay(567 + ((attempt - 1) * 5678)),
+						this.Cache.SetAsync($"Attempt#{context.Connection.RemoteIpAddress}", attempt)
+					).ConfigureAwait(false);
+
+					// prepare error
 					await context.WriteLogsAsync("SignIn", "Error occurred while signing-in", exception).ConfigureAwait(false);
-					error = exception.Message;
+					error = exception is WampException
+						? (exception as WampException).GetDetails().Item2
+						: exception.Message;
 				}
 
 			var html = @"<form method='post' action='_signin' autocomplete='off'>" + (!error.Equals("") ? "<span>" + error + "</span>" : "") + @"
