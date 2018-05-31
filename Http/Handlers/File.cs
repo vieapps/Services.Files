@@ -76,7 +76,7 @@ namespace net.vieapps.Services.Files
 			catch (AccessDeniedException ex)
 			{
 				if (!context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-					context.Response.Redirect(context.GetTransferToPassportUrl());
+					context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
 				else
 					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 				return;

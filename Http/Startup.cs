@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Files
 				.CaptureStartupErrors(true)
 				.UseStartup<Startup>()
 				.UseKestrel()
-				.UseUrls((args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025")))
+				.UseUrls(args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025"))
 				.Build()
 				.Run();
 		}
@@ -126,9 +126,6 @@ namespace net.vieapps.Services.Files
 			// prepare handlers
 			Handler.PrepareHandlers();
 			Handler.OpenWAMPChannels();
-
-			// common caching
-			FileHttpHandler.Cache = new Cache("VIEApps-Files-HTTP", this.Configuration.GetAppSetting("Cache/ExpirationTime", 30), false, this.Configuration.GetAppSetting("Cache/Provider", "Redis"), loggerFactory);
 
 			// middleware
 			app.UseStatusCodeHandler();

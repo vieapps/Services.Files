@@ -74,7 +74,7 @@ namespace net.vieapps.Services.Files.Storages
 		void Prepare()
 		{
 			// secue connection
-			this.AlwaysUseSecureConnections = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "true"));
+			this.AlwaysUseSecureConnections = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false"));
 
 			// maps
 			if (ConfigurationManager.GetSection("net.vieapps.maps") is AppConfigurationSectionHandler config)
@@ -132,7 +132,7 @@ namespace net.vieapps.Services.Files.Storages
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
 
 			var requestUri = context.GetRequestUri();
-			var requestPath = requestUri.GetRequestPathSegments().First().ToLower();
+			var requestPath = requestUri.GetRequestPathSegments(true).First();
 
 			// favicon.ico
 			if (requestPath.IsEquals("favicon.ico"))
@@ -140,118 +140,38 @@ namespace net.vieapps.Services.Files.Storages
 
 			// static segments
 			else if (Global.StaticSegments.Contains(requestPath))
-				await this.ProcessStaticFileRequestAsync(context).ConfigureAwait(false);
+				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
 			// other
 			else
 			{
 				if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
 					context.Redirect($"{requestUri}".Replace("http://", "https://"));
+
 				else
-					await this.ProcessStorageRequestAsync(context).ConfigureAwait(false);
-			}
-		}
-
-		#region Static files
-		internal async Task ProcessStaticFileRequestAsync(HttpContext context)
-		{
-			var requestUri = context.GetRequestUri();
-			try
-			{
-				// prepare
-				FileInfo fileInfo = null;
-				var pathSegments = requestUri.GetRequestPathSegments();
-
-				var filePath = (pathSegments[0].IsEquals("statics")
-					? UtilityService.GetAppSetting("Path:StaticFiles", Global.RootPath + "/data-files/statics")
-					: Global.RootPath) + ("/" + string.Join("/", pathSegments)).Replace("//", "/").Replace(@"\", "/").Replace('/', Path.DirectorySeparatorChar);
-				if (pathSegments[0].IsEquals("statics"))
-					filePath = filePath.Replace($"{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}");
-
-				// headers to reduce traffic
-				var eTag = "Static#" + $"{requestUri}".ToLower().GenerateUUID();
-				if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")))
 				{
-					var isNotModified = true;
-					var lastModifed = DateTime.Now.ToUnixTimestamp();
-					if (context.GetHeaderParameter("If-Modified-Since") != null)
+					if (requestPath.IsEquals("_signin"))
+						await this.ProcessRequestOfSignInAsync(context).ConfigureAwait(false);
+
+					else if (requestPath.IsEquals("_signout"))
 					{
-						fileInfo = new FileInfo(filePath);
-						if (fileInfo.Exists)
-						{
-							lastModifed = fileInfo.LastWriteTime.ToUnixTimestamp();
-							isNotModified = lastModifed <= context.GetHeaderParameter("If-Modified-Since").FromHttpDateTime().ToUnixTimestamp();
-						}
-						else
-							isNotModified = false;
+						await context.SignOutAsync().ConfigureAwait(false);
+						context.User = new UserPrincipal();
+						context.Redirect("/_signin");
 					}
-					if (isNotModified)
+
+					else
 					{
-						context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModifed, "public", context.GetCorrelationID());
-						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync("StaticFiles", $"Success response with status code 304 to reduce traffic ({filePath})").ConfigureAwait(false);
-						return;
+						if (!context.User.Identity.IsAuthenticated)
+							context.Redirect("/_signin");
+
+						else if (!requestPath.IsEquals("") && !requestPath.IsEquals("/"))
+							await this.ProcessDownloadRequestAsync(context).ConfigureAwait(false);
+
+						else
+							await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
 					}
 				}
-
-				// check existed
-				fileInfo = fileInfo ?? new FileInfo(filePath);
-				if (!fileInfo.Exists)
-					throw new FileNotFoundException($"Not Found [{requestUri}]");
-
-				// prepare body
-				var fileMimeType = fileInfo.GetMimeType();
-				var fileContent = fileMimeType.IsEndsWith("json")
-					? JObject.Parse(await UtilityService.ReadTextFileAsync(fileInfo, null, Global.CancellationTokenSource.Token).ConfigureAwait(false)).ToString(Newtonsoft.Json.Formatting.Indented).ToBytes()
-					: await UtilityService.ReadBinaryFileAsync(fileInfo, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-
-				// response
-				context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-				{
-					{ "Content-Type", $"{fileMimeType}; charset=utf-8" },
-					{ "ETag", eTag },
-					{ "Last-Modified", $"{fileInfo.LastWriteTime.ToHttpString()}" },
-					{ "Cache-Control", "public" },
-					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
-					{ "X-CorrelationID", context.GetCorrelationID() }
-				});
-				await Task.WhenAll(
-					context.WriteAsync(fileContent, Global.CancellationTokenSource.Token),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync("StaticFiles", $"Success response ({filePath} - {fileInfo.Length:#,##0} bytes)")
-				).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await context.WriteLogsAsync("StaticFiles", $"Failure response [{requestUri}]", ex).ConfigureAwait(false);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-			}
-		}
-		#endregion
-
-		internal async Task ProcessStorageRequestAsync(HttpContext context)
-		{
-			var requestPath = context.GetRequestPathSegments().First().ToLower();
-
-			if (requestPath.IsEquals("_signin"))
-				await this.ProcessRequestOfSignInAsync(context).ConfigureAwait(false);
-
-			else if (requestPath.IsEquals("_signout"))
-			{
-				await context.SignOutAsync().ConfigureAwait(false);
-				context.User = new UserPrincipal();
-				context.Redirect("/_signin");
-			}
-
-			else
-			{
-				if (!context.User.Identity.IsAuthenticated)
-					context.Redirect("/_signin");
-
-				else if (!requestPath.IsEquals("") && !requestPath.IsEquals("/"))
-					await this.ProcessDownloadRequestAsync(context).ConfigureAwait(false);
-
-				else
-					await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
 			}
 		}
 

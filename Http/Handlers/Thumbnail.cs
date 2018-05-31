@@ -11,8 +11,10 @@ using System.Collections.Generic;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Caching;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -21,10 +23,12 @@ namespace net.vieapps.Services.Files
 	public class ThumbnailHandler : FileHttpHandler
 	{
 		ILogger Logger { get; set; }
+		ICache Cache { get; set; }
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			this.Logger = Components.Utility.Logger.CreateLogger<ThumbnailHandler>();
+			this.Cache = Global.ServiceProvider.GetService<ICache>();
 
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
 				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
@@ -39,7 +43,7 @@ namespace net.vieapps.Services.Files
 		{
 			// check "If-Modified-Since" request to reduce traffict
 			var requestUri = context.GetRequestUri();
-			var eTag = "Thumbnail#" + $"{requestUri}".ToLower().GetMD5();
+			var eTag = "Thumbnail#" + $"{requestUri}".ToLower().GenerateUUID();
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
@@ -113,7 +117,7 @@ namespace net.vieapps.Services.Files
 				var masterKey = "Thumbnnail#" + info.FilePath.ToLower().GenerateUUID();
 				var detailKey = $"{masterKey}x{info.Width}x{info.Height}x{info.AsPng}x{info.AsBig}x{info.Cropped}x{info.CroppedPosition}".ToLower();
 
-				var thumbnail = await FileHttpHandler.Cache.GetAsync<byte[]>(detailKey, cancelToken).ConfigureAwait(false);
+				var thumbnail = await this.Cache.GetAsync<byte[]>(detailKey, cancelToken).ConfigureAwait(false);
 				if (thumbnail != null)
 					return thumbnail;
 
@@ -133,12 +137,12 @@ namespace net.vieapps.Services.Files
 					thumbnail = stream.ToBytes();
 				}
 
-				var keys = await FileHttpHandler.Cache.GetAsync<HashSet<string>>(masterKey, cancelToken).ConfigureAwait(false) ?? new HashSet<string>();
+				var keys = await this.Cache.GetAsync<HashSet<string>>(masterKey, cancelToken).ConfigureAwait(false) ?? new HashSet<string>();
 				keys.Append(detailKey);
 
 				await Task.WhenAll(
-					FileHttpHandler.Cache.SetAsync(masterKey, keys, 0, cancelToken),
-					FileHttpHandler.Cache.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancelToken)
+					this.Cache.SetAsync(masterKey, keys, 0, cancelToken),
+					this.Cache.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancelToken)
 				).ConfigureAwait(false);
 
 				return thumbnail;
@@ -147,13 +151,13 @@ namespace net.vieapps.Services.Files
 			// do the generate process
 			try
 			{
-				var thumbnnail = new byte[0];
+				var thumbnail = new byte[0];
 				using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 				{
 					var generateThumbnailTask = generateAsync(cts.Token);
 					if (await gotRightsAsync(cts.Token).ConfigureAwait(false))
 					{
-						thumbnnail = await generateThumbnailTask.ConfigureAwait(false);
+						thumbnail = await generateThumbnailTask.ConfigureAwait(false);
 						context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
 						{
 							{ "Cache-Control", "public" },
@@ -164,13 +168,13 @@ namespace net.vieapps.Services.Files
 					else
 					{
 						if (!context.User.Identity.IsAuthenticated)
-							context.Response.Redirect(context.GetTransferToPassportUrl());
+							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
 						else
 							throw new AccessDeniedException();
 					}
 				}
 				await Task.WhenAll(
-					context.WriteAsync(thumbnnail, $"image/{(info.AsPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken),
+					context.WriteAsync(thumbnail, $"image/{(info.AsPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken),
 					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Thumbnails", $"Successfully show thumbnail image [{fileInfo.FullName}]")
 				).ConfigureAwait(false);
 			}

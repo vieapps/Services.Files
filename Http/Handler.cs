@@ -71,9 +71,9 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
+			var requestPath = context.GetRequestPathSegments(true).First();
 
 			// request to favicon.ico file
-			var requestPath = context.GetRequestPathSegments().First().ToLower();
 			if (requestPath.IsEquals("favicon.ico"))
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -83,11 +83,11 @@ namespace net.vieapps.Services.Files
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
 			{
-				await this.ProcessStaticRequestAsync(context).ConfigureAwait(false);
+				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 				return;
 			}
 
-			// request  to filess
+			// request  to files
 			if (!Handler.Handlers.TryGetValue(requestPath, out Type type))
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -161,80 +161,6 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		internal async Task ProcessStaticRequestAsync(HttpContext context)
-		{
-			var requestUri = context.GetRequestUri();
-			try
-			{
-				// prepare
-				FileInfo fileInfo = null;
-				var pathSegments = requestUri.GetRequestPathSegments();
-
-				var filePath = (pathSegments[0].IsEquals("statics")
-					? UtilityService.GetAppSetting("Path:StaticFiles", Global.RootPath + "/data-files/statics")
-					: Global.RootPath) + ("/" + string.Join("/", pathSegments)).Replace("//", "/").Replace(@"\", "/").Replace('/', Path.DirectorySeparatorChar);
-				if (pathSegments[0].IsEquals("statics"))
-					filePath = filePath.Replace($"{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}statics{Path.DirectorySeparatorChar}");
-
-				// headers to reduce traffic
-				var eTag = "Static#" + $"{requestUri}".ToLower().GenerateUUID();
-				if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")))
-				{
-					var isNotModified = true;
-					var lastModifed = DateTime.Now.ToUnixTimestamp();
-					if (context.GetHeaderParameter("If-Modified-Since") != null)
-					{
-						fileInfo = new FileInfo(filePath);
-						if (fileInfo.Exists)
-						{
-							lastModifed = fileInfo.LastWriteTime.ToUnixTimestamp();
-							isNotModified = lastModifed <= context.GetHeaderParameter("If-Modified-Since").FromHttpDateTime().ToUnixTimestamp();
-						}
-						else
-							isNotModified = false;
-					}
-					if (isNotModified)
-					{
-						context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModifed, "public", context.GetCorrelationID());
-						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync("StaticFiles", $"Success response with status code 304 to reduce traffic ({filePath})").ConfigureAwait(false);
-						return;
-					}
-				}
-
-				// check existed
-				fileInfo = fileInfo ?? new FileInfo(filePath);
-				if (!fileInfo.Exists)
-					throw new FileNotFoundException($"Not Found [{requestUri}]");
-
-				// prepare body
-				var fileMimeType = fileInfo.GetMimeType();
-				var fileContent = fileMimeType.IsEndsWith("json")
-					? JObject.Parse(await UtilityService.ReadTextFileAsync(fileInfo, null, Global.CancellationTokenSource.Token).ConfigureAwait(false)).ToString(Newtonsoft.Json.Formatting.Indented).ToBytes()
-					: await UtilityService.ReadBinaryFileAsync(fileInfo, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-
-				// response
-				context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-				{
-					{ "Content-Type", $"{fileMimeType}; charset=utf-8" },
-					{ "ETag", eTag },
-					{ "Last-Modified", $"{fileInfo.LastWriteTime.ToHttpString()}" },
-					{ "Cache-Control", "public" },
-					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
-					{ "X-CorrelationID", context.GetCorrelationID() }
-				});
-				await Task.WhenAll(
-					context.WriteAsync(fileContent, Global.CancellationTokenSource.Token),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync("StaticFiles", $"Success response ({filePath} - {fileInfo.Length:#,##0} bytes)")
-				).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await context.WriteLogsAsync("StaticFiles", $"Failure response [{requestUri}]", ex).ConfigureAwait(false);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-			}
-		}
-
 		#region  Global settings & helpers
 		internal static Dictionary<string, Type> Handlers { get; private set; } = new Dictionary<string, Type>();
 
@@ -277,20 +203,6 @@ namespace net.vieapps.Services.Files
 		static string _AttachmentFilesPath = null;
 
 		internal static string AttachmentFilesPath => Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments")));
-
-		static string _UsersHttpUri = null;
-
-		internal static string UsersHttpUri
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(Handler._UsersHttpUri))
-					Handler._UsersHttpUri = UtilityService.GetAppSetting("HttpUri:Users", "https://aid.vieapps.net");
-				if (!Handler._UsersHttpUri.EndsWith("/"))
-					Handler._UsersHttpUri += "/";
-				return Handler._UsersHttpUri;
-			}
-		}
 
 		internal static async Task<Attachment> GetAttachmentAsync(string id, Session session = null, CancellationToken cancellationToken = default(CancellationToken))
 			=> string.IsNullOrWhiteSpace(id)
@@ -377,16 +289,6 @@ namespace net.vieapps.Services.Files
 		{
 			var session = context.GetSession();
 			await Task.Delay(0);
-		}
-
-		internal static string GetTransferToPassportUrl(this HttpContext context, string url = null)
-		{
-			url = url ?? $"{context.GetRequestUri()}";
-			return Handler.UsersHttpUri + "validator"
-				+ "?aut=" + (UtilityService.NewUUID.Left(5) + "-" + (context.User.Identity.IsAuthenticated ? "ON" : "OFF")).Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&uid=" + (context.User.Identity.IsAuthenticated ? (context.User.Identity as UserIdentity).ID : "").Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&uri=" + url.Encrypt(Global.EncryptionKey).ToBase64Url(true)
-				+ "&rdr=" + UtilityService.GetRandomNumber().ToString().Encrypt(Global.EncryptionKey).ToBase64Url(true);
 		}
 	}
 	#endregion

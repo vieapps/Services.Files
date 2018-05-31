@@ -31,8 +31,9 @@ namespace net.vieapps.Services.Files
 			if (!context.Request.Method.IsEquals("GET"))
 				throw new InvalidRequestException();
 
-			// generate
 			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
+
+			// generate
 			var data = new ArraySegment<byte>(new byte[0]);
 			var size = 300;
 			var stopwatch = Stopwatch.StartNew();
