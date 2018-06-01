@@ -15,7 +15,7 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Files
 {
-	public class DownloadHandler : FileHttpHandler
+	public class DownloadHandler : Services.FileHandler
 	{
 		ILogger Logger { get; set; }
 

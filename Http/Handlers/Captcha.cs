@@ -19,7 +19,7 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Files
 {
-	public class CaptchaHandler : FileHttpHandler
+	public class CaptchaHandler : Services.FileHandler
 	{
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{

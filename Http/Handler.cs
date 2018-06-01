@@ -151,7 +151,7 @@ namespace net.vieapps.Services.Files
 			// process the request to files
 			try
 			{
-				await (type.CreateInstance() as FileHttpHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				await (type.CreateInstance() as Services.FileHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -187,7 +187,7 @@ namespace net.vieapps.Services.Files
 						.ForEach(node =>
 						{
 							var type = Type.GetType(node.Attributes["type"].Value);
-							if (type != null && type.CreateInstance() is FileHttpHandler)
+							if (type != null && type.CreateInstance() is Services.FileHandler)
 								Handler.Handlers[node.Attributes["key"].Value] = type;
 						});
 		}
@@ -208,16 +208,16 @@ namespace net.vieapps.Services.Files
 			=> string.IsNullOrWhiteSpace(id)
 				? null
 				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
-				{
-					ServiceName = "files",
-					ObjectName = "attachment",
-					Verb = "GET",
-					Query = new Dictionary<string, string>
+					{
+						ServiceName = "files",
+						ObjectName = "attachment",
+						Verb = "GET",
+						Query = new Dictionary<string, string>
 						{
 							{ "object-identity", id }
 						},
-					CorrelationID = Global.GetCorrelationID()
-				}, cancellationToken)
+						CorrelationID = Global.GetCorrelationID()
+					}, cancellationToken)
 				 ).FromJson<Attachment>();
 		#endregion
 

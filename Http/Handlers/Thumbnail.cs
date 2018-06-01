@@ -20,7 +20,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Files
 {
-	public class ThumbnailHandler : FileHttpHandler
+	public class ThumbnailHandler : Services.FileHandler
 	{
 		ILogger Logger { get; set; }
 		ICache Cache { get; set; }

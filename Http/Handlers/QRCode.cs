@@ -21,7 +21,7 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Files
 {
-	public class QRCodeHandler : FileHttpHandler
+	public class QRCodeHandler : Services.FileHandler
 	{
 		ILogger Logger { get; set; }
 
