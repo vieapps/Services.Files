@@ -284,14 +284,17 @@ namespace net.vieapps.Services.Files.Storages
 						throw new WrongAccountException();
 
 					// sign-in with Windows AD
-					var body = new JObject()
+					var body = new JObject
 					{
 						{ "Type", "Windows" },
 						{ "Email", (account.Trim().ToLower() + "@" + this.AccountDomain).Encrypt(Global.EncryptionKey) },
 						{ "Password", password.Encrypt(Global.EncryptionKey) },
 					}.ToString(Newtonsoft.Json.Formatting.None);
 
-					await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Session", "PUT")
+					var session = context.GetSession();
+					session.AppName = "Files Storages HTTP Service";
+
+					await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "PUT")
 					{
 						Body = body,
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -307,7 +310,7 @@ namespace net.vieapps.Services.Files.Storages
 						if (string.IsNullOrWhiteSpace(otp))
 							throw new WrongAccountException();
 
-						await context.CallServiceAsync(new RequestInfo(context.GetSession(), this.AccountOtp)
+						await context.CallServiceAsync(new RequestInfo(session, this.AccountOtp)
 						{
 							Extra = this.AccountOtp.IsEquals("AuthenticatorOTP")
 							? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -352,11 +355,11 @@ namespace net.vieapps.Services.Files.Storages
 
 					await Task.WhenAll(
 						Task.Delay(567 + ((attempt - 1) * 5678)),
-						this.Cache.SetAsync($"Attempt#{context.Connection.RemoteIpAddress}", attempt)
+						this.Cache.SetAsync($"Attempt#{context.Connection.RemoteIpAddress}", attempt),
+						context.WriteLogsAsync("SignIn", $"Failure attempt to sign-in ({attempt:#,##0} - {context.Connection.RemoteIpAddress}): {exception.Message}", exception)
 					).ConfigureAwait(false);
 
 					// prepare error
-					await context.WriteLogsAsync("SignIn", "Error occurred while signing-in", exception).ConfigureAwait(false);
 					error = exception is WampException
 						? (exception as WampException).GetDetails().Item2
 						: exception.Message;
@@ -417,6 +420,7 @@ namespace net.vieapps.Services.Files.Storages
 				(sender, args) =>
 				{
 					Global.Logger.LogInformation($"Incomming channel to WAMP router is established - Session ID: {args.SessionId}");
+					WAMPConnections.IncommingChannel.Update(WAMPConnections.IncommingChannelSessionID, Global.ServiceName, $"Incomming (Files {Global.ServiceName} HTTP service)");
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
@@ -427,6 +431,7 @@ namespace net.vieapps.Services.Files.Storages
 				(sender, args) =>
 				{
 					Global.Logger.LogInformation($"Outgoing channel to WAMP router is established - Session ID: {args.SessionId}");
+					WAMPConnections.OutgoingChannel.Update(WAMPConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing (Files {Global.ServiceName} HTTP service)");
 					try
 					{
 						Task.WaitAll(new[] { Global.InitializeLoggingServiceAsync(), Global.InitializeRTUServiceAsync() }, waitingTimes > 0 ? waitingTimes : 6789, Global.CancellationTokenSource.Token);
