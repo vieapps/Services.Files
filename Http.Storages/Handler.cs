@@ -419,9 +419,9 @@ namespace net.vieapps.Services.Files.Storages
 			Global.OpenWAMPChannels(
 				(sender, args) =>
 				{
-					Global.Logger.LogInformation($"Incomming channel to WAMP router is established - Session ID: {args.SessionId}");
-					WAMPConnections.IncommingChannel.Update(WAMPConnections.IncommingChannelSessionID, Global.ServiceName, $"Incomming (Files {Global.ServiceName} HTTP service)");
-					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
+					Global.Logger.LogInformation($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
+					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)");
+					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
 							async (message) => await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false),

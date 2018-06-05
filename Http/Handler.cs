@@ -228,10 +228,10 @@ namespace net.vieapps.Services.Files
 			Global.OpenWAMPChannels(
 				(sender, args) =>
 				{
-					Global.Logger.LogInformation($"Incomming channel to WAMP router is established - Session ID: {args.SessionId}");
-					WAMPConnections.IncommingChannel.Update(WAMPConnections.IncommingChannelSessionID, Global.ServiceName, $"Incomming ({Global.ServiceName} HTTP service)");
+					Global.Logger.LogInformation($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
+					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
 					Global.InterCommunicateMessageUpdater?.Dispose();
-					Global.InterCommunicateMessageUpdater = WAMPConnections.IncommingChannel.RealmProxy.Services
+					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 						.Subscribe(
 							async (message) =>
