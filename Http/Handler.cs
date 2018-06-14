@@ -236,15 +236,20 @@ namespace net.vieapps.Services.Files
 						.Subscribe(
 							async (message) =>
 							{
+								var correlationID = UtilityService.NewUUID;
 								try
 								{
 									await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
-									if (Global.IsDebugLogEnabled)
-										await Global.WriteLogsAsync(Global.Logger, "RTU", $"Process an inter-communicate message successful {message?.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}").ConfigureAwait(false);
+									if (Global.IsDebugResultsEnabled)
+										await Global.WriteLogsAsync(Global.Logger, "RTU",
+											$"Successfully process an inter-communicate message" + "\r\n" +
+											$"- Type: {message?.Type}" + "\r\n" +
+											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
+										, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 								}
 							},
 							exception => Global.WriteLogs(Global.Logger, "RTU", $"{exception.Message}", exception)

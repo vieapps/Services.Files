@@ -39,8 +39,8 @@ namespace net.vieapps.Services.Files.Storages
 			WebHost.CreateDefaultBuilder(args)
 				.CaptureStartupErrors(true)
 				.UseStartup<Startup>()
-				.UseKestrel()
-				.UseUrls(args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027"))
+				.UseKestrel(options => options.AddServerHeader = false)
+				.UseUrls(args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "") ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027").Trim())
 				.Build()
 				.Run();
 		}
@@ -81,14 +81,6 @@ namespace net.vieapps.Services.Files.Storages
 				{
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
-				});
-
-			// IIS integration
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-				services.Configure<IISOptions>(options =>
-				{
-					options.ForwardClientCertificate = false;
-					options.AutomaticAuthentication = false;
 				});
 		}
 
@@ -136,10 +128,7 @@ namespace net.vieapps.Services.Files.Storages
 			Handler.OpenWAMPChannels();
 
 			// middleware
-			app.UseForwardedHeaders(new ForwardedHeadersOptions
-			{
-				ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-			});
+			app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto });
 			app.UseStatusCodeHandler();
 			app.UseResponseCompression();
 			app.UseCache();
@@ -150,8 +139,7 @@ namespace net.vieapps.Services.Files.Storages
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
 			{
-				if (environment.IsDevelopment() || Environment.UserInteractive)
-					Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027")}");
+				Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8027")}");
 				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"Root path: {Global.RootPath}");
 				Global.Logger.LogInformation($"Logs path: {UtilityService.GetAppSetting("Path:Logs")}");
@@ -163,7 +151,7 @@ namespace net.vieapps.Services.Files.Storages
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
 
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is started - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 

@@ -38,8 +38,8 @@ namespace net.vieapps.Services.Files
 			WebHost.CreateDefaultBuilder(args)
 				.CaptureStartupErrors(true)
 				.UseStartup<Startup>()
-				.UseKestrel()
-				.UseUrls(args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "").Trim() ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025"))
+				.UseKestrel(options => options.AddServerHeader = false)
+				.UseUrls(args.FirstOrDefault(a => a.IsStartsWith("/listenuri:"))?.Replace("/listenuri:", "") ?? UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025").Trim())
 				.Build()
 				.Run();
 		}
@@ -80,14 +80,6 @@ namespace net.vieapps.Services.Files
 				{
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
-				});
-
-			// IIS integration
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-				services.Configure<IISOptions>(options =>
-				{
-					options.ForwardClientCertificate = false;
-					options.AutomaticAuthentication = false;
 				});
 		}
 
@@ -137,10 +129,7 @@ namespace net.vieapps.Services.Files
 			Handler.OpenWAMPChannels();
 
 			// middleware
-			app.UseForwardedHeaders(new ForwardedHeadersOptions
-			{
-				ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-			});
+			app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto });
 			app.UseStatusCodeHandler();
 			app.UseResponseCompression();
 			app.UseCache();
@@ -151,8 +140,7 @@ namespace net.vieapps.Services.Files
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
 			{
-				if (environment.IsDevelopment() || Environment.UserInteractive)
-					Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025")}");
+				Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8025")}");
 				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service URI: {UtilityService.GetAppSetting("HttpUri:APIs")}");
 				Global.Logger.LogInformation($"Files HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Files")}");
@@ -167,7 +155,7 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
 
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 
