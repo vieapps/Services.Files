@@ -44,18 +44,26 @@ namespace net.vieapps.Services.Files.Storages
 
 		public async Task Invoke(HttpContext context)
 		{
-			// process the request
-			await this.ProcessRequestAsync(context).ConfigureAwait(false);
+			// load balancing health check
+			if (context.Request.Path.Value.IsEquals("/load-balancing-health-check"))
+				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
-			// invoke next middleware
-			try
+			// request of storages
+			else
 			{
-				await this.Next.Invoke(context).ConfigureAwait(false);
-			}
-			catch (InvalidOperationException) { }
-			catch (Exception ex)
-			{
-				Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
+				// process the request
+				await this.ProcessRequestAsync(context).ConfigureAwait(false);
+
+				// invoke next middleware
+				try
+				{
+					await this.Next.Invoke(context).ConfigureAwait(false);
+				}
+				catch (InvalidOperationException) { }
+				catch (Exception ex)
+				{
+					Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
+				}
 			}
 		}
 
