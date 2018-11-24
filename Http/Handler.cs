@@ -194,6 +194,16 @@ namespace net.vieapps.Services.Files
 						.ForEach(node =>
 						{
 							var type = Type.GetType(node.Attributes["type"].Value);
+							if (type == null)
+								try
+								{
+									var typeInfo = node.Attributes["type"].Value.ToArray();
+									type = new AssemblyLoader(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{typeInfo[1]}.dll")).Assembly.GetExportedTypes().FirstOrDefault(serviceType => typeInfo[0].Equals(serviceType.ToString()));
+								}
+								catch (Exception ex)
+								{
+									Global.Logger.LogError($"Cannot load the type \"{node.Attributes["type"].Value}\" => {ex.Message}", ex);
+								}
 							if (type != null && type.CreateInstance() is Services.FileHandler)
 								Handler.Handlers[node.Attributes["key"].Value] = type;
 						});
@@ -215,16 +225,16 @@ namespace net.vieapps.Services.Files
 			=> string.IsNullOrWhiteSpace(id)
 				? null
 				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
-					{
-						ServiceName = "files",
-						ObjectName = "attachment",
-						Verb = "GET",
-						Query = new Dictionary<string, string>
+				{
+					ServiceName = "files",
+					ObjectName = "attachment",
+					Verb = "GET",
+					Query = new Dictionary<string, string>
 						{
 							{ "object-identity", id }
 						},
-						CorrelationID = Global.GetCorrelationID()
-					}, cancellationToken)
+					CorrelationID = Global.GetCorrelationID()
+				}, cancellationToken)
 				 ).FromJson<Attachment>();
 		#endregion
 

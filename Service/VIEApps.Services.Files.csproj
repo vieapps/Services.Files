@@ -9,10 +9,10 @@
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>
 		<Copyright>© 2018 VIEApps.net</Copyright>
-		<Version>10.1.2.1801</Version>
-		<AssemblyVersion>10.1.2.1801</AssemblyVersion>
-		<FileVersion>10.1.2.1801</FileVersion>
-		<InformationalVersion>v10.1.netstandard-2+rev:2018.01.02</InformationalVersion>
+		<Version>10.2.1810.1</Version>
+		<AssemblyVersion>10.2.1810.1</AssemblyVersion>
+		<FileVersion>10.2.1810.1</FileVersion>
+		<InformationalVersion>v10.1.netstandard-2+rev:2018.10.08</InformationalVersion>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

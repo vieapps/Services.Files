@@ -68,7 +68,6 @@ namespace net.vieapps.Services.Files.Storages
 		}
 
 		#region Prepare attributes
-		bool AlwaysUseSecureConnections { get; set; } = true;
 		Dictionary<string, List<string>> Maps { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 		string AccountDomain { get; set; } = "company.com";
 		string AccountOtp { get; set; } = "AuthenticatorOTP";
@@ -84,10 +83,6 @@ namespace net.vieapps.Services.Files.Storages
 
 		void Prepare()
 		{
-			// secue connection
-			this.AlwaysUseSecureConnections = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false"));
-
-			// maps
 			if (ConfigurationManager.GetSection("net.vieapps.maps") is AppConfigurationSectionHandler config)
 			{
 				this.AccountDomain = config.Section.Attributes["accountDomain"]?.Value ?? "company.com";
@@ -156,32 +151,26 @@ namespace net.vieapps.Services.Files.Storages
 			// other
 			else
 			{
-				if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
-					context.Redirect($"{requestUri}".Replace("http://", "https://"));
+				if (requestPath.IsEquals("_signin"))
+					await this.ProcessRequestOfSignInAsync(context).ConfigureAwait(false);
+
+				else if (requestPath.IsEquals("_signout"))
+				{
+					await context.SignOutAsync().ConfigureAwait(false);
+					context.User = new UserPrincipal();
+					context.Redirect("/_signin");
+				}
 
 				else
 				{
-					if (requestPath.IsEquals("_signin"))
-						await this.ProcessRequestOfSignInAsync(context).ConfigureAwait(false);
-
-					else if (requestPath.IsEquals("_signout"))
-					{
-						await context.SignOutAsync().ConfigureAwait(false);
-						context.User = new UserPrincipal();
+					if (!context.User.Identity.IsAuthenticated)
 						context.Redirect("/_signin");
-					}
+
+					else if (!requestPath.IsEquals("") && !requestPath.IsEquals("/"))
+						await this.ProcessDownloadRequestAsync(context).ConfigureAwait(false);
 
 					else
-					{
-						if (!context.User.Identity.IsAuthenticated)
-							context.Redirect("/_signin");
-
-						else if (!requestPath.IsEquals("") && !requestPath.IsEquals("/"))
-							await this.ProcessDownloadRequestAsync(context).ConfigureAwait(false);
-
-						else
-							await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
-					}
+						await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
 				}
 			}
 		}
@@ -425,17 +414,17 @@ namespace net.vieapps.Services.Files.Storages
 		{
 			Global.Logger.LogInformation($"Attempting to connect to WAMP router [{WAMPConnections.GetRouterStrInfo()}]");
 			Global.OpenWAMPChannels(
-				(sender, args) =>
+(Action<object, WampSharp.V2.Realm.WampSessionCreatedEventArgs>)((sender, args) =>
 				{
 					Global.Logger.LogInformation($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
 					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)");
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
+						.GetSubject<Services.CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
-							async (message) => await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false),
+(Action<CommunicateMessage>)(async (CommunicateMessage message) => await Handler.ProcessInterCommunicateMessageAsync((CommunicateMessage)message).ConfigureAwait(false)),
 							exception => Global.WriteLogs(Global.Logger, "RTU", $"{exception.Message}", exception)
 						);
-				},
+				}),
 				(sender, args) =>
 				{
 					Global.Logger.LogInformation($"Outgoing channel to WAMP router is established - Session ID: {args.SessionId}");
