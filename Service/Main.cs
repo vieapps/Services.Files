@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Files
 						return await UtilityService.ExecuteTask<JObject>(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
 
 					default:
-						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
 			}
 			catch (Exception ex)

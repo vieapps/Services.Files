@@ -224,8 +224,9 @@ namespace net.vieapps.Services.Files
 		internal static async Task<Attachment> GetAttachmentAsync(string id, Session session = null, CancellationToken cancellationToken = default(CancellationToken))
 			=> string.IsNullOrWhiteSpace(id)
 				? null
-				: (await Global.CallServiceAsync(new RequestInfo(session ?? Global.GetSession())
+				: (await Global.CallServiceAsync(new RequestInfo
 				{
+					Session = session ?? Global.GetSession(),
 					ServiceName = "files",
 					ObjectName = "attachment",
 					Verb = "GET",
@@ -234,8 +235,7 @@ namespace net.vieapps.Services.Files
 							{ "object-identity", id }
 						},
 					CorrelationID = Global.GetCorrelationID()
-				}, cancellationToken)
-				 ).FromJson<Attachment>();
+				}, cancellationToken).ConfigureAwait(false)).FromJson<Attachment>();
 		#endregion
 
 		#region Helper: WAMP connections & real-time updaters
