@@ -15,7 +15,7 @@
 				"ASPNETCORE_ENVIRONMENT": "Development"
 			}
 		},
-		"VIEApps.Services.Files.Http": {
+		"Files.Http": {
 			"commandName": "Project",
 			"launchBrowser": false,
 			"environmentVariables": {

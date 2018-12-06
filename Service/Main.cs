@@ -18,10 +18,7 @@ namespace net.vieapps.Services.Files
 {
 	public class ServiceComponent : ServiceBase
 	{
-
-		public ServiceComponent() : base() { }
-
-		public override string ServiceName { get { return "Files"; } }
+		public override string ServiceName => "Files";
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
@@ -36,7 +33,7 @@ namespace net.vieapps.Services.Files
 						return new JObject();
 
 					case "captcha":
-						return await UtilityService.ExecuteTask<JObject>(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
+						return await UtilityService.ExecuteTask(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
@@ -54,10 +51,10 @@ namespace net.vieapps.Services.Files
 				throw new MethodAccessException(requestInfo.Verb);
 
 			var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
-			return new JObject()
+			return new JObject
 			{
 				{ "Code", code },
-				{ "Uri", UtilityService.GetAppSetting("HttpUri:Files", "https://afs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+				{ "Uri", UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
 			};
 		}
 
