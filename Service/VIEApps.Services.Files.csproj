@@ -4,6 +4,7 @@
 		<TargetFramework>netstandard2.0</TargetFramework>
 		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
 		<AssemblyName>VIEApps.Services.Files</AssemblyName>
+		<WarningLevel>3</WarningLevel>
 		<AssemblyTitle>VIEApps NGX Files</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
@@ -13,18 +14,6 @@
 		<FileVersion>10.2.1812.3</FileVersion>
 		<InformationalVersion>v10.2.netstandard-2+rev:2018.12.06-latest.components</InformationalVersion>
 	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
-	<ItemGroup>
-		<None Remove=".DS_Store" />
-	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\Base\VIEApps.Services.Base.csproj" />

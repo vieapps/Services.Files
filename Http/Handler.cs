@@ -78,7 +78,8 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
-			var requestPath = context.GetRequestPathSegments(true).First();
+			var requestUri = context.GetRequestUri();
+			var requestPath = requestUri.GetRequestPathSegments(true).First();
 
 			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico"))
@@ -87,14 +88,25 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			// request to static segments
-			else if (Global.StaticSegments.Contains(requestPath))
-			{
-				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
-				return;
-			}
+			if (Global.IsVisitLogEnabled)
+				await context.WriteLogsAsync(Global.Logger, "Visits", $"Request starting {context.Request.Method} => {requestUri} (IP: {context.Connection.RemoteIpAddress} - Agent: {context.Request.Headers["User-Agent"]}{(string.IsNullOrWhiteSpace(context.Request.Headers["Referrer"]) ? "" : $" - Origin: {context.Request.Headers["Origin"]}")}{(string.IsNullOrWhiteSpace(context.Request.Headers["Referrer"]) ? "" : $" - Refer: {context.Request.Headers["Referrer"]}")})").ConfigureAwait(false);
 
-			// request  to files
+			// request to static segments
+			if (Global.StaticSegments.Contains(requestPath))
+				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
+
+			// request to files
+			else
+				await this.ProcessFileRequestAsync(context).ConfigureAwait(false);
+
+			if (Global.IsVisitLogEnabled)
+				await context.WriteLogsAsync(Global.Logger, "Visits", $"Request finished in {context.GetExecutionTimes()}").ConfigureAwait(false);
+		}
+
+		internal async Task ProcessFileRequestAsync(HttpContext context)
+		{
+			// prepare handler
+			var requestPath = context.GetRequestPathSegments(true).First();
 			if (!Handler.Handlers.TryGetValue(requestPath, out Type type))
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -187,25 +199,25 @@ namespace net.vieapps.Services.Files
 			};
 
 			// additional handlers
-			if (ConfigurationManager.GetSection("net.vieapps.files.handlers") is AppConfigurationSectionHandler config)
-				if (config.Section.SelectNodes("handler") is XmlNodeList nodes)
-					nodes.ToList()
-						.Where(node => !string.IsNullOrWhiteSpace(node.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(node.Attributes["key"].Value))
-						.ForEach(node =>
+			if (ConfigurationManager.GetSection("net.vieapps.services.files.http.handlers") is AppConfigurationSectionHandler svcConfig)
+				if (svcConfig.Section.SelectNodes("handler") is XmlNodeList handlers)
+					handlers.ToList()
+						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value))
+						.ForEach(handler =>
 						{
-							var type = Type.GetType(node.Attributes["type"].Value);
+							var type = Type.GetType(handler.Attributes["type"].Value);
 							if (type == null)
 								try
 								{
-									var typeInfo = node.Attributes["type"].Value.ToArray();
+									var typeInfo = handler.Attributes["type"].Value.ToArray();
 									type = new AssemblyLoader(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{typeInfo[1]}.dll")).Assembly.GetExportedTypes().FirstOrDefault(serviceType => typeInfo[0].Equals(serviceType.ToString()));
 								}
 								catch (Exception ex)
 								{
-									Global.Logger.LogError($"Cannot load the type \"{node.Attributes["type"].Value}\" => {ex.Message}", ex);
+									Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"].Value}) => {ex.Message}", ex);
 								}
 							if (type != null && type.CreateInstance() is Services.FileHandler)
-								Handler.Handlers[node.Attributes["key"].Value] = type;
+								Handler.Handlers[handler.Attributes["key"].Value] = type;
 						});
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
@@ -287,6 +299,8 @@ namespace net.vieapps.Services.Files
 								Global.InitializeRTUServiceAsync()
 							).ConfigureAwait(false);
 							Global.Logger.LogInformation("Helper services are succesfully initialized");
+							while (WAMPConnections.IncomingChannel == null || WAMPConnections.OutgoingChannel == null)
+								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{

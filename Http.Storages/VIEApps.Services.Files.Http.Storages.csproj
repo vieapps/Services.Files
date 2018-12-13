@@ -6,6 +6,7 @@
 		<RootNamespace>net.vieapps.Services.Files.Storages</RootNamespace>
 		<StartupObject>net.vieapps.Services.Files.Storages.Startup</StartupObject>
 		<AssemblyName>VIEApps.Services.Files.Http.Storages</AssemblyName>
+		<WarningLevel>3</WarningLevel>
 		<AssemblyTitle>VIEApps NGX Files HTTP Storages</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
@@ -14,14 +15,6 @@
 		<AssemblyVersion>10.2.1812.3</AssemblyVersion>
 		<FileVersion>10.2.1812.3</FileVersion>
 		<InformationalVersion>v10.2.netcore-2.2+rev:2018.12.06-latest.components</InformationalVersion>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
 	</PropertyGroup>
 
 	<ItemGroup>

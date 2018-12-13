@@ -57,7 +57,8 @@ namespace net.vieapps.Services.Files
 				});
 
 			// authentication
-			services.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
+			services
+				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = "VIEApps-Auth";

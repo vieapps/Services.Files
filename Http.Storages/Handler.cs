@@ -73,9 +73,9 @@ namespace net.vieapps.Services.Files.Storages
 		string AccountOtp { get; set; } = "AuthenticatorOTP";
 		string AccountOtpDomain { get; set; } = "company.com";
 		bool AccountOtpSetup { get; set; } = false;
-		string DefaultFolder { get; set; } = "~/default";
-		bool IncludeSubFolders { get; set; } = false;
-		bool ShowNameOfSubFolders { get; set; } = false;
+		string DefaultDirectory { get; set; } = "~/default";
+		bool IncludeSubDirectories { get; set; } = false;
+		bool ShowNameOfSubDirectories { get; set; } = false;
 		string SortBy { get; set; } = "Name";
 		string SortMode { get; set; } = "Descending";
 		bool DirectFlush { get; set; } = false;
@@ -83,41 +83,41 @@ namespace net.vieapps.Services.Files.Storages
 
 		void Prepare()
 		{
-			if (ConfigurationManager.GetSection("net.vieapps.maps") is AppConfigurationSectionHandler config)
+			if (ConfigurationManager.GetSection("net.vieapps.services.files.http.storages.maps") is AppConfigurationSectionHandler svcConfig)
 			{
-				this.AccountDomain = config.Section.Attributes["accountDomain"]?.Value ?? "company.com";
-				this.AccountOtp = config.Section.Attributes["accountOtp"]?.Value ?? "AuthenticatorOTP";
-				this.AccountOtpDomain = config.Section.Attributes["accountOtpDomain"]?.Value;
+				this.AccountDomain = svcConfig.Section.Attributes["accountDomain"]?.Value ?? "company.com";
+				this.AccountOtp = svcConfig.Section.Attributes["accountOtp"]?.Value ?? "AuthenticatorOTP";
+				this.AccountOtpDomain = svcConfig.Section.Attributes["accountOtpDomain"]?.Value;
 				if (string.IsNullOrWhiteSpace(this.AccountOtpDomain))
 					this.AccountOtpDomain = this.AccountDomain;
-				this.AccountOtpSetup = "adotp".IsEquals(this.AccountOtp) && "true".IsEquals(config.Section.Attributes["accountOtpSetup"]?.Value ?? "false");
-				this.DefaultFolder = config.Section.Attributes["defaultFolder"]?.Value ?? "~/default";
-				if (this.DefaultFolder.StartsWith("~/"))
-					this.DefaultFolder = Global.RootPath + this.DefaultFolder.Right(this.DefaultFolder.Length - 2);
-				this.IncludeSubFolders = "true".IsEquals(config.Section.Attributes["includeSubFolders"]?.Value ?? "false");
-				this.ShowNameOfSubFolders = "true".IsEquals(config.Section.Attributes["showNameOfSubFolders"]?.Value ?? "false");
-				this.SortBy = config.Section.Attributes["sortBy"]?.Value ?? "Name";
+				this.AccountOtpSetup = "adotp".IsEquals(this.AccountOtp) && "true".IsEquals(svcConfig.Section.Attributes["accountOtpSetup"]?.Value ?? "false");
+				this.DefaultDirectory = svcConfig.Section.Attributes["defaultDirectory"]?.Value ?? "~/default";
+				if (this.DefaultDirectory.StartsWith("~/"))
+					this.DefaultDirectory = Global.RootPath + this.DefaultDirectory.Right(this.DefaultDirectory.Length - 2);
+				this.IncludeSubDirectories = "true".IsEquals(svcConfig.Section.Attributes["includeSubDirectories"]?.Value ?? "false");
+				this.ShowNameOfSubDirectories = "true".IsEquals(svcConfig.Section.Attributes["showNameOfDirectories"]?.Value ?? "false");
+				this.SortBy = svcConfig.Section.Attributes["sortBy"]?.Value ?? "Name";
 				if (string.IsNullOrWhiteSpace(this.SortBy) || (!this.SortBy.IsEquals("Name") && !this.SortBy.IsEquals("Time")))
 					this.SortBy = "Name";
-				this.SortMode = config.Section.Attributes["sortMode"]?.Value ?? "Descending";
+				this.SortMode = svcConfig.Section.Attributes["sortMode"]?.Value ?? "Descending";
 				if (string.IsNullOrWhiteSpace(this.SortMode) || (!this.SortMode.IsEquals("Ascending") && !this.SortMode.IsEquals("ASC") && !this.SortMode.IsEquals("Descending") && !this.SortMode.IsEquals("DESC")))
 					this.SortMode = "Descending";
-				this.DirectFlush = "true".IsEquals(config.Section.Attributes["directFlush"]?.Value ?? "false");
-				this.OnlyMappedAccounts = "true".IsEquals(config.Section.Attributes["onlyMappedAccounts"]?.Value ?? "false");
+				this.DirectFlush = "true".IsEquals(svcConfig.Section.Attributes["directFlush"]?.Value ?? "false");
+				this.OnlyMappedAccounts = "true".IsEquals(svcConfig.Section.Attributes["onlyMappedAccounts"]?.Value ?? "false");
 
-				if (config.Section.SelectNodes("map") is XmlNodeList maps)
+				if (svcConfig.Section.SelectNodes("map") is XmlNodeList maps)
 					maps.ToList().ForEach(map =>
 					{
 						var account = map.Attributes["account"]?.Value;
-						var folder = map.Attributes["folder"]?.Value;
-						if (string.IsNullOrWhiteSpace(folder))
-							folder = map.Attributes["folders"]?.Value;
+						var directory = map.Attributes["directory"]?.Value;
+						if (string.IsNullOrWhiteSpace(directory))
+							directory = map.Attributes["directories"]?.Value;
 						if (!string.IsNullOrWhiteSpace(account) && !this.Maps.ContainsKey(account.Trim().ToLower()))
 						{
-							var folders = string.IsNullOrWhiteSpace(folder)
-								? this.DefaultFolder.Trim().ToLower().ToList(';')
-								: folder.ToList(';').Select(f => (f.StartsWith("~/") ? Global.RootPath + f.Right(f.Length - 2) : f).Trim().ToLower()).ToList();
-							this.Maps.Add(account.Trim().ToLower(), folders);
+							var directories = string.IsNullOrWhiteSpace(directory)
+								? this.DefaultDirectory.Trim().ToLower().ToList(';')
+								: directory.ToList(';').Select(f => (f.StartsWith("~/") ? Global.RootPath + f.Right(f.Length - 2) : f).Trim().ToLower()).ToList();
+							this.Maps.Add(account.Trim().ToLower(), directories);
 						}
 					});
 			}
@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Files.Storages
 			Global.Logger.LogInformation(
 				$"==> Domain: {this.AccountDomain}" + "\r\n" +
 				$"==> OTP: {(this.AccountOtp.Equals("") ? "None" : this.AccountOtp)} [{this.AccountOtpDomain}]" + "\r\n" +
-				$"==> Default Folder: {this.DefaultFolder} [Include sub-folders: {this.IncludeSubFolders}]" + "\r\n" +
+				$"==> Default directory: {this.DefaultDirectory} [Include sub-directories: {this.IncludeSubDirectories}]" + "\r\n" +
 				$"==> Sort: {this.SortBy} {this.SortMode}" + "\r\n" +
 				$"==> Maps: \r\n\t\t{string.Join("\r\n\t\t", this.Maps.Select(m => $"{m.Key} ({m.Value.ToString(" - ")})"))}"
 			);
@@ -181,14 +181,14 @@ namespace net.vieapps.Services.Files.Storages
 			// get files
 			var paths = (this.Maps.ContainsKey(context.User.Identity.Name)
 				? this.Maps[context.User.Identity.Name]
-				: null) ?? this.DefaultFolder.Trim().ToLower().ToList(';');
+				: null) ?? this.DefaultDirectory.Trim().ToLower().ToList(';');
 
 			List<FileInfo> files = null;
 			await paths.ForEachAsync(async (path, index, token) =>
 			{
 				files = files == null
-					? await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubFolders, null, "Name", "ASC", token).ConfigureAwait(false)
-					: files.Concat(await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubFolders, null, "Name", "ASC", token).ConfigureAwait(false)).ToList();
+					? await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)
+					: files.Concat(await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)).ToList();
 			}, Global.CancellationTokenSource.Token, true, false).ConfigureAwait(false);
 
 			// sort
@@ -202,24 +202,24 @@ namespace net.vieapps.Services.Files.Storages
 					: files.OrderBy(file => file.LastWriteTime).ThenBy(file => file.FullName).ToList();
 
 			// prepare html
-			var folders = new Dictionary<string, string>();
-			paths.ForEach((p, i) => folders.Add(p, i.ToString()));
+			var directories = new Dictionary<string, string>();
+			paths.ForEach((p, i) => directories.Add(p, i.ToString()));
 
 			var html = "";
 			files.ForEach(file =>
 			{
 				var path = file.FullName.Substring(0, file.FullName.Length - file.Name.Length - 1).ToLower();
-				var fileUri = folders.ContainsKey(path)
-					? folders[path]
+				var fileUri = directories.ContainsKey(path)
+					? directories[path]
 					: null;
 				if (fileUri == null)
 				{
-					var folderPath = paths.First(p => path.IsStartsWith(p));
-					fileUri = folders[folderPath] + path.Substring(folderPath.Length).Replace(@"\", "/");
+					var directoryPath = paths.First(p => path.IsStartsWith(p));
+					fileUri = directories[directoryPath] + path.Substring(directoryPath.Length).Replace(@"\", "/");
 				}
 				fileUri += "/" + file.Name;
 				html += "<div><span><a href=\"" + fileUri + "\">"
-					+ (this.ShowNameOfSubFolders ? fileUri : file.Name)
+					+ (this.ShowNameOfSubDirectories ? fileUri : file.Name)
 					+ "</a></span>"
 					+ "<label>" + file.LastWriteTime.ToString("hh:mm tt @ dd/MM/yyyy") + "</label><label>" + UtilityService.GetFileSize(file) + "</label></div>" + "\r\n";
 			});
@@ -235,7 +235,7 @@ namespace net.vieapps.Services.Files.Storages
 			{
 				var paths = (this.Maps.ContainsKey(context.User.Identity.Name)
 					? this.Maps[context.User.Identity.Name]
-					: null) ?? new List<string> { this.DefaultFolder.Trim().ToLower() };
+					: null) ?? new List<string> { this.DefaultDirectory.Trim().ToLower() };
 				var folders = new Dictionary<string, string>();
 				paths.ForEach((p, i) => folders.Add(i.ToString(), p));
 
@@ -418,6 +418,7 @@ namespace net.vieapps.Services.Files.Storages
 				{
 					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
 					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)");
+					Global.InterCommunicateMessageUpdater?.Dispose();
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
@@ -438,6 +439,8 @@ namespace net.vieapps.Services.Files.Storages
 								Global.InitializeRTUServiceAsync()
 							).ConfigureAwait(false);
 							Global.Logger.LogInformation("Helper services are succesfully initialized");
+							while (WAMPConnections.IncomingChannel == null || WAMPConnections.OutgoingChannel == null)
+								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{
