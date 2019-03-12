@@ -80,6 +80,7 @@ namespace net.vieapps.Services.Files.Storages
 		string SortMode { get; set; } = "Descending";
 		bool DirectFlush { get; set; } = false;
 		bool OnlyMappedAccounts { get; set; } = false;
+		bool RedirectToHTTPS { get; set; } = false;
 
 		void Prepare()
 		{
@@ -104,6 +105,7 @@ namespace net.vieapps.Services.Files.Storages
 					this.SortMode = "Descending";
 				this.DirectFlush = "true".IsEquals(svcConfig.Section.Attributes["directFlush"]?.Value ?? "false");
 				this.OnlyMappedAccounts = "true".IsEquals(svcConfig.Section.Attributes["onlyMappedAccounts"]?.Value ?? "false");
+				this.RedirectToHTTPS = "true".IsEquals(svcConfig.Section.Attributes["redirectToHTTPS"]?.Value);
 
 				if (svcConfig.Section.SelectNodes("map") is XmlNodeList maps)
 					maps.ToList().ForEach(map =>
@@ -122,12 +124,13 @@ namespace net.vieapps.Services.Files.Storages
 					});
 			}
 
-			Global.Logger.LogInformation(
+			Global.Logger.LogInformation("Settings:" + "\r\n" +
 				$"==> Domain: {this.AccountDomain}" + "\r\n" +
 				$"==> OTP: {(this.AccountOtp.Equals("") ? "None" : this.AccountOtp)} [{this.AccountOtpDomain}]" + "\r\n" +
 				$"==> Default directory: {this.DefaultDirectory} [Include sub-directories: {this.IncludeSubDirectories}]" + "\r\n" +
 				$"==> Sort: {this.SortBy} {this.SortMode}" + "\r\n" +
-				$"==> Maps: \r\n\t\t{string.Join("\r\n\t\t", this.Maps.Select(m => $"{m.Key} ({m.Value.ToString(" - ")})"))}"
+				$"==> Maps: \r\n\t\t{(this.Maps.Count < 1? "None" : string.Join("\r\n\t\t", this.Maps.Select(m => $"{m.Key} ({m.Value.ToString(" - ")})")))}" + "\r\n" +
+				$"==> Redirect to HTTPS: {this.RedirectToHTTPS}"
 			);
 		}
 		#endregion
@@ -136,9 +139,17 @@ namespace net.vieapps.Services.Files.Storages
 		{
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
+			if (Global.IsVisitLogEnabled)
+				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
 
+			// redirect to HTTPs
 			var requestUri = context.GetRequestUri();
 			var requestPath = requestUri.GetRequestPathSegments(true).First();
+			if (this.RedirectToHTTPS && !requestUri.Scheme.IsEquals("https"))
+			{
+				context.Redirect($"{requestUri}".Replace("http://", "https://"));
+				return;
+			}
 
 			// favicon.ico
 			if (requestPath.IsEquals("favicon.ico"))
@@ -161,6 +172,14 @@ namespace net.vieapps.Services.Files.Storages
 					context.Redirect("/_signin");
 				}
 
+				else if (requestPath.IsEquals("_changepassword"))
+				{
+					if (!context.User.Identity.IsAuthenticated)
+						context.Redirect("/_signin");
+					else
+						await this.ProcessRequestOfChangePasswordAsync(context).ConfigureAwait(false);
+				}
+
 				else
 				{
 					if (!context.User.Identity.IsAuthenticated)
@@ -173,6 +192,9 @@ namespace net.vieapps.Services.Files.Storages
 						await this.ProcessBrowseRequestAsync(context).ConfigureAwait(false);
 				}
 			}
+
+			if (Global.IsVisitLogEnabled)
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
 		#region Show listing of files
@@ -273,31 +295,31 @@ namespace net.vieapps.Services.Files.Storages
 				try
 				{
 					// prepare
-					var account = context.Request.Form["Account"].First();
+					var username = context.Request.Form["Username"].First();
 					var password = context.Request.Form["Password"].First();
 					var otp = context.Request.Form["OTP"].First();
 
-					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
+					if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
 						throw new WrongAccountException();
 
 					// sign-in with Windows AD
 					var body = new JObject
 					{
-						{ "Type", "Windows" },
-						{ "Email", (account.Trim().ToLower() + "@" + this.AccountDomain).Encrypt(Global.EncryptionKey) },
+						{ "Domain", this.AccountDomain.Encrypt(Global.EncryptionKey) },
+						{ "Username", username.Trim().ToLower().Encrypt(Global.EncryptionKey) },
 						{ "Password", password.Encrypt(Global.EncryptionKey) },
 					}.ToString(Newtonsoft.Json.Formatting.None);
 
 					var session = context.GetSession();
 					session.AppName = "Files Storages HTTP Service";
 
-					await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "PUT")
+					await context.CallServiceAsync(new RequestInfo(session, "WindowsAD", "Account")
 					{
+						Verb = "POST",
 						Body = body,
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 						{
-							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) },
-							{ "x-no-account", "" }
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 						}
 					}).ConfigureAwait(false);
 
@@ -312,26 +334,25 @@ namespace net.vieapps.Services.Files.Storages
 							Extra = this.AccountOtp.IsEquals("AuthenticatorOTP")
 							? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
-								{ "ID", account.Trim().ToLower().Encrypt(Global.EncryptionKey) },
+								{ "ID", username.Trim().ToLower().Encrypt(Global.EncryptionKey) },
 								{ "Stamp", $"ADOTP#{this.AccountOtpDomain}".Encrypt(Global.EncryptionKey) },
 								{ "Password", otp.Encrypt(Global.EncryptionKey) }
 							}
 							: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
 								{ "Domain", this.AccountOtpDomain },
-								{ "Account", account.Trim() },
+								{ "Account", username.Trim() },
 								{ "OTP", otp }
 							}
 						}).ConfigureAwait(false);
 					}
 
 					// only mapped account
-					if (this.OnlyMappedAccounts && !this.Maps.ContainsKey(account.Trim().ToLower()))
+					if (this.OnlyMappedAccounts && !this.Maps.ContainsKey(username.Trim().ToLower()))
 						throw new UnauthorizedException("Your account is not authorized to complete the request!");
 
 					// update authenticate ticket
-					var userIdentity = new UserIdentity(account.Trim(), context.Session.Get<string>("SessionID") ?? UtilityService.NewUUID, CookieAuthenticationDefaults.AuthenticationScheme);
-					var userPrincipal = new UserPrincipal(userIdentity);
+					var userPrincipal = new UserPrincipal(new UserIdentity(username.Trim(), context.Session.Get<string>("SessionID") ?? UtilityService.NewUUID, CookieAuthenticationDefaults.AuthenticationScheme));
 					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false });
 					context.User = userPrincipal;
 
@@ -363,12 +384,73 @@ namespace net.vieapps.Services.Files.Storages
 				}
 
 			var html = @"<form method='post' action='_signin' autocomplete='off'>" + (!error.Equals("") ? "<span>" + error + "</span>" : "") + @"
-				<div><label>Account:</label><input type='text' id='Account' name='Account' maxlength='120'/></div>
+				<div><label>Username:</label><input type='text' id='Username' name='Username' maxlength='120'/></div>
 				<div><label>Password:</label><input type='password' id='Password' name='Password' maxlength='120'/></div>" +
 				(!this.AccountOtp.Equals("") ? "<div><label>OTP token:</label><input type='text' id='OTP' name='OTP' maxlength='11'/></div>" : "") + @"
 				<section><input type='submit' value='Sign In'/>" + (this.AccountOtpSetup ? "<span><a href='./_setup'>Setup</a></span>" : "") + @"</section>
 				</form>
-				<script>document.getElementById('Account').focus()</script>";
+				<script>document.getElementById('Username').focus()</script>";
+
+			await context.WriteAsync(this.GetBeginHtml(context) + html + this.GetEndHtml(context), "text/html", null, 0, "", TimeSpan.Zero).ConfigureAwait(false);
+		}
+		#endregion
+
+		#region Change passowrd
+		async Task ProcessRequestOfChangePasswordAsync(HttpContext context)
+		{
+			var error = "";
+			if (context.Request.Method.IsEquals("POST"))
+				try
+				{
+					// prepare
+					var oldPassword = context.Request.Form["OldPassword"].First();
+					var newPassword = context.Request.Form["NewPassword"].First();
+
+					if (string.IsNullOrWhiteSpace(oldPassword) || string.IsNullOrWhiteSpace(newPassword))
+						throw new WrongAccountException();
+
+					// sign-in with Windows AD
+					var body = new JObject
+					{
+						{ "Domain", this.AccountDomain.Encrypt(Global.EncryptionKey) },
+						{ "Username", context.User.Identity.Name.Encrypt(Global.EncryptionKey) },
+						{ "Password", newPassword.Encrypt(Global.EncryptionKey) },
+						{ "OldPassword", oldPassword.Trim().ToLower().Encrypt(Global.EncryptionKey) },
+					}.ToString(Newtonsoft.Json.Formatting.None);
+
+					var session = context.GetSession();
+					session.AppName = "Files Storages HTTP Service";
+
+					await context.CallServiceAsync(new RequestInfo(session, "WindowsAD", "Account")
+					{
+						Verb = "PUT",
+						Body = body,
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						}
+					}).ConfigureAwait(false);
+
+					// redirect to home
+					context.Redirect("/");
+					return;
+				}
+				catch (Exception exception)
+				{
+					await context.WriteLogsAsync("ChangePassword", $"Failure attempt to change password ({context.Connection.RemoteIpAddress})", exception).ConfigureAwait(false);
+
+					// prepare error
+					error = exception is WampException
+						? (exception as WampException).GetDetails().Item2
+						: exception.Message;
+				}
+
+			var html = @"<form method='post' action='_changepassword' autocomplete='off'>" + (!error.Equals("") ? "<span>" + error + "</span>" : "") + @"
+				<div><label>Old Password:</label><input type='password' id='OldPassword' name='OldPassword' maxlength='120'/></div>
+				<div><label>New Password:</label><input type='password' id='NewPassword' name='NewPassword' maxlength='120'/></div>
+				<section><input type='submit' value='Change password'/><span><a href='./'>Cancel</a></span></section>
+				</form>
+				<script>document.getElementById('OldPassword').focus()</script>";
 
 			await context.WriteAsync(this.GetBeginHtml(context) + html + this.GetEndHtml(context), "text/html", null, 0, "", TimeSpan.Zero).ConfigureAwait(false);
 		}
@@ -380,17 +462,17 @@ namespace net.vieapps.Services.Files.Storages
 		#region Begin/End of a HTML page
 		string GetBeginHtml(HttpContext context)
 		{
-			var requestUri = context.GetRequestUri();
+			var host = context.GetRequestUri().Host.ToArray('.').First();
 			return (@"<!DOCTYPE html>
 			<html xmlns='http://www.w3.org/1999/xhtml'>
 			<head>
-			<title>" + requestUri.Host.ToArray('.').First() + @" - VIEApps NGX File HTTP Storages</title>
+			<title>" + host + @" - VIEApps NGX File HTTP Storages</title>
 			<meta name='viewport' content='width=device-width, initial-scale=1'/>
 			<link rel='stylesheet' type='text/css' href='./_assets/style.css'/>
 			</head>
 			<body>
 			<header>
-			<h1>" + requestUri.Host.ToArray('.').First() + @"</h1>" + (context.User.Identity.IsAuthenticated ? "<span><a href='./'>Refresh</a></span>" : "") + @"
+			<h1>" + host + @"</h1>" + (context.User.Identity.IsAuthenticated ? "<span><a href='./'>Refresh</a></span>" : "") + @"
 			</header>
 			<div>
 			").Replace("\t\t\t", "");
@@ -398,11 +480,10 @@ namespace net.vieapps.Services.Files.Storages
 
 		string GetEndHtml(HttpContext context)
 		{
-			var requestUri = context.GetRequestUri();
 			return ("</div>" + @"			
 			<footer>
-			<div><span>&copy; " + DateTime.Now.Year + " " + requestUri.Host + @"</span></div>" +
-			(context.User.Identity.IsAuthenticated ? "<span><label>" + context.User.Identity.Name + "</label><a href='./_signout'>(sign out)</a></span>" : "") + @"
+			<div><span>&copy; " + DateTime.Now.Year + " " + context.GetRequestUri().Host + @"</span></div>" +
+			(context.User.Identity.IsAuthenticated ? "<span><label>" + context.User.Identity.Name + "</label>(<a href='./_changepassword'>change password</a> - <a href='./_signout'>sign out</a>)</span>" : "") + @"
 			</footer>
 			</body>
 			</html>").Replace("\t\t\t", "");

@@ -11,7 +11,6 @@ using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -67,7 +66,7 @@ namespace net.vieapps.Services.Files
 					options.SlidingExpiration = true;
 				});
 
-			// data protection (encrypt cookies)
+			// data protection (to encrypt/decrypt authenticate cookies)
 			services
 				.AddDataProtection()
 				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
@@ -81,10 +80,18 @@ namespace net.vieapps.Services.Files
 
 		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
 		{
-			// settings
+			// environments
 			var stopwatch = Stopwatch.StartNew();
-			Global.ServiceName = "Files";
 			Console.OutputEncoding = Encoding.UTF8;
+			Global.ServiceName = "Files";
+			AspNetCoreUtilityService.ServerName = UtilityService.GetAppSetting("HttpServerName", "VIEApps NGX");
+
+			JsonConvert.DefaultSettings = () => new JsonSerializerSettings
+			{
+				Formatting = Formatting.None,
+				ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+				DateTimeZoneHandling = DateTimeZoneHandling.Local
+			};
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
@@ -96,8 +103,12 @@ namespace net.vieapps.Services.Files
 			else
 				logPath = null;
 
+			// setup the service
 			Logger.AssignLoggerFactory(loggerFactory);
 			Global.Logger = loggerFactory.CreateLogger<Startup>();
+
+			Global.ServiceProvider = appBuilder.ApplicationServices;
+			Global.RootPath = environment.ContentRootPath;
 
 			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is starting");
 			Global.Logger.LogInformation($"Version: {typeof(Startup).Assembly.GetVersion()}");
@@ -110,35 +121,12 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Service URIs:\r\n\t- Round robin: net.vieapps.services.{Global.ServiceName.ToLower()}.http\r\n\t- Single (unique): net.vieapps.services.{Extensions.GetUniqueName(Global.ServiceName + ".http")}");
 
 			Global.CreateRSA();
-			Global.ServiceProvider = appBuilder.ApplicationServices;
-			Global.RootPath = environment.ContentRootPath;
-
-			JsonConvert.DefaultSettings = () => new JsonSerializerSettings
-			{
-				Formatting = Formatting.None,
-				ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-				DateTimeZoneHandling = DateTimeZoneHandling.Local
-			};
-
-			// prepare handlers
 			Handler.PrepareHandlers();
 			Handler.OpenWAMPChannels();
 
 			// setup middlewares
-			var forwardedHeadersOptions = new ForwardedHeadersOptions
-			{
-				ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-			};
-			var knownProxies = UtilityService.GetAppSetting("ProxyIPs")?.ToList().Where(ip => IPAddress.TryParse(ip, out IPAddress address)).Select(ip => IPAddress.Parse(ip)).ToList();
-			if (knownProxies != null)
-			{
-				forwardedHeadersOptions.RequireHeaderSymmetry = false;
-				forwardedHeadersOptions.ForwardLimit = null;
-				knownProxies.ForEach(ip => forwardedHeadersOptions.KnownProxies.Add(ip));
-			}
-
 			appBuilder
-				.UseForwardedHeaders(forwardedHeadersOptions)
+				.UseForwardedHeaders(Global.GetForwardedHeadersOptions())
 				.UseStatusCodeHandler()
 				.UseResponseCompression()
 				.UseCache()

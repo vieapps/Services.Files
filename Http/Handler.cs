@@ -89,7 +89,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			if (Global.IsVisitLogEnabled)
-				await context.WriteLogsAsync(Global.Logger, "Visits", $"Request starting {context.Request.Method} => {requestUri} (IP: {context.Connection.RemoteIpAddress} - Agent: {context.Request.Headers["User-Agent"]}{(string.IsNullOrWhiteSpace(context.Request.Headers["Referrer"]) ? "" : $" - Origin: {context.Request.Headers["Origin"]}")}{(string.IsNullOrWhiteSpace(context.Request.Headers["Referrer"]) ? "" : $" - Refer: {context.Request.Headers["Referrer"]}")})").ConfigureAwait(false);
+				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
 
 			// request to static segments
 			if (Global.StaticSegments.Contains(requestPath))
@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Files
 				await this.ProcessFileRequestAsync(context).ConfigureAwait(false);
 
 			if (Global.IsVisitLogEnabled)
-				await context.WriteLogsAsync(Global.Logger, "Visits", $"Request finished in {context.GetExecutionTimes()}").ConfigureAwait(false);
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
 		internal async Task ProcessFileRequestAsync(HttpContext context)

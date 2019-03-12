@@ -83,7 +83,6 @@
 			body > footer > span > a {
 				color: #fff;
 				font-weight: normal;
-				margin-left: 0.5rem;
 			}
 
 	body > div {
@@ -114,7 +113,7 @@
 
 				body > div > form > div > label {
 					display: inline-block;
-					min-width: 100px;
+					min-width: 120px;
 				}
 
 				body > div > form > div > input {
@@ -134,7 +133,7 @@
 				body > div > form > section > input[type="submit"] {
 					min-width: 153px;
 					min-height: 30px;
-					margin-left: 100px;
+					margin-left: 120px;
 					font-size: 1rem;
 					border: solid 1px #ccc;
 					background-color: #fff;

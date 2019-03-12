@@ -12,6 +12,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -19,6 +20,16 @@ namespace net.vieapps.Services.Files
 	public class ServiceComponent : ServiceBase
 	{
 		public override string ServiceName => "Files";
+
+		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
+		{
+			// initialize caching storages
+			Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			Utility.DataCache = new Cache($"VIEApps-Services-{this.ServiceName}-Data", Components.Utility.Logger.GetLoggerFactory());
+			
+			// start the service
+			base.Start(args, initializeRepository, nextAsync);
+		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
