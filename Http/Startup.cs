@@ -122,7 +122,7 @@ namespace net.vieapps.Services.Files
 
 			Global.CreateRSA();
 			Handler.PrepareHandlers();
-			Handler.OpenWAMPChannels();
+			Handler.OpenRouterChannels();
 
 			// setup middlewares
 			appBuilder
@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Files
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
 			{
-				Global.Logger.LogInformation($"WAMP router: {new Uri(WAMPConnections.GetRouterStrInfo()).GetResolvedURI()}");
+				Global.Logger.LogInformation($"API Gateway Router: {new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service: {UtilityService.GetAppSetting("HttpUri:APIs", "None")}");
 				Global.Logger.LogInformation($"Files HTTP service: {UtilityService.GetAppSetting("HttpUri:Files", "None")}");
 				Global.Logger.LogInformation($"Portals HTTP service: {UtilityService.GetAppSetting("HttpUri:Portals", "None")}");
@@ -158,7 +158,7 @@ namespace net.vieapps.Services.Files
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Handler.CloseWAMPChannels();
+				Handler.CloseRouterChannels();
 				Global.RSA.Dispose();
 				Global.CancellationTokenSource.Cancel();
 			});

@@ -252,17 +252,17 @@ namespace net.vieapps.Services.Files
 				}, cancellationToken).ConfigureAwait(false)).FromJson<Attachment>();
 		#endregion
 
-		#region Helper: WAMP connections & real-time updaters
-		internal static void OpenWAMPChannels(int waitingTimes = 6789)
+		#region Helper: API Gateway Router
+		internal static void OpenRouterChannels(int waitingTimes = 6789)
 		{
-			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(WAMPConnections.GetRouterStrInfo()).GetResolvedURI()}]");
-			Global.OpenWAMPChannels(
+			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}]");
+			Global.OpenRouterChannels(
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {arguments.SessionId}");
-					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
+					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
+					RouterConnections.IncomingChannel.Update(RouterConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
+					Global.PrimaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 						.Subscribe(
 							async message =>
@@ -286,7 +286,7 @@ namespace net.vieapps.Services.Files
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
+					Global.SecondaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.apigateway")
 						.Subscribe(
 							async message =>
@@ -315,8 +315,8 @@ namespace net.vieapps.Services.Files
 				},
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {arguments.SessionId}");
-					WAMPConnections.OutgoingChannel.Update(WAMPConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
+					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
+					RouterConnections.OutgoingChannel.Update(RouterConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
 					Task.Run(async () =>
 					{
 						try
@@ -326,7 +326,7 @@ namespace net.vieapps.Services.Files
 								Global.InitializeRTUServiceAsync()
 							).ConfigureAwait(false);
 							Global.Logger.LogInformation("Helper services are succesfully initialized");
-							while (WAMPConnections.IncomingChannel == null || WAMPConnections.OutgoingChannel == null)
+							while (RouterConnections.IncomingChannel == null || RouterConnections.OutgoingChannel == null)
 								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
@@ -341,12 +341,12 @@ namespace net.vieapps.Services.Files
 			);
 		}
 
-		internal static void CloseWAMPChannels(int waitingTimes = 1234)
+		internal static void CloseRouterChannels(int waitingTimes = 1234)
 		{
 			Global.UnregisterService(waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			WAMPConnections.CloseChannels();
+			RouterConnections.CloseChannels();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;
