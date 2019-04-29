@@ -23,15 +23,13 @@ namespace net.vieapps.Services.Files
 {
 	public class QRCodeHandler : Services.FileHandler
 	{
-		ILogger Logger { get; set; }
+		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			// check
 			if (!context.Request.Method.IsEquals("GET"))
 				throw new InvalidRequestException();
-
-			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
 
 			// generate
 			var data = new ArraySegment<byte>(new byte[0]);

@@ -17,14 +17,12 @@ namespace net.vieapps.Services.Files
 {
 	public class DownloadHandler : Services.FileHandler
 	{
-		ILogger Logger { get; set; }
+		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<DownloadHandler>();
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			if (!context.Request.Method.IsEquals("GET") && !context.Request.Method.IsEquals("HEAD"))
 				throw new MethodNotAllowedException(context.Request.Method);
-
-			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
 
 			// prepare information
 			var requestUri = context.GetRequestUri();

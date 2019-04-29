@@ -44,7 +44,7 @@ namespace net.vieapps.Services.Files
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "Access-Control-Allow-Methods", "GET,POST,PUT,DELETE" }
+					{ "Access-Control-Allow-Methods", "HEAD,GET,POST,PUT,DELETE" }
 				};
 				if (context.Request.Headers.ContainsKey("Access-Control-Request-Headers"))
 					headers["Access-Control-Allow-Headers"] = context.Request.Headers["Access-Control-Request-Headers"];
@@ -135,13 +135,13 @@ namespace net.vieapps.Services.Files
 			else
 				try
 				{
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken).ConfigureAwait(false);
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http", context.GetCorrelationID()).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync("Authenticate", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+						await context.WriteLogsAsync(Global.Logger, "Http.Authenticate", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 				}
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync("Authenticate", $"Failure authenticate a token: {ex.Message}", ex);
+					await context.WriteLogsAsync(Global.Logger, "Http.Authenticate", $"Failure authenticate a token: {ex.Message}", ex);
 				}
 
 			// store session
@@ -168,15 +168,17 @@ namespace net.vieapps.Services.Files
 				context.User = new UserPrincipal(session.User);
 
 			// process the request to files
+			Services.FileHandler handler = null;
 			try
 			{
-				await (type.CreateInstance() as Services.FileHandler).ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				handler = type.CreateInstance() as Services.FileHandler;
+				await handler.ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync(requestPath, ex.Message, ex);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				await context.WriteLogsAsync(handler?.Logger, $"Http.{(requestPath.IsStartsWith("Thumbnail") ? "Thumbnails" : requestPath)}", ex.Message, ex);
+				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
 

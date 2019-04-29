@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -32,7 +33,9 @@ namespace net.vieapps.Services.Files
 {
 	public class Startup
 	{
-		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025);
+		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025, Startup.BodySizeLimit);
+
+		public static int BodySizeLimit => Int32.TryParse(UtilityService.GetAppSetting("Limits:BodySize", "100"), out int bodySize) ? bodySize : 100;
 
 		public Startup(IConfiguration configuration) => this.Configuration = configuration;
 
@@ -76,6 +79,9 @@ namespace net.vieapps.Services.Files
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
 				});
+
+			// form options to upload files
+			services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 1024 * 1024 * Startup.BodySizeLimit);
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
@@ -97,7 +103,7 @@ namespace net.vieapps.Services.Files
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 			{
-				logPath = Path.Combine(logPath, "{Date}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
+				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
 				loggerFactory.AddFile(logPath, this.LogLevel);
 			}
 			else

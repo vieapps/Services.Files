@@ -18,27 +18,15 @@ namespace net.vieapps.Services.Files
 {
 	public class AvatarHandler : Services.FileHandler
 	{
-		ILogger Logger { get; set; }
+		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<AvatarHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
-		{
-			// prepare
-			this.Logger = Components.Utility.Logger.CreateLogger<AvatarHandler>();
+		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+			=> context.Request.Method.IsEquals("GET")
+				? this.ShowAvatarAsync(context, cancellationToken)
+				: context.Request.Method.IsEquals("POST")
+					? this.UpdateAvatarAsync(context, cancellationToken)
+					: Task.FromException(new MethodNotAllowedException(context.Request.Method));
 
-			// show
-			if (context.Request.Method.IsEquals("GET"))
-				await this.ShowAvatarAsync(context, cancellationToken).ConfigureAwait(false);
-
-			// upload new
-			else if (context.Request.Method.IsEquals("POST"))
-				await this.UpdateAvatarAsync(context, cancellationToken).ConfigureAwait(false);
-
-			// unknown
-			else
-				throw new MethodNotAllowedException(context.Request.Method);
-		}
-
-		#region Show avatar image
 		async Task ShowAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			var requestUri = context.GetRequestUri();
@@ -59,7 +47,7 @@ namespace net.vieapps.Services.Files
 				catch (Exception ex)
 				{
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
 					fileName = null;
 				}
 
@@ -70,14 +58,14 @@ namespace net.vieapps.Services.Files
 					if (!fileInfo.Exists)
 					{
 						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use default avatar)").ConfigureAwait(false);
+							await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"The file is not existed ({fileInfo.FullName}, then use default avatar)").ConfigureAwait(false);
 						fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 					}
 				}
 				catch (Exception ex)
 				{
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
 					fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 				}
 
@@ -87,7 +75,7 @@ namespace net.vieapps.Services.Files
 				{
 					context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 					return;
 				}
 
@@ -109,18 +97,16 @@ namespace net.vieapps.Services.Files
 
 				await Task.WhenAll(
 					context.WriteAsync(fileInfo, $"image/{contentType}; charset=utf-8", null, eTag, cancellationToken),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)")
+					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)")
 				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while processing [{requestUri}]", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while processing [{requestUri}]", ex).ConfigureAwait(false);
 				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
-		#endregion
 
-		#region Update avatar image (receive upload image from the client)
 		async Task UpdateAvatarAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
@@ -128,83 +114,73 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			var fileSize = 0;
-			var fileExtension = "png";
-			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name) + ".";
+			var fileExtension = ".png";
+			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name);
+			var content = new byte[0];
+			var asBase64 = context.GetHeaderParameter("x-as-base64") != null;
 
-			// base64
-			if (context.GetHeaderParameter("x-as-base64") != null)
+			// read content from base64 string
+			if (asBase64)
 			{
-				// prepare
 				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
 				var data = body.Get<string>("Data").ToArray();
 
-				fileExtension = data.First().ToArray(";").First().ToArray(":").Last();
-				fileExtension = fileExtension.IsEndsWith("png")
-					? "png"
-					: fileExtension.IsEndsWith("bmp")
-						? "bmp"
-						: fileExtension.IsEndsWith("gif")
-							? "gif"
-							: "jpg";
-				filePath += fileExtension;
+				var extension = data.First().ToArray(";").First().ToArray(":").Last();
+				fileExtension = extension.IsEndsWith("png")
+					? ".png"
+					: extension.IsEndsWith("bmp")
+						? ".bmp"
+						: extension.IsEndsWith("gif")
+							? ".gif"
+							: ".jpg";
 
-				var content = data.Last().Base64ToBytes();
+				content = data.Last().Base64ToBytes();
 				fileSize = content.Length;
-
-				if (File.Exists(filePath))
-					try
-					{
-						File.Delete(filePath);
-					}
-					catch { }
-
-				// write to file
-				await UtilityService.WriteBinaryFileAsync(filePath, content, cancellationToken).ConfigureAwait(false);
 			}
 
-			// file
+			// read content from uploaded file of multipart/form-data
 			else
 			{
 				// prepare
-				if (context.Request.Form.Files.Count < 1)
-					throw new InvalidRequestException("No uploaded file is found");
-
-				var file = context.Request.Form.Files[0];
+				var file = context.Request.Form.Files.Count > 0 ? context.Request.Form.Files[0] : null;
 				if (file == null || file.Length < 1)
 					throw new InvalidRequestException("No uploaded file is found");
 
+				if (!file.ContentType.IsStartsWith("image/"))
+					throw new InvalidRequestException("No uploaded image file is found");
+
 				fileSize = (int)file.Length;
 				fileExtension = Path.GetExtension(file.FileName);
-				filePath += fileExtension;
 
-				if (File.Exists(filePath))
-					try
-					{
-						File.Delete(filePath);
-					}
-					catch { }
-
-				// write to file
-				using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, TextFileReader.BufferSize, true))
+				using (var stream = file.OpenReadStream())
 				{
-					await file.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+					content = new byte[file.Length];
+					await stream.ReadAsync(content, 0, fileSize).ConfigureAwait(false);
 				}
 			}
 
-			// prepare uri
-			var info = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger).ConfigureAwait(false);
-			var uri = $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}.{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{info.Get<string>("Name").GetANSIUri()}.{fileExtension}";
+			// write into file on the disc
+			new[] { ".png", ".jpg" }.ForEach(extension =>
+			{
+				if (File.Exists(filePath + extension))
+					try
+					{
+						File.Delete(filePath + extension);
+					}
+					catch { }
+			});
+			await UtilityService.WriteBinaryFileAsync(filePath += fileExtension, content, cancellationToken).ConfigureAwait(false);
 
 			// response
+			var info = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
+			var response = new JObject
+			{
+				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{info.Get<string>("Name").GetANSIUri()}{fileExtension}" }
+			};
 			await Task.WhenAll(
-				context.WriteAsync(new JObject
-				{
-					{ "Uri", uri }
-				}, cancellationToken),
-				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Avatars", $"New avatar of {info.Get<string>("Name")} ({info.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:#,##0} bytes)")
+				context.WriteAsync(response, cancellationToken),
+				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {info.Get<string>("Name")} ({info.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:#,##0} bytes)")
 			).ConfigureAwait(false);
 		}
-		#endregion
-
 	}
 }

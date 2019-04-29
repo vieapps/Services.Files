@@ -16,12 +16,10 @@ namespace net.vieapps.Services.Files
 {
 	public class FileHandler : Services.FileHandler
 	{
-		ILogger Logger { get; set; }
+		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<FileHandler>();
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			this.Logger = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
-
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
 				await this.FlushAsync(context, cancellationToken).ConfigureAwait(false);
 			else if (context.Request.Method.IsEquals("POST"))
