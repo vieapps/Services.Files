@@ -33,23 +33,25 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// prepare
-				var fileName = requestUri.GetRequestPathSegments()[1];
-				try
-				{
-					if (fileName.IndexOf(".") > 0)
+				var pathSegments = requestUri.GetRequestPathSegments();
+				var fileName = pathSegments.Length > 1 ? pathSegments[1] : null;
+				if (fileName != null)
+					try
 					{
-						fileName = fileName.Left(fileName.IndexOf("."));
-						fileName = fileName.Url64Decode().ToArray('|').Last();
+						if (fileName.IndexOf(".") > 0)
+						{
+							fileName = fileName.Left(fileName.IndexOf("."));
+							fileName = fileName.Url64Decode().ToArray('|').Last();
+						}
+						else
+							fileName = fileName.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
 					}
-					else
-						fileName = fileName.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-				}
-				catch (Exception ex)
-				{
-					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
-					fileName = null;
-				}
+					catch (Exception ex)
+					{
+						if (Global.IsDebugLogEnabled)
+							await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
+						fileName = null;
+					}
 
 				FileInfo fileInfo = null;
 				try
@@ -86,18 +88,9 @@ namespace net.vieapps.Services.Files
 					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
 					{ "X-CorrelationID", context.GetCorrelationID() }
 				});
-
-				var contentType = fileInfo.Name.IsEndsWith(".png")
-					? "png"
-					: fileInfo.Name.IsEndsWith(".jpg") || fileInfo.Name.IsEndsWith(".jpeg")
-						? "jpeg"
-						: fileInfo.Name.IsEndsWith(".gif")
-							? "gif"
-							: "bmp";
-
 				await Task.WhenAll(
-					context.WriteAsync(fileInfo, $"image/{contentType}; charset=utf-8", null, eTag, cancellationToken),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:#,##0} bytes)")
+					context.WriteAsync(fileInfo, $"{fileInfo.GetMimeType()}; charset=utf-8", null, eTag, cancellationToken),
+					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request successful ({fileInfo.FullName} - {fileInfo.Length:###,###,###,###,##0} bytes)")
 				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
@@ -117,7 +110,11 @@ namespace net.vieapps.Services.Files
 			var fileExtension = ".png";
 			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name);
 			var content = new byte[0];
-			var asBase64 = context.GetHeaderParameter("x-as-base64") != null;
+			var asBase64 = context.GetParameter("x-as-base64") != null;
+
+			// limit size - default is 1 MB
+			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Avatar"), out var limitSize))
+				limitSize = 1024;
 
 			// read content from base64 string
 			if (asBase64)
@@ -136,6 +133,12 @@ namespace net.vieapps.Services.Files
 
 				content = data.Last().Base64ToBytes();
 				fileSize = content.Length;
+
+				if (fileSize > limitSize * 1024)
+				{
+					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
+					return;
+				}
 			}
 
 			// read content from uploaded file of multipart/form-data
@@ -143,14 +146,17 @@ namespace net.vieapps.Services.Files
 			{
 				// prepare
 				var file = context.Request.Form.Files.Count > 0 ? context.Request.Form.Files[0] : null;
-				if (file == null || file.Length < 1)
-					throw new InvalidRequestException("No uploaded file is found");
-
-				if (!file.ContentType.IsStartsWith("image/"))
+				if (file == null || file.Length < 1 || !file.ContentType.IsStartsWith("image/"))
 					throw new InvalidRequestException("No uploaded image file is found");
 
 				fileSize = (int)file.Length;
 				fileExtension = Path.GetExtension(file.FileName);
+
+				if (fileSize > limitSize * 1024)
+				{
+					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
+					return;
+				}
 
 				using (var stream = file.OpenReadStream())
 				{
@@ -172,14 +178,14 @@ namespace net.vieapps.Services.Files
 			await UtilityService.WriteBinaryFileAsync(filePath += fileExtension, content, cancellationToken).ConfigureAwait(false);
 
 			// response
-			var info = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
+			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
 			var response = new JObject
 			{
-				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{info.Get<string>("Name").GetANSIUri()}{fileExtension}" }
+				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{profile.Get<string>("Name").GetANSIUri()}{fileExtension}" }
 			};
 			await Task.WhenAll(
 				context.WriteAsync(response, cancellationToken),
-				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {info.Get<string>("Name")} ({info.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:#,##0} bytes)")
+				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:###,###,###,###,##0} bytes)")
 			).ConfigureAwait(false);
 		}
 	}

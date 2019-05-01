@@ -33,9 +33,7 @@ namespace net.vieapps.Services.Files
 {
 	public class Startup
 	{
-		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025, Startup.BodySizeLimit);
-
-		public static int BodySizeLimit => Int32.TryParse(UtilityService.GetAppSetting("Limits:BodySize", "100"), out int bodySize) ? bodySize : 100;
+		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025);
 
 		public Startup(IConfiguration configuration) => this.Configuration = configuration;
 
@@ -80,8 +78,10 @@ namespace net.vieapps.Services.Files
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
 				});
 
-			// form options to upload files
-			services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 1024 * 1024 * Startup.BodySizeLimit);
+			// form options to upload files - default is 10 MB
+			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out int limitSize))
+				limitSize = 1024 * 10;
+			services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 1024 * limitSize);
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
@@ -143,7 +143,7 @@ namespace net.vieapps.Services.Files
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
 			{
-				Global.Logger.LogInformation($"API Gateway Router: {new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}");
+				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service: {UtilityService.GetAppSetting("HttpUri:APIs", "None")}");
 				Global.Logger.LogInformation($"Files HTTP service: {UtilityService.GetAppSetting("HttpUri:Files", "None")}");
 				Global.Logger.LogInformation($"Portals HTTP service: {UtilityService.GetAppSetting("HttpUri:Portals", "None")}");
@@ -154,7 +154,8 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
-
+				Global.Logger.LogInformation($"Request body limits => Mulipart/form-data (upload files): {UtilityService.GetAppSetting("Limits:Body", "100")} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
+				
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();

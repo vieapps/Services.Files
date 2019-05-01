@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStarted.Register(() =>
 			{
 				Global.Logger.LogInformation($"Root path (base directory): {Global.RootPath}");
-				Global.Logger.LogInformation($"API Gateway Router: {new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}");
+				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel}");
 				Global.Logger.LogInformation($"Rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled - Path format: {logPath}")}");
 				Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");

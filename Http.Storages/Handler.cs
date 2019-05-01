@@ -493,14 +493,14 @@ namespace net.vieapps.Services.Files.Storages
 		#region Helper: API Gateway Router
 		internal static void OpenRouterChannels(int waitingTimes = 6789)
 		{
-			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}]");
+			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.OpenRouterChannels(
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					RouterConnections.IncomingChannel.Update(RouterConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)");
+					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)")).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.storages")
 						.Subscribe(
 							async message =>
@@ -524,7 +524,7 @@ namespace net.vieapps.Services.Files.Storages
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.apigateway")
 						.Subscribe(
 							async message =>
@@ -554,9 +554,9 @@ namespace net.vieapps.Services.Files.Storages
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					RouterConnections.OutgoingChannel.Update(RouterConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing (Files {Global.ServiceName} HTTP service)");
 					Task.Run(async () =>
 					{
+						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing (Files {Global.ServiceName} HTTP service)").ConfigureAwait(false);
 						try
 						{
 							await Task.WhenAll(
@@ -564,7 +564,7 @@ namespace net.vieapps.Services.Files.Storages
 								Global.InitializeRTUServiceAsync()
 							).ConfigureAwait(false);
 							Global.Logger.LogInformation("Helper services are succesfully initialized");
-							while (RouterConnections.IncomingChannel == null || RouterConnections.OutgoingChannel == null)
+							while (Router.IncomingChannel == null || Router.OutgoingChannel == null)
 								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
@@ -581,10 +581,10 @@ namespace net.vieapps.Services.Files.Storages
 
 		internal static void CloseRouterChannels(int waitingTimes = 1234)
 		{
-			Global.UnregisterService(waitingTimes);
+			Global.UnregisterService(null, waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			RouterConnections.CloseChannels();
+			Router.CloseChannels();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;

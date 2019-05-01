@@ -23,15 +23,11 @@ namespace net.vieapps.Services.Files
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
 		{
-			// initialize caching storages
 			Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
-			Utility.DataCache = new Cache($"VIEApps-Services-{this.ServiceName}-Data", Components.Utility.Logger.GetLoggerFactory());
-			
-			// start the service
 			base.Start(args, initializeRepository, nextAsync);
 		}
 
-		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
@@ -49,7 +45,7 @@ namespace net.vieapps.Services.Files
 						break;
 
 					case "captcha":
-						json = await UtilityService.ExecuteTask(() => this.GenerateCaptcha(requestInfo), cancellationToken).ConfigureAwait(false);
+						json = this.GenerateCaptcha(requestInfo);
 						break;
 
 					default:
@@ -62,11 +58,11 @@ namespace net.vieapps.Services.Files
 						$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
 						$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
 					);
-				return json;
+				return Task.FromResult(json);
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+				return Task.FromException<JToken>(this.GetRuntimeException(requestInfo, ex, stopwatch));
 			}
 		}
 
@@ -79,7 +75,7 @@ namespace net.vieapps.Services.Files
 			return new JObject
 			{
 				{ "Code", code },
-				{ "Uri", UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net") + "/captchas/" + code.Url64Encode() + "/" + UtilityService.GetUUID().Left(13).Url64Encode() + ".jpg" }
+				{ "Uri", $"{this.GetHttpURI("Files", "https://fs.vieapps.net")}/captchas/{code.Url64Encode()}/{UtilityService.GetUUID().Left(13).Url64Encode()}.jpg" }
 			};
 		}
 

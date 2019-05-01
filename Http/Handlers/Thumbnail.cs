@@ -279,13 +279,13 @@ namespace net.vieapps.Services.Files
 		async Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
-			var serviceName = context.GetHeaderParameter("x-service-name");
-			var systemID = context.GetHeaderParameter("x-system-id");
-			var definitionID = context.GetHeaderParameter("x-definition-id");
-			var objectName = context.GetHeaderParameter("x-object-name");
-			var objectID = context.GetHeaderParameter("x-object-id");
-			var isTemporary = "true".IsEquals(context.GetHeaderParameter("x-temporary"));
-			var isCreateNew = "true".IsEquals(context.GetHeaderParameter("x-create-new"));
+			var serviceName = context.GetParameter("service-name") ?? context.GetParameter("x-service-name");
+			var systemID = context.GetParameter("system-id") ?? context.GetParameter("x-system-id");
+			var definitionID = context.GetParameter("definition-id") ?? context.GetParameter("x-definition-id");
+			var objectName = context.GetParameter("object-name") ?? context.GetParameter("x-object-name");
+			var objectID = context.GetParameter("object-identity") ?? context.GetParameter("object-id") ?? context.GetParameter("x-object-id");
+			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
+			var isCreateNew = "true".IsEquals(context.GetParameter("x-create-new"));
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");
@@ -315,22 +315,32 @@ namespace net.vieapps.Services.Files
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// limit size - default is 512 KB
+			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Thumbnail"), out var limitSize))
+				limitSize = 512;
+
 			// read upload file
 			var contents = new List<byte[]>();
-			var asBase64 = context.GetHeaderParameter("x-as-base64") != null;
+			var asBase64 = context.GetParameter("x-as-base64") != null;
 			if (asBase64)
 			{
 				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
 				var data = body.Get<string>("Data");
 				if (data.StartsWith("["))
-					(data.ToJson() as JArray).ForEach(file => contents.Add((file as JValue).Value?.CastAs<string>()?.ToArray().Last().Base64ToBytes()));
+					(data.ToJson() as JArray).ForEach(file =>
+					{
+						var content = (file as JValue).Value?.CastAs<string>()?.ToArray().Last().Base64ToBytes();
+						if (content != null && content.Length > limitSize * 1024)
+							content = null;
+						contents.Add(content);
+					});
 				else
 					contents.Add(data.ToArray().Last().Base64ToBytes());
 			}
 			else
 				await context.Request.Form.Files.ForEachAsync(async (file, token) =>
 				{
-					if (file == null || file.Length < 1 || !file.ContentType.IsStartsWith("image/"))
+					if (file == null || file.Length < 1 || !file.ContentType.IsStartsWith("image/") || file.Length > limitSize * 1024)
 						contents.Add(null);
 					else
 						using (var stream = file.OpenReadStream())
@@ -353,7 +363,7 @@ namespace net.vieapps.Services.Files
 
 			var response = new JArray();
 			var uri = $"{context.GetHostUrl()}/thumbnails/{(serviceName != "" ? serviceName : systemID)}/0/0/0";
-			var title = (context.GetHeaderParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
+			var title = (context.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
 			await contents.ForEachAsync(async (content, index, token) =>
 			{
 				if (content != null)
