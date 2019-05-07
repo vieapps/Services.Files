@@ -261,7 +261,7 @@ namespace net.vieapps.Services.Files
 					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)")).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
+						.GetSubject<CommunicateMessage>("messages.services.files")
 						.Subscribe(
 							async message =>
 							{
@@ -278,7 +278,7 @@ namespace net.vieapps.Services.Files
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.apigateway")
+						.GetSubject<CommunicateMessage>("messages.services.apigateway")
 						.Subscribe(
 							async message =>
 							{
