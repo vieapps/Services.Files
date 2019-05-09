@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Files
 				});
 
 			// form options to upload files - default is 10 MB
-			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out int limitSize))
+			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize))
 				limitSize = 1024 * 10;
 			services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 1024 * limitSize);
 		}

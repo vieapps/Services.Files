@@ -3,10 +3,9 @@ using System;
 using System.Collections.Specialized;
 using System.Configuration;
 using System.Xml.Serialization;
-
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -17,6 +16,16 @@ namespace net.vieapps.Services.Files
 	public static class Utility
 	{
 		public static Cache Cache { get; internal set; }
+
+		public static string FilesHttpURI { get; internal set; }
+
+		public static string CaptchaURI => $"{Utility.FilesHttpURI}/captchas/";
+
+		public static string ThumbnailURI => $"{Utility.FilesHttpURI}/thumbnails/";
+
+		public static string DirectURI => $"{Utility.FilesHttpURI}/files/";
+
+		public static string DownloadURI => $"{Utility.FilesHttpURI}/downloads/";
 	}
 
 	//  --------------------------------------------------------------------------------------------

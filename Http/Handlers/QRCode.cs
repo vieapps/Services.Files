@@ -27,10 +27,24 @@ namespace net.vieapps.Services.Files
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			// check
-			if (!context.Request.Method.IsEquals("GET"))
-				throw new InvalidRequestException();
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
+				try
+				{
+					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+						await this.ShowAsync(context, cts.Token).ConfigureAwait(false);
+					else
+						throw new MethodNotAllowedException(context.Request.Method);
+				}
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Error occurred while processing with a QR code image ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				}
+		}
 
+		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
+		{
 			// generate
 			var data = new ArraySegment<byte>(new byte[0]);
 			var size = 300;
@@ -59,8 +73,8 @@ namespace net.vieapps.Services.Files
 					level = QRCodeGenerator.ECCLevel.M;
 
 				// generate QR code using QRCoder
-				if ("QRCoder".IsEquals(UtilityService.GetAppSetting("QRCode:Provider")))
-					data = this.GenerateQRCode(value, size, level);
+				if ("QRCoder".IsEquals(UtilityService.GetAppSetting("Files:QRCodeProvider")))
+					data = this.Generate(value, size, level);
 
 				// generate QR code using Google APIs
 				else
@@ -70,17 +84,17 @@ namespace net.vieapps.Services.Files
 					}
 					catch (Exception ex)
 					{
-						await Global.WriteLogsAsync(this.Logger, "QRCode", $"Error occurred while generating the QR Code by Google Chart APIs: {ex.Message}", ex).ConfigureAwait(false);
-						data = this.GenerateQRCode(value, size, level);
+						await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Error occurred while generating the QR Code by Google Chart APIs: {ex.Message}", ex).ConfigureAwait(false);
+						data = this.Generate(value, size, level);
 					}
 
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "QRCode", $"Generate QR Code successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync(this.Logger, "QRCode", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
+				await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
 				data = ThumbnailHandler.Generate(ex.Message, size, size, true);
 			}
 
@@ -93,7 +107,7 @@ namespace net.vieapps.Services.Files
 			await context.WriteAsync(data, cancellationToken).ConfigureAwait(false);
 		}
 
-		ArraySegment<byte> GenerateQRCode(string value, int size, QRCodeGenerator.ECCLevel level)
+		ArraySegment<byte> Generate(string value, int size, QRCodeGenerator.ECCLevel level)
 		{
 			using (var generator = new QRCodeGenerator())
 			using (var data = generator.CreateQrCode(value, level))

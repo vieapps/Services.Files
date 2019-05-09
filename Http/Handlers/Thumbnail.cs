@@ -24,16 +24,30 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<ThumbnailHandler>();
 
-		ICache Cache { get; } = Global.ServiceProvider.GetService<ICache>();
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
+				try
+				{
+					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+						await this.ShowAsync(context, cts.Token).ConfigureAwait(false);
+					else if (context.Request.Method.IsEquals("POST"))
+						await this.ReceiveAsync(context, cts.Token).ConfigureAwait(false);
+					else
+						throw new MethodNotAllowedException(context.Request.Method);
+				}
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Thumbnails")}", $"Error occurred while processing with a thumbnail image ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					var queryString = context.GetRequestUri().ParseQuery();
+					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+					else
+						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				}
+		}
 
-		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
-			=> context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD")
-				? this.ShowAsync(context, cancellationToken)
-				: context.Request.Method.IsEquals("POST")
-					? this.UpdateAsync(context, cancellationToken)
-					: Task.FromException(new MethodNotAllowedException(context.Request.Method));
-
-		#region Show the thumbnail image
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// check "If-Modified-Since" request to reduce traffict
@@ -47,7 +61,7 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			// prepare information
+			// prepare
 			var requestUrl = $"{requestUri}";
 			var queryString = requestUri.ParseQuery();
 
@@ -57,14 +71,7 @@ namespace net.vieapps.Services.Files
 			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5] : "";
 			if (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID)))
-			{
-				var ex = new InvalidRequestException();
-				await Task.WhenAll(
-					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg; charset=utf-8", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while preparing:{ex.Message}", ex)
-				).ConfigureAwait(false);
-				return;
-			}
+				throw new InvalidRequestException();
 
 			var handlerName = pathSegments[0];
 			var isPng = handlerName.IsEndsWith("pngs");
@@ -78,12 +85,17 @@ namespace net.vieapps.Services.Files
 			var croppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.GetQueryParameter("cropPos")) ? "top" : requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.GetQueryParameter("cropPos")) ? "bottom" : "auto";
 			var isUseAdditionalWatermark = queryString.ContainsKey("nw") ? false : requestUrl.IsContains("--btwm");
 
-			// check exist
-			var fileName = isAttachment
-				? "-" + (pathSegments.Length > 6 ? pathSegments[6] : "")
-				: (pathSegments.Length > 6 && pathSegments[6].Length.Equals(1) && !pathSegments[6].Equals("0") ? "-" + pathSegments[6] : "") + ".jpg";
-			var filePath = Path.Combine(Handler.AttachmentFilesPath, serviceName != "" ? serviceName : systemID, identifier + fileName);
+			var attachmentInfo = new AttachmentInfo
+			{
+				ID = identifier,
+				ServiceName = serviceName,
+				SystemID = systemID,
+				IsThumbnail = !isAttachment,
+				Filename = isAttachment ? "-" + (pathSegments.Length > 6 ? pathSegments[6] : "") : (pathSegments.Length > 6 && pathSegments[6].Length.Equals(1) && !pathSegments[6].Equals("0") ? "-" + pathSegments[6] : "") + ".jpg"
+			};
 
+			// check exist
+			var filePath = attachmentInfo.GetFilePath();
 			var fileInfo = new FileInfo(filePath);
 			if (!fileInfo.Exists)
 			{
@@ -92,22 +104,23 @@ namespace net.vieapps.Services.Files
 			}
 
 			// check permission
-			async Task<bool> gotRightsAsync(CancellationToken cancelToken)
+			async Task<bool> gotRightsAsync()
 			{
 				if (!isAttachment)
 					return true;
 
-				var attachment = await Handler.GetAttachmentAsync(identifier, context.GetSession(), cancelToken).ConfigureAwait(false);
-				return await context.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+				attachmentInfo = await context.GetAsync(attachmentInfo.ID, cancellationToken).ConfigureAwait(false);
+				return await context.CanDownloadAsync(attachmentInfo).ConfigureAwait(false);
 			}
 
 			// generate
-			async Task<byte[]> generateAsync(CancellationToken token)
+			async Task<byte[]> generateAsync()
 			{
 				var masterKey = "Thumbnnail#" + filePath.ToLower().GenerateUUID();
 				var detailKey = $"{masterKey}x{width}x{height}x{isPng}x{isBig}x{isCropped}x{croppedPosition}".ToLower();
-
-				var thumbnail = await this.Cache.GetAsync<byte[]>(detailKey, token).ConfigureAwait(false);
+				var cacheStorage = Global.ServiceProvider.GetService<ICache>();
+				var useCache = cacheStorage != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "true"));
+				var thumbnail = useCache ? await cacheStorage.GetAsync<byte[]>(detailKey, cancellationToken).ConfigureAwait(false) : null;
 				if (thumbnail != null)
 					return thumbnail;
 
@@ -123,62 +136,43 @@ namespace net.vieapps.Services.Files
 					thumbnail = stream.ToBytes();
 				}
 
-				var keys = await this.Cache.GetAsync<HashSet<string>>(masterKey, token).ConfigureAwait(false) ?? new HashSet<string>();
-				keys.Append(detailKey);
-
-				await Task.WhenAll(
-					this.Cache.SetAsync(masterKey, keys, 0, token),
-					this.Cache.SetAsFragmentsAsync(detailKey, thumbnail, 0, token)
-				).ConfigureAwait(false);
+				if (useCache)
+				{
+					var keys = await cacheStorage.GetAsync<HashSet<string>>(masterKey, cancellationToken).ConfigureAwait(false) ?? new HashSet<string>();
+					keys.Append(detailKey);
+					await Task.WhenAll(
+						cacheStorage.SetAsync(masterKey, keys, 0, cancellationToken),
+						cacheStorage.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancellationToken)
+					).ConfigureAwait(false);
+				}
 
 				return thumbnail;
 			}
 
 			// do the generate process
-			try
+			var data = new byte[0];
+			var generateThumbnailTask = generateAsync();
+			if (await gotRightsAsync().ConfigureAwait(false))
 			{
-				var thumbnail = new byte[0];
-				using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+				data = await generateThumbnailTask.ConfigureAwait(false);
+				context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
 				{
-					var generateThumbnailTask = generateAsync(cts.Token);
-					if (await gotRightsAsync(cts.Token).ConfigureAwait(false))
-					{
-						thumbnail = await generateThumbnailTask.ConfigureAwait(false);
-						context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-						{
-							{ "Cache-Control", "public" },
-							{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
-							{ "X-CorrelationID", context.GetCorrelationID() }
-						});
-					}
-					else
-					{
-						if (!context.User.Identity.IsAuthenticated)
-							context.Redirect(context.GetPassportSessionAuthenticatorUrl());
-						else
-							throw new AccessDeniedException();
-					}
-				}
-				await Task.WhenAll(
-					context.WriteAsync(thumbnail, $"image/{(isPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{fileInfo.FullName}]")
-				).ConfigureAwait(false);
+					{ "Cache-Control", "public" },
+					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
+					{ "X-CorrelationID", context.GetCorrelationID() }
+				});
 			}
-			catch (OperationCanceledException)
-			{
-				return;
-			}
-			catch (Exception ex)
-			{
-				await Task.WhenAll(
-					context.WriteAsync(ThumbnailHandler.Generate(ex.Message).ToBytes(), "image/jpeg; charset=utf-8", null, null, 0, "private", TimeSpan.Zero, cancellationToken),
-					!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while processing:{ex.Message}", ex)
-				).ConfigureAwait(false);
-			}
-		}
-		#endregion
+			else
+				throw new AccessDeniedException();
 
-		#region Generate thumbnail image
+			// flush the thumbnail image to output stream, update counter & logs
+			await context.WriteAsync(data, $"image/{(isPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				context.UpdateAsync(attachmentInfo, cancellationToken),
+				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
+			).ConfigureAwait(false);
+		}
+
 		Bitmap Generate(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
 		{
 			using (var image = Image.FromFile(filePath) as Bitmap)
@@ -273,10 +267,8 @@ namespace net.vieapps.Services.Files
 				}
 			}
 		}
-		#endregion
 
-		#region Update thumbnails
-		async Task UpdateAsync(HttpContext context, CancellationToken cancellationToken)
+		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
 			var serviceName = context.GetParameter("service-name") ?? context.GetParameter("x-service-name");
@@ -285,30 +277,16 @@ namespace net.vieapps.Services.Files
 			var objectName = context.GetParameter("object-name") ?? context.GetParameter("x-object-name");
 			var objectID = context.GetParameter("object-identity") ?? context.GetParameter("object-id") ?? context.GetParameter("x-object-id");
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
-			var isCreateNew = "true".IsEquals(context.GetParameter("x-create-new"));
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");
 
 			// check permissions
-			var gotRights = false;
-			if (!isTemporary)
-			{
-				if (!string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID))
-				{
-					gotRights = isCreateNew
-						? await context.CanContributeAsync(serviceName, systemID, definitionID, "").ConfigureAwait(false)
-						: await context.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false);
-				}
-				else
-				{
-					gotRights = isCreateNew
-						? await context.CanContributeAsync(serviceName, objectName, "").ConfigureAwait(false)
-						: await context.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
-				}
-			}
-			else
-				gotRights = !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
+			var gotRights = isTemporary
+				? !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
+					? await context.CanContributeAsync(serviceName, systemID, definitionID, "").ConfigureAwait(false)
+					: await context.CanContributeAsync(serviceName, objectName, "").ConfigureAwait(false)
+				: !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
 					? await context.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false)
 					: await context.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
 
@@ -330,28 +308,33 @@ namespace net.vieapps.Services.Files
 					(data.ToJson() as JArray).ForEach(file =>
 					{
 						var content = (file as JValue).Value?.CastAs<string>()?.ToArray().Last().Base64ToBytes();
-						if (content != null && content.Length > limitSize * 1024)
-							content = null;
-						contents.Add(content);
+						if (content != null && content.Length <= limitSize * 1024)
+						{
+							contents.Add(content);
+						}
+						else
+							contents.Add(null);
 					});
 				else
 					contents.Add(data.ToArray().Last().Base64ToBytes());
 			}
 			else
-				await context.Request.Form.Files.ForEachAsync(async (file, token) =>
+			{
+				for (var index = 0; index < context.Request.Form.Files.Count; index++)
+					contents.Add(null);
+				await context.Request.Form.Files.ForEachAsync(async (file, index, token) =>
 				{
-					if (file == null || file.Length < 1 || !file.ContentType.IsStartsWith("image/") || file.Length > limitSize * 1024)
-						contents.Add(null);
-					else
+					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 						using (var stream = file.OpenReadStream())
 						{
 							var content = new byte[file.Length];
 							await stream.ReadAsync(content, 0, (int)file.Length, token).ConfigureAwait(false);
-							contents.Add(content);
+							contents[index] = content;
 						}
 				}, cancellationToken, true, false).ConfigureAwait(false);
+			}
 
-			// save into disc
+			// prepare directories
 			var path = Path.Combine(Handler.AttachmentFilesPath, serviceName != "" ? serviceName : systemID);
 			var pathTemp = Path.Combine(path, "temp");
 			var pathTrash = Path.Combine(path, "trash");
@@ -361,33 +344,99 @@ namespace net.vieapps.Services.Files
 					Directory.CreateDirectory(directory);
 			});
 
-			var response = new JArray();
+			// save uploaded files & create meta info
 			var uri = $"{context.GetHostUrl()}/thumbnails/{(serviceName != "" ? serviceName : systemID)}/0/0/0";
 			var title = (context.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
-			await contents.ForEachAsync(async (content, index, token) =>
+			var attachmentInfos = new List<AttachmentInfo>();
+			var uris = new JArray();
+
+			try
 			{
-				if (content != null)
+				// save uploaded files into disc
+				await contents.ForEachAsync(async (content, index, token) =>
 				{
-					var fileName = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg";
-					var filePath = Path.Combine(isTemporary ? pathTemp : path, fileName);
+					if (content != null)
+					{
+						// prepare
+						var id = UtilityService.NewUUID;
+						var attachmentInfo = new AttachmentInfo
+						{
+							ID = id,
+							ServiceName = serviceName,
+							SystemID = systemID,
+							DefinitionID = definitionID,
+							ObjectID = objectID,
+							Size = content.Length,
+							Filename = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg",
+							ContentType = "image/jpeg",
+							IsShared = false,
+							IsTracked = false,
+							IsTemporary = isTemporary,
+							Title = "",
+							Description = "",
+							IsThumbnail = true
+						};
+
+						// save file into disc
+						var filePath = attachmentInfo.GetFilePath();
+						if (File.Exists(filePath))
+							try
+							{
+								var trashPath = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName : attachmentInfo.SystemID, "trash", attachmentInfo.Filename);
+								if (File.Exists(trashPath))
+									File.Delete(trashPath);
+								File.Move(filePath, trashPath);
+								if (Global.IsDebugLogEnabled)
+									await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully move a file into trash [{filePath} => {trashPath}]").ConfigureAwait(false);
+							}
+							catch (Exception ex)
+							{
+								await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+								try
+								{
+									File.Delete(filePath);
+									if (Global.IsDebugLogEnabled)
+										await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully delete a file [{filePath}]").ConfigureAwait(false);
+								}
+								catch (Exception e)
+								{
+									await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while deleting a file => {e.Message}", e, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+								}
+							}
+						await UtilityService.WriteBinaryFileAsync(filePath, content, token).ConfigureAwait(false);
+
+						// update attachment info
+						attachmentInfos.Add(attachmentInfo);
+						uris.Add(new JValue($"{uri}/{objectID}/{index}/{DateTime.Now.ToString("HHmmss")}/{title}.jpg"));
+					}
+				}, cancellationToken, true, false).ConfigureAwait(false);
+
+				// create meta info
+				await attachmentInfos.ForEachAsync((attachmentInfo, token) => context.CreateAsync(attachmentInfo, objectName, token), cancellationToken).ConfigureAwait(false);
+			}
+			catch (Exception)
+			{
+				attachmentInfos.ForEach(attachmentInfo =>
+				{
+					var filePath = attachmentInfo.GetFilePath();
 					if (File.Exists(filePath))
-						File.Move(filePath, Path.Combine(pathTrash, fileName));
-					await UtilityService.WriteBinaryFileAsync(filePath, content, token).ConfigureAwait(false);
-					response.Add(new JValue($"{uri}/{objectID}/{index}/{DateTime.Now.ToString("HHmmss")}/{title}.jpg"));
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
+						try
+						{
+							File.Delete(filePath);
+						}
+						catch { }
+				});
+				throw;
+			}
 
 			// response
-			await Task.WhenAll(
-				context.WriteAsync(new JObject
-				{
-					{ "URIs", response }
-				}, cancellationToken),
-				!Global.IsDebugLogEnabled ? Task.CompletedTask : context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"{contents.Count(content => content != null)} thumbnail image(s) has been uploaded - Mode:  {(asBase64 ? "base64" : "file")}")
-			).ConfigureAwait(false);
+			await context.WriteAsync(new JObject
+			{
+				{ "URIs", uris }
+			}, cancellationToken).ConfigureAwait(false);
+			if (Global.IsDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"{contents.Count(content => content != null)} thumbnail image(s) has been uploaded - Mode:  {(asBase64 ? "base64" : "file")}").ConfigureAwait(false);
 		}
-		#endregion
-
 	}
 
 	#region Watermark

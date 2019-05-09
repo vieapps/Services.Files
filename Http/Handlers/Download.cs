@@ -21,86 +21,69 @@ namespace net.vieapps.Services.Files
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
+				try
+				{
+					await this.DownloadAsync(context, cts.Token).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Error occurred while downloading a file ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					var queryString = context.GetRequestUri().ParseQuery();
+					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+					else
+						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				}
+		}
+
+		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
+		{
+			// check HTTP verb
 			if (!context.Request.Method.IsEquals("GET") && !context.Request.Method.IsEquals("HEAD"))
 				throw new MethodNotAllowedException(context.Request.Method);
 
-			// prepare information
+			// prepare
 			var requestUri = context.GetRequestUri();
-			var queryString = requestUri.ParseQuery();
-			var identifier = "";
-			var direct = false;
-			try
-			{
-				var requestInfo = requestUri.GetRequestPathSegments();
-				if (requestInfo.Length < 2 || !requestInfo[1].IsValidUUID())
-					throw new InvalidRequestException();
+			var pathSegments = requestUri.GetRequestPathSegments();
+			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
+				throw new InvalidRequestException();
 
-				identifier = requestInfo[1];
-				direct = requestInfo.Length > 2 && requestInfo[2].Equals("0");
-			}
-			catch (Exception ex)
-			{
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				return;
-			}
+			var identifier = pathSegments[1];
+			var direct = pathSegments.Length > 2 && pathSegments[2].Equals("0");
+			var queryString = requestUri.ParseQuery();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "Attachment#" + identifier.ToLower();
+			var eTag = "File#" + identifier.ToLower();
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
 			// get & check permissions
-			Attachment attachment = null;
-			try
-			{
-				attachment = await Handler.GetAttachmentAsync(identifier, context.GetSession(), cancellationToken).ConfigureAwait(false);
-				if (attachment == null || string.IsNullOrEmpty(attachment.ID))
-					throw new FileNotFoundException();
-				if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
-					throw new AccessDeniedException();
-			}
-			catch (AccessDeniedException ex)
-			{
-				if (!context.User.Identity.IsAuthenticated)
-					context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
-				else
-					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				return;
-			}
-			catch (Exception ex)
-			{
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				return;
-			}
+			var attachmentInfo = await context.GetAsync(identifier, cancellationToken).ConfigureAwait(false);
+			if (string.IsNullOrWhiteSpace(attachmentInfo.ID))
+				throw new FileNotFoundException();
+			if (!await context.CanDownloadAsync(attachmentInfo).ConfigureAwait(false))
+				throw new AccessDeniedException();
 
 			// check exist
-			var fileInfo = new FileInfo(Path.Combine(Handler.AttachmentFilesPath, attachment.IsTemporary ? "temp" : attachment.SystemID, attachment.Name));
+			var fileInfo = new FileInfo(attachmentInfo.GetFilePath());
 			if (!fileInfo.Exists)
-			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
-				return;
-			}
 
-			// flush file into stream
-			try
+			// flush the file to output stream, update counter & logs
+			else
 			{
-				var contentDisposition = attachment.IsReadable() && direct
-					? null
-					: attachment.Name.Right(attachment.Name.Length - 33);
-
+				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() && direct ? null : attachmentInfo.Filename.Right(attachmentInfo.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
-					context.WriteAsync(fileInfo, attachment.ContentType, contentDisposition, eTag, cancellationToken),
-					attachment.IsTemporary ? context.UpdateCounterAsync(attachment) : Task.CompletedTask
+					context.UpdateAsync(attachmentInfo, cancellationToken),
+					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
 	}

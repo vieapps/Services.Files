@@ -25,39 +25,42 @@ namespace net.vieapps.Services.Files
 
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			// check
-			if (!context.Request.Method.IsEquals("GET"))
-				throw new InvalidRequestException();
-
-			// prepare
-			var requestInfo = context.GetRequestPathSegments().Skip(1).ToArray();
-			var useSmallImage = true;
-			if (requestInfo.Length > 1)
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
 				try
 				{
-					useSmallImage = !requestInfo[1].Url64Decode().IsEquals("big");
-				}
-				catch { }
+					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+					{
+						// prepare
+						var pathSegments = context.GetRequestPathSegments().Skip(1).ToArray();
+						var useSmallImage = true;
+						if (pathSegments.Length > 1)
+							try
+							{
+								useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
+							}
+							catch { }
 
-			// response
-			var image = CaptchaHandler.GenerateImage(requestInfo[0].Url64Decode(), useSmallImage);
-			context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-			{
-				{ "Content-Type", "image/jpeg; charset=utf-8" },
-				{ "Cache-Control", "private, no-store, no-cache" }
-			});
-			await context.WriteAsync(image, cancellationToken).ConfigureAwait(false);
+						// response
+						var image = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
+						context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
+						{
+							{ "Content-Type", "image/jpeg; charset=utf-8" },
+							{ "Cache-Control", "private, no-store, no-cache" }
+						});
+						await context.WriteAsync(image, cts.Token).ConfigureAwait(false);
+					}
+					else
+						throw new MethodNotAllowedException(context.Request.Method);
+				}
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(this.Logger, "Http.Captchas", $"Error occurred while processing with a captcha image ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				}
 		}
 
-		#region Generate captcha image
-		/// <summary>
-		/// Generates captcha images
-		/// </summary>
-		/// <param name="code">The string that presents encrypted code for generating</param>
-		/// <param name="useSmallImage">true to use small image</param>
-		/// <param name="noises">The collection of noise texts</param>
-		/// <returns>The stream that contains captcha image in JPEG format</returns>
-		public static ArraySegment<byte> GenerateImage(string code, bool useSmallImage = true, List<string> noises = null)
+		ArraySegment<byte> Generate(string code, bool useSmallImage = true, List<string> noises = null)
 		{
 			// check code
 			if (!code.Equals(""))
@@ -98,7 +101,7 @@ namespace net.vieapps.Services.Files
 				? new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.White }
 				: new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Violet, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.LightGray, Color.Tomato, Color.LightGreen, Color.White };
 
-			var securityBitmap = CaptchaHandler.CreateBackroundImage(width, height, new[] { backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)] });
+			var securityBitmap = this.CreateBackround(width, height, new[] { backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)] });
 			var securityGraph = Graphics.FromImage(securityBitmap);
 			securityGraph.SmoothingMode = SmoothingMode.AntiAlias;
 
@@ -302,7 +305,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		static Bitmap CreateBackroundImage(int width, int height, Color[] backgroundColors)
+		Bitmap CreateBackround(int width, int height, Color[] backgroundColors)
 		{
 			// create element bitmaps
 			int bmpWidth = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(5, 10), UtilityService.GetRandomNumber(20, width / 2));
@@ -342,7 +345,5 @@ namespace net.vieapps.Services.Files
 
 			return backroundBitmap;
 		}
-		#endregion
-
 	}
 }

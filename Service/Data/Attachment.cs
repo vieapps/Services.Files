@@ -1,18 +1,16 @@
 ﻿#region Related components
 using System;
-using System.Diagnostics;
 using System.Xml.Serialization;
-
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
 
 namespace net.vieapps.Services.Files
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Name = {Name}")]
+	[Serializable, BsonIgnoreExtraElements]
 	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public class Attachment : Repository<Attachment>
 	{
@@ -23,17 +21,17 @@ namespace net.vieapps.Services.Files
 			this.SystemID = "";
 			this.DefinitionID = "";
 			this.ObjectID = "";
-			this.Name = "";
+			this.Filename = "";
 			this.Size = 0;
 			this.ContentType = "";
-			this.DownloadTimes = 0;
+			this.Downloads = new CounterInfo();
 			this.IsShared = false;
 			this.IsTracked = false;
 			this.IsTemporary = false;
 			this.Title = "";
 			this.Description = "";
-			this.Created = DateTime.Now;
-			this.LastModified = DateTime.Now;
+			this.CreatedID = this.LastModifiedID = "";
+			this.Created = this.LastModified = DateTime.Now;
 		}
 
 		#region Properties
@@ -46,13 +44,13 @@ namespace net.vieapps.Services.Files
 		/// <summary>
 		/// Gets or sets the identity of the business system that the attachment file is belong/related to
 		/// </summary>
-		[JsonIgnore, XmlIgnore, Property(MaxLength = 32), Sortable(IndexName = "System")]
+		[Property(MaxLength = 32), Sortable(IndexName = "System")]
 		public override string SystemID { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the entity definition that the attachment file is belong/related to
 		/// </summary>
-		[JsonIgnore, XmlIgnore, Property(MaxLength = 32), Sortable(IndexName = "System")]
+		[Property(MaxLength = 32), Sortable(IndexName = "System")]
 		public string DefinitionID { get; set; }
 
 		/// <summary>
@@ -64,7 +62,7 @@ namespace net.vieapps.Services.Files
 		/// <summary>
 		/// Gets or sets the size (in bytes) of the attachment file
 		/// </summary>
-		public int Size { get; set; }
+		public long Size { get; set; }
 
 		/// <summary>
 		/// Gets or sets the MIME content-type of the attachment file
@@ -75,8 +73,8 @@ namespace net.vieapps.Services.Files
 		/// <summary>
 		/// Gets or sets the downloaded times of the attachment file
 		/// </summary>
-		[Sortable(IndexName = "States")]
-		public int DownloadTimes { get; set; }
+		[AsJson]
+		public CounterInfo Downloads { get; set; }
 
 		/// <summary>
 		/// Gets or sets the state that determines to track download activity of the attachment file
@@ -100,7 +98,7 @@ namespace net.vieapps.Services.Files
 		/// Gets or sets the name of the attachment file
 		/// </summary>
 		[Property(MaxLength = 250, NotNull = true), Sortable]
-		public string Name { get; set; }
+		public string Filename { get; set; }
 
 		/// <summary>
 		/// Gets or sets the description of the attachment file
@@ -137,8 +135,8 @@ namespace net.vieapps.Services.Files
 		[JsonIgnore, BsonIgnore, Ignore]
 		public override string Title
 		{
-			get { return this.Name; }
-			set { this.Name = value; }
+			get { return this.Filename; }
+			set { this.Filename = value; }
 		}
 
 		[JsonIgnore, BsonIgnore, Ignore]
@@ -151,5 +149,36 @@ namespace net.vieapps.Services.Files
 		public override Privileges OriginalPrivileges { get; set; }
 		#endregion
 
+		#region To JSON
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted)
+			=> this.ToJson(addTypeOfExtendedProperties, onPreCompleted, true);
+
+		public JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null, bool asNormalized = true)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (asNormalized)
+					json["URIs"] = new JObject
+					{
+						{ "Direct", $"{Utility.DirectURI}{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename}" },
+						{ "Download", $"{Utility.DownloadURI}{this.ID}/1/{this.Filename}" }
+					};
+				onPreCompleted?.Invoke(json);
+			});
+		#endregion
+
+	}
+
+	[Serializable, BsonIgnoreExtraElements]
+	public class CounterInfo
+	{
+		public CounterInfo() { }
+
+		public DateTime LastUpdated { get; set; } = DateTime.Now;
+
+		public int Month { get; set; } = 0;
+
+		public int Week { get; set; } = 0;
+
+		public int Total { get; set; } = 0;
 	}
 }
