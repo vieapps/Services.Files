@@ -48,14 +48,17 @@ namespace net.vieapps.Services.Files
 						break;
 
 					case "captcha":
-						if (!requestInfo.Verb.IsEquals("GET"))
-							throw new MethodAccessException(requestInfo.Verb);
-						var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
-						json = new JObject
+						if (requestInfo.Verb.IsEquals("GET"))
 						{
-							{ "Code", code },
-							{ "Uri", $"{Utility.CaptchaURI}{code.Url64Encode()}/{UtilityService.GetUUID().Left(13).Url64Encode()}.jpg" }
-						};
+							var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+							json = new JObject
+							{
+								{ "Code", code },
+								{ "Uri", $"{Utility.CaptchaURI}{code.Url64Encode()}/{UtilityService.GetUUID().Left(13).Url64Encode()}.jpg" }
+							};
+						}
+						else
+							throw new MethodAccessException(requestInfo.Verb);
 						break;
 
 					default:
@@ -92,6 +95,9 @@ namespace net.vieapps.Services.Files
 				case "DELETE":
 					return this.DeleteThumbnailAsync(requestInfo, cancellationToken);
 
+				case "PATCH":
+					return this.MoveThumbnailAsync(requestInfo, cancellationToken);
+
 				default:
 					return Task.FromException<JToken>(new MethodNotAllowedException(requestInfo.Verb));
 			}
@@ -99,23 +105,102 @@ namespace net.vieapps.Services.Files
 
 		async Task<JToken> SearchThumbnailsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			// prepare
 			var request = requestInfo.GetRequestExpando();
-			var objectID = requestInfo.GetQueryParameter("x-object-id") ?? requestInfo.GetQueryParameter("object-id");
-			if (string.IsNullOrWhiteSpace(objectID) || !objectID.IsValidUUID())
+			var objectIdentity = requestInfo.GetParameter("x-object-id") ?? requestInfo.GetParameter("object-id");
+			if (string.IsNullOrWhiteSpace(objectIdentity))
 				throw new InvalidRequestException();
 
-			var thumbnails = await Thumbnail.FindAsync(Filters<Thumbnail>.Equals("ObjectID", objectID), Sorts<Thumbnail>.Ascending("Filename"), 0, 1, null, cancellationToken).ConfigureAwait(false);
-			var title = (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
-			return thumbnails.ToJArray(thumbnail => thumbnail.ToJson(false, null, true, title));
+			var objectID = objectIdentity.IsValidUUID()
+				? objectIdentity.ToLower()
+				: null;
+
+			var objectIDs = !objectIdentity.IsValidUUID()
+				? objectIdentity.ToLower().ToArray(",", true)
+				: null;
+
+			// get cached
+			JToken json = null;
+			if (objectID != null)
+			{
+				var cached = await Utility.Cache.GetAsync<string>($"{objectID}:json", cancellationToken).ConfigureAwait(false);
+				json = cached?.ToJson();
+			}
+			else if (objectIDs != null)
+			{
+				var cached = await Utility.Cache.GetAsync<string>(objectIDs.Select(id => $"{id}:json"), cancellationToken).ConfigureAwait(false);
+				if (cached != null && cached.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
+				{
+					json = new JObject();
+					cached.ForEach(kvp => json[kvp.Key.Replace(":json", "")] = kvp.Value.ToJson());
+				}
+			}
+
+			// no cached => search
+			if (json == null)
+			{
+				// search
+				var filter = objectIDs == null
+					? Filters<Thumbnail>.Equals("ObjectID", objectID) as IFilterBy<Thumbnail>
+					: Filters<Thumbnail>.Or(objectIDs.Select(id => Filters<Thumbnail>.Equals("ObjectID", id)));
+				var sort = objectIDs == null
+					? Sorts<Thumbnail>.Ascending("Filename")
+					: Sorts<Thumbnail>.Ascending("ObjectID").ThenByAscending("Filename");
+				var thumbnails = await Thumbnail.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+
+				// build JSON
+				var title = (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
+				if (objectIDs == null)
+				{
+					json = thumbnails.ToJArray(thumbnail => thumbnail.ToJson(false, null, true, title));
+					await Utility.Cache.SetAsync($"{objectID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					json = this.BuildJson(thumbnails, thumbnail => thumbnail.ToJson(false, null, true, title));
+					await (json as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:json", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+				}
+			}
+
+			// prepare the response
+			if (!(requestInfo.GetParameter("x-width") ?? "0").TryCastAs<int>(out var width))
+				width = 0;
+			if (!(requestInfo.GetParameter("x-height") ?? "0").TryCastAs<int>(out var height))
+				height = 0;
+			if (!(requestInfo.GetParameter("x-is-big") ?? "false").TryCastAs<bool>(out var isBig))
+				isBig = false;
+			if (!(requestInfo.GetParameter("x-is-png") ?? "false").TryCastAs<bool>(out var isPng))
+				isPng = false;
+
+			void normalizeURI(JToken token)
+			{
+				var uri = token.Get<string>("URI");
+				if (isBig && isPng)
+					uri = uri.Replace("thumbnails", "thumbnailbigpngs");
+				else if (isBig)
+					uri = uri.Replace("thumbnails", "thumbnailbigs");
+				else if (isPng)
+					uri = uri.Replace("thumbnails", "thumbnailpngs");
+				if (width != 0 || height != 0)
+				{
+					uri = uri.Replace("/0/0/0/", $"/0/{width}/{height}/");
+					uri = uri.Replace("/1/0/0/", $"/1/{width}/{height}/");
+				}
+				token["URI"] = uri;
+			}
+
+			if (json is JArray)
+				(json as JArray).ForEach(thumbnail => normalizeURI(thumbnail));
+			else
+				(json as JObject).ForEach(child => (child as JArray).ForEach(thumbnail => normalizeURI(thumbnail)));
+
+			return json;
 		}
 
 		async Task<JToken> CreateThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// verify
-			if (requestInfo.Extra == null
-				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(requestInfo.Body.GetHMACSHA256(this.ValidationKey))
-				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
-				throw new InformationInvalidException("The signature is not found or invalid");
+			this.VerifySignature(requestInfo, requestInfo.Body.GetHMACSHA256(this.ValidationKey));
 
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -139,16 +224,16 @@ namespace net.vieapps.Services.Files
 			thumbnail.CreatedID = thumbnail.LastModifiedID = requestInfo.Session.User.ID;
 			thumbnail.Created = thumbnail.LastModified = DateTime.Now;
 			await Thumbnail.CreateAsync(thumbnail, cancellationToken).ConfigureAwait(false);
-			return thumbnail.ToJson(false, null, true, (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri());
+
+			var json = thumbnail.ToJson(false, null, true, (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri());
+			await Utility.Cache.SetAsync($"{thumbnail.ID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		async Task<JToken> DeleteThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// verify
-			if (requestInfo.Extra == null
-				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey))
-				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
-				throw new InformationInvalidException("The signature is not found or invalid");
+			this.VerifySignature(requestInfo, requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey));
 
 			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (thumbnail == null)
@@ -164,12 +249,50 @@ namespace net.vieapps.Services.Files
 
 			// delete
 			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
-			{
-				Type = "Thumbnail#Delete",
-				Data = thumbnail.ToJson(false, null, false)
-			}, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync($"{thumbnail.ID}:json", cancellationToken),
+				this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Thumbnail#Delete",
+					Data = thumbnail.ToJson(false, null, false)
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
 			return new JObject();
+		}
+
+		async Task<JToken> MoveThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// verify
+			this.VerifySignature(requestInfo, requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey));
+
+			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (thumbnail == null)
+				throw new InvalidRequestException();
+
+			// check permissions
+			var objectName = requestInfo.GetParameter("x-object-name");
+			var gotRights = !string.IsNullOrWhiteSpace(thumbnail.SystemID) && !string.IsNullOrWhiteSpace(thumbnail.DefinitionID)
+				? await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false)
+				: await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, objectName, thumbnail.ObjectID).ConfigureAwait(false);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// move from temporary to main directory (mark as official)
+			if (thumbnail.IsTemporary)
+			{
+				thumbnail.IsTemporary = false;
+				thumbnail.LastModified = DateTime.Now;
+				thumbnail.LastModifiedID = requestInfo.Session.User.ID;
+				await Thumbnail.UpdateAsync(thumbnail, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+				await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Thumbnail#Move",
+					Data = thumbnail.ToJson(false, null, false)
+				}, cancellationToken).ConfigureAwait(false);
+			}
+
+			return thumbnail.ToJson(false, null, true, (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri());
 		}
 		#endregion
 
@@ -192,6 +315,9 @@ namespace net.vieapps.Services.Files
 				case "DELETE":
 					return this.DeleteAttachmentAsync(requestInfo, cancellationToken);
 
+				case "PATCH":
+					return this.MoveAttachmentAsync(requestInfo, cancellationToken);
+
 				default:
 					return Task.FromException<JToken>(new MethodNotAllowedException(requestInfo.Verb));
 			}
@@ -200,25 +326,85 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> SearchAttachmentsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var request = requestInfo.GetRequestExpando();
-			var objectID = requestInfo.GetQueryParameter("x-object-id") ?? requestInfo.GetQueryParameter("object-id");
-			if (string.IsNullOrWhiteSpace(objectID) || !objectID.IsValidUUID())
+			var objectIdentity = requestInfo.GetQueryParameter("x-object-id") ?? requestInfo.GetQueryParameter("object-id");
+			if (string.IsNullOrWhiteSpace(objectIdentity))
 				throw new InvalidRequestException();
 
-			var attachments = await Attachment.FindAsync(Filters<Attachment>.Equals("ObjectID", objectID), Sorts<Attachment>.Ascending("Title").ThenByAscending("Filename"), 0, 1, null, cancellationToken).ConfigureAwait(false);
-			return attachments.ToJArray(attachment => attachment.ToJson());
+			var objectID = objectIdentity.IsValidUUID()
+				? objectIdentity.ToLower()
+				: null;
+
+			var objectIDs = !objectIdentity.IsValidUUID()
+				? objectIdentity.ToLower().ToArray(",", true)
+				: null;
+
+			// get cached
+			JToken json = null;
+			if (objectID != null)
+			{
+				var cached = await Utility.Cache.GetAsync<string>($"{objectID}:json", cancellationToken).ConfigureAwait(false);
+				json = cached?.ToJson();
+			}
+			else if (objectIDs != null)
+			{
+				var cached = await Utility.Cache.GetAsync<string>(objectIDs.Select(id => $"{id}:json"), cancellationToken).ConfigureAwait(false);
+				if (cached != null && cached.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
+				{
+					json = new JObject();
+					cached.ForEach(kvp => json[kvp.Key.Replace(":json", "")] = kvp.Value.ToJson());
+				}
+			}
+
+			// no cached => search
+			if (json == null)
+			{
+				var filter = objectIDs == null
+				? Filters<Attachment>.Equals("ObjectID", objectID) as IFilterBy<Attachment>
+				: Filters<Attachment>.Or(objectIDs.Select(id => Filters<Attachment>.Equals("ObjectID", id)));
+				var sort = objectIDs == null
+					? Sorts<Attachment>.Ascending("Title").ThenByAscending("Filename")
+					: Sorts<Attachment>.Ascending("ObjectID").ThenByAscending("Title").ThenByAscending("Filename");
+				var attachments = await Attachment.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+
+				// build JSON
+				if (objectIDs == null)
+				{
+					json = attachments.ToJArray(attachment => attachment.ToJson());
+					await Utility.Cache.SetAsync($"{objectID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					json = this.BuildJson(attachments, attachment => attachment.ToJson());
+					await (json as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:json", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+				}
+			}
+
+			// response
+			return json;
 		}
 
 		async Task<JToken> GetAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			// prepare
 			var objectIdentity = requestInfo.GetObjectIdentity();
-			var attachmentID = !string.IsNullOrWhiteSpace(objectIdentity) && objectIdentity.IsValidUUID()
+			var objectID = !string.IsNullOrWhiteSpace(objectIdentity) && objectIdentity.IsValidUUID()
 				? objectIdentity
 				: requestInfo.GetQueryParameter("x-object-id") ?? requestInfo.GetQueryParameter("object-id") ?? requestInfo.GetQueryParameter("attachment-id") ?? requestInfo.GetQueryParameter("id");
 
-			var attachment = await Attachment.GetAsync<Attachment>(attachmentID, cancellationToken).ConfigureAwait(false);
+			// get cached
+			if (!string.IsNullOrWhiteSpace(objectIdentity) && objectIdentity.IsValidUUID())
+			{
+				var cached = await Utility.Cache.GetAsync<string>($"{objectIdentity}:json", cancellationToken).ConfigureAwait(false);
+				if (!string.IsNullOrWhiteSpace(cached))
+					return cached.ToJson();
+			}
+
+			// no cache => get from database
+			var attachment = await Attachment.GetAsync<Attachment>(objectID, cancellationToken).ConfigureAwait(false);
 			if (attachment == null)
 				throw new InformationNotFoundException();
 
+			// update counters
 			if ("counters".IsEquals(objectIdentity))
 			{
 				attachment.Downloads.Total++;
@@ -229,16 +415,22 @@ namespace net.vieapps.Services.Files
 				return attachment.Downloads.ToJson();
 			}
 
-			return attachment.ToJson();
+			// update trackers
+			else if ("trackers".IsEquals(objectIdentity))
+			{
+
+			}
+
+			// response
+			var json = attachment.ToJson();
+			await Utility.Cache.SetAsync($"{attachment.ID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		async Task<JToken> CreateAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// verify
-			if (requestInfo.Extra == null
-				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(requestInfo.Body.GetHMACSHA256(this.ValidationKey))
-				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
-				throw new InformationInvalidException("The signature is not found or invalid");
+			this.VerifySignature(requestInfo, requestInfo.Body.GetHMACSHA256(this.ValidationKey));
 
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -262,16 +454,16 @@ namespace net.vieapps.Services.Files
 			attachment.CreatedID = attachment.LastModifiedID = requestInfo.Session.User.ID;
 			attachment.Created = attachment.LastModified = DateTime.Now;
 			await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
-			return attachment.ToJson();
+
+			var json = attachment.ToJson();
+			await Utility.Cache.SetAsync($"{attachment.ID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		async Task<JToken> UpdateAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// verify
-			if (requestInfo.Extra == null
-				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(requestInfo.Body.GetHMACSHA256(this.ValidationKey))
-				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
-				throw new InformationInvalidException("The signature is not found or invalid");
+			this.VerifySignature(requestInfo, requestInfo.Body.GetHMACSHA256(this.ValidationKey));
 
 			// prepare
 			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
@@ -293,16 +485,16 @@ namespace net.vieapps.Services.Files
 			attachment.LastModifiedID = requestInfo.Session.User.ID;
 			attachment.LastModified = DateTime.Now;
 			await Attachment.UpdateAsync(attachment, false, cancellationToken).ConfigureAwait(false);
-			return attachment.ToJson();
+
+			var json = attachment.ToJson();
+			await Utility.Cache.SetAsync($"{attachment.ID}:json", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		async Task<JToken> DeleteAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// verify
-			if (requestInfo.Extra == null
-				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey))
-				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
-				throw new InformationInvalidException("The signature is not found or invalid");
+			this.VerifySignature(requestInfo, requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey));
 
 			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (attachment == null)
@@ -318,14 +510,82 @@ namespace net.vieapps.Services.Files
 
 			// delete
 			await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
-			{
-				Type = "Attachment#Delete",
-				Data = attachment.ToJson(false, null, false)
-			}, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync($"{attachment.ID}:json", cancellationToken),
+				this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Attachment#Delete",
+					Data = attachment.ToJson(false, null, false)
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
 			return new JObject();
+		}
+
+		async Task<JToken> MoveAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// verify
+			this.VerifySignature(requestInfo, requestInfo.Header["x-app-token"].GetHMACSHA256(this.ValidationKey));
+
+			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (attachment == null)
+				throw new InformationNotFoundException();
+
+			// check permissions
+			var objectName = requestInfo.GetParameter("x-object-name");
+			var gotRights = !string.IsNullOrWhiteSpace(attachment.SystemID) && !string.IsNullOrWhiteSpace(attachment.DefinitionID)
+				? await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false)
+				: await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, objectName, attachment.ObjectID).ConfigureAwait(false);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// move from temporary to main directory (mark as official)
+			if (attachment.IsTemporary)
+			{
+				attachment.IsTemporary = false;
+				attachment.LastModified = DateTime.Now;
+				attachment.LastModifiedID = requestInfo.Session.User.ID;
+				await Attachment.UpdateAsync(attachment, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+				await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Attachment#Move",
+					Data = attachment.ToJson(false, null, false)
+				}, cancellationToken).ConfigureAwait(false);
+			}
+
+			return attachment.ToJson();
 		}
 		#endregion
 
+		void VerifySignature(RequestInfo requestInfo, string signature)
+		{
+			if (requestInfo.Extra == null
+				|| !requestInfo.Extra.ContainsKey("Signature") || !requestInfo.Extra["Signature"].Equals(signature)
+				|| !requestInfo.Extra.ContainsKey("SessionID") || !requestInfo.Extra["SessionID"].Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
+				throw new InformationInvalidException("The signature is not found or invalid");
+		}
+
+		JObject BuildJson<T>(List<T> objects, Func<T, JObject> toJson) where T : class
+		{
+			var json = new JObject();
+			var objectID = "";
+			JArray children = null;
+			objects.ForEach(@object =>
+			{
+				var child = toJson(@object);
+				var objID = child.Get<string>("ObjectID");
+				if (!objID.IsEquals(objectID))
+				{
+					if (children != null && children.Count > 0 && !string.IsNullOrWhiteSpace(objectID))
+						json[objectID] = children;
+					objectID = objID;
+					children = new JArray();
+				}
+				children.Add(child);
+			});
+			if (children != null && children.Count > 0 && !string.IsNullOrWhiteSpace(objectID))
+				json[objectID] = children;
+			return json;
+		}
 	}
 }

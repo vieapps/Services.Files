@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using System.Xml.Serialization;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
@@ -128,14 +129,16 @@ namespace net.vieapps.Services.Files
 				json["Filename"] = string.IsNullOrWhiteSpace(this.Filename) ? $"{this.ObjectID}.jpg" : this.Filename;
 				if (asNormalized)
 				{
-					var uri = Utility.ThumbnailURI + "{parentID}/0/0/0";
+					var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID)}/0/0/0";
 					var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
 					json["Index"] = index;
-					json["URI"] = $"{uri.Replace("{parentID}", string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID)}/{this.ObjectID}/{index}/{this.LastModified.ToString("HHmmss")}/{title ?? UtilityService.NewUUID}.jpg";
-					new[] { "ID", "ServiceName", "SystemID", "DefinitionID", "ObjectID", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" }.ForEach(name => json.Remove(name));
+					json["URI"] = $"{uri}/{this.ObjectID}/{index}/{this.LastModified.ToString("HHmmss")}/{title ?? UtilityService.NewUUID}.jpg";
+					Thumbnail.BeRemoved.ForEach(name => json.Remove(name));
 				};
 				onPreCompleted?.Invoke(json);
 			});
+
+		static IEnumerable<string> BeRemoved { get; } = new[] { "ID", "ServiceName", "SystemID", "DefinitionID", "ObjectID", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
 		#endregion
 
 	}

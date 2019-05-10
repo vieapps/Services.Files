@@ -174,17 +174,17 @@ namespace net.vieapps.Services.Files
 		}
 
 		#region  Global settings & helpers
-		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>
+		static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 		{
+			{ "files", typeof(FileHandler) },
 			{ "avatars", typeof(AvatarHandler) },
 			{ "captchas", typeof(CaptchaHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
+			{ "downloads", typeof(DownloadHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
 			{ "thumbnailpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
-			{ "files", typeof(FileHandler) },
-			{ "downloads", typeof(DownloadHandler) }
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) }
 		};
 
 		internal static void PrepareHandlers()
@@ -192,7 +192,7 @@ namespace net.vieapps.Services.Files
 			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers",  "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler svcConfig)
 				if (svcConfig.Section.SelectNodes("handler") is XmlNodeList handlers)
 					handlers.ToList()
-						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value))
+						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
 						.ForEach(handler =>
 						{
 							var type = Type.GetType(handler.Attributes["type"].Value);
@@ -204,26 +204,28 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"].Value}) => {ex.Message}", ex);
+									Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"].Value})", ex);
 								}
 							if (type != null && type.CreateInstance() is Services.FileHandler)
-								Handler.Handlers[handler.Attributes["key"].Value] = type;
+								Handler.Handlers[handler.Attributes["key"].Value.ToLower()] = type;
 						});
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 
-		static string _UserAvatarFilesPath = null;
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null;
 
-		internal static string UserAvatarFilesPath => Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
+		internal static string UserAvatarFilesPath
+			=> Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
 
-		static string _DefaultUserAvatarFilePath = null;
+		internal static string DefaultUserAvatarFilePath
+			=> Handler._DefaultUserAvatarFilePath ?? (Handler._DefaultUserAvatarFilePath = UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png")));
 
-		internal static string DefaultUserAvatarFilePath => Handler._DefaultUserAvatarFilePath ?? (Handler._DefaultUserAvatarFilePath = UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png")));
+		internal static string AttachmentFilesPath
+			=> Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments")));
 
-		static string _AttachmentFilesPath = null;
-
-		internal static string AttachmentFilesPath => Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments")));
+		internal static string TempFilesPath
+			=> Handler._TempFilesPath ?? (Handler._TempFilesPath = UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp")));
 		#endregion
 
 		#region Helper: API Gateway Router
@@ -306,47 +308,21 @@ namespace net.vieapps.Services.Files
 			Router.CloseChannels();
 		}
 
-		static async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
 			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
-			{
-				// prepare informationof attachment file
-				var attachmentInfo = new AttachmentInfo
+				new AttachmentInfo
 				{
 					IsThumbnail = message.Type.IsEquals("Thumbnail#Delete")
-				};
-				attachmentInfo.Fill(message.Data);
+				}.Fill(message.Data).MoveFileIntoTrash(Global.Logger, "Http.Sync");
 
-				// move file to trash
-				var filePath = attachmentInfo.GetFilePath();
-				if (File.Exists(filePath))
-					try
-					{
-						var trashPath = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName : attachmentInfo.SystemID, "trash");
-						if (!Directory.Exists(trashPath))
-							Directory.CreateDirectory(trashPath);
-						trashPath = Path.Combine(trashPath, attachmentInfo.Filename);
-						if (File.Exists(trashPath))
-							File.Delete(trashPath);
-						File.Move(filePath, trashPath);
-						if (Global.IsDebugLogEnabled)
-							await Global.WriteLogsAsync(Global.Logger, "Http.Sync", $"Successfully move a file into trash [{filePath} => {trashPath}]").ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						await Global.WriteLogsAsync(Global.Logger, "Http.Sync", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-						try
-						{
-							File.Delete(filePath);
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Http.Sync", $"Successfully delete a file [{filePath}]").ConfigureAwait(false);
-						}
-						catch (Exception e)
-						{
-							await Global.WriteLogsAsync(Global.Logger, "Http.Sync", $"Error occurred while deleting a file => {e.Message}", e, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-						}
-					}
-			}
+			else if (message.Type.IsEquals("Thumbnail#Move") || message.Type.IsEquals("Attachment#Move"))
+				new AttachmentInfo
+				{
+					IsThumbnail = message.Type.IsEquals("Thumbnail#Move")
+				}.Fill(message.Data).MoveFile(Global.Logger, "Http.Sync");
+
+			return Task.CompletedTask;
 		}
 
 		static async Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
@@ -359,6 +335,7 @@ namespace net.vieapps.Services.Files
 	}
 
 	#region Attachment Info
+	[Serializable]
 	public struct AttachmentInfo
 	{
 		public string ID { get; set; }
@@ -402,13 +379,84 @@ namespace net.vieapps.Services.Files
 					|| attachmentInfo.ContentType.IsEquals("application/pdf") || attachmentInfo.ContentType.IsEquals("application/x-pdf")
 					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash");
 
-		public static string GetFilePath(this AttachmentInfo attachmentInfo)
+		public static string GetFileName(this AttachmentInfo attachmentInfo)
+			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename;
+
+		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false)
+			=> attachmentInfo.IsTemporary || isTemporary
+				? Path.Combine(Handler.TempFilesPath, attachmentInfo.GetFileName())
+				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), attachmentInfo.GetFileName());
+
+		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
 		{
-			var path = !string.IsNullOrWhiteSpace(attachmentInfo.SystemID) && attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.SystemID : attachmentInfo.ServiceName;
-			return Path.Combine(Handler.AttachmentFilesPath, path + (attachmentInfo.IsTemporary ? $"{Path.DirectorySeparatorChar}temp" : ""), attachmentInfo.Filename);
+			var filePath = attachmentInfo.GetFilePath();
+			if (File.Exists(filePath))
+				try
+				{
+					File.Delete(filePath);
+					if (Global.IsDebugLogEnabled)
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully delete a file [{filePath}]");
+				}
+				catch (Exception e)
+				{
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while deleting a file => {e.Message}", e, Global.ServiceName, LogLevel.Error);
+				}
+			return attachmentInfo;
 		}
 
-		public static void Fill(this AttachmentInfo attachmentInfo, JToken json)
+		public static AttachmentInfo MoveFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
+		{
+			var from = attachmentInfo.GetFilePath(true);
+			if (File.Exists(from))
+				try
+				{
+					var to = attachmentInfo.MoveFileIntoTrash(logger, objectName).GetFilePath();
+					File.Move(from, to);
+					if (Global.IsDebugLogEnabled)
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file [{from} => {to}]");
+				}
+				catch (Exception e)
+				{
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file => {e.Message}", e, Global.ServiceName, LogLevel.Error);
+				}
+			return attachmentInfo;
+		}
+
+		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
+		{
+			var filePath = attachmentInfo.GetFilePath();
+			if (!File.Exists(filePath))
+				return attachmentInfo;
+
+			try
+			{
+				var trashPath = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), "trash", attachmentInfo.GetFileName());
+				if (File.Exists(trashPath))
+					File.Delete(trashPath);
+				File.Move(filePath, trashPath);
+				if (Global.IsDebugLogEnabled)
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file into trash [{filePath} => {trashPath}]");
+				return attachmentInfo;
+			}
+			catch (Exception ex)
+			{
+				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
+				return attachmentInfo.DeleteFile(logger, objectName);
+			}
+		}
+
+		public static AttachmentInfo PrepareDirectories(this AttachmentInfo attachmentInfo)
+		{
+			var path = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower());
+			new[] { path, Path.Combine(path, "trash") }.ForEach(directory =>
+			{
+				if (!Directory.Exists(directory))
+					Directory.CreateDirectory(directory);
+			});
+			return attachmentInfo;
+		}
+
+		public static AttachmentInfo Fill(this AttachmentInfo attachmentInfo, JToken json)
 		{
 			if (json != null)
 			{
@@ -417,24 +465,24 @@ namespace net.vieapps.Services.Files
 				attachmentInfo.SystemID = json.Get<string>("SystemID");
 				attachmentInfo.DefinitionID = json.Get<string>("DefinitionID");
 				attachmentInfo.ObjectID = json.Get<string>("ObjectID");
+				attachmentInfo.Filename = json.Get<string>("Filename");
 				attachmentInfo.Size = json.Get<long>("Size");
 				attachmentInfo.ContentType = json.Get<string>("ContentType");
 				attachmentInfo.IsTemporary = json.Get<bool>("IsTemporary");
-				if (attachmentInfo.IsThumbnail)
-					attachmentInfo.Filename = json.Get<string>("Filename");
-				else
+				if (!attachmentInfo.IsThumbnail)
 				{
-					attachmentInfo.Filename = attachmentInfo.ID + "-" + json.Get<string>("Filename");
 					attachmentInfo.IsShared = json.Get<bool>("IsShared");
 					attachmentInfo.IsTracked = json.Get<bool>("IsTracked");
 					attachmentInfo.Title = json.Get<string>("Title");
 					attachmentInfo.Description = json.Get<string>("Description");
 				}
 			}
+			return attachmentInfo;
 		}
 
 		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string objectName, CancellationToken cancellationToken = default(CancellationToken))
 		{
+			var session = context.GetSession();
 			var body = new JObject
 			{
 				{ "ID", attachmentInfo.ID },
@@ -451,12 +499,12 @@ namespace net.vieapps.Services.Files
 				{ "Title", attachmentInfo.Title },
 				{ "Description", attachmentInfo.Description }
 			}.ToString(Newtonsoft.Json.Formatting.None);
-			var session = context.GetSession();
 			return context.CallServiceAsync(new RequestInfo(session, "Files", attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment", "POST")
 			{
 				Query = new Dictionary<string, string>
 				{
 					{ "object-identity", attachmentInfo.ID },
+					{ "x-object-title", attachmentInfo.Title },
 					{ "x-object-name", objectName }
 				},
 				Body = body,
@@ -466,26 +514,21 @@ namespace net.vieapps.Services.Files
 					{ "SessionID", session.SessionID.GetHMACBLAKE256(Global.ValidationKey) }
 				},
 				CorrelationID = context.GetCorrelationID()
-			}, cancellationToken, Global.Logger, $"Http.{(attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment")}s");
+			}, cancellationToken, Global.Logger, "Http.Uploads");
 		}
 
 		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default(CancellationToken))
-		{
-			var attachmentInfo = new AttachmentInfo
+			=> new AttachmentInfo
 			{
 				IsThumbnail = false
-			};
-			if (!string.IsNullOrWhiteSpace(id))
-				attachmentInfo.Fill(await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+			}.Fill(string.IsNullOrWhiteSpace(id) ? null : await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+			{
+				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					Query = new Dictionary<string, string>
-					{
-						{ "object-identity", id }
-					},
-					CorrelationID = context.GetCorrelationID()
-				}, cancellationToken, Global.Logger, "Http.Attachments").ConfigureAwait(false));
-			return attachmentInfo;
-		}
+					{ "object-identity", id }
+				},
+				CorrelationID = context.GetCorrelationID()
+			}, cancellationToken, Global.Logger, "Http.Downloads").ConfigureAwait(false));
 
 		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo)
 			=> attachmentInfo.IsThumbnail
@@ -495,7 +538,8 @@ namespace net.vieapps.Services.Files
 		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
 				? Task.CompletedTask
-				: context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+				: Task.WhenAll(
+					context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
 					{
 						Query = new Dictionary<string, string>
 						{
@@ -504,8 +548,22 @@ namespace net.vieapps.Services.Files
 							{ "x-user-id", context.User.Identity.Name }
 						},
 						CorrelationID = context.GetCorrelationID()
-					}, cancellationToken, Global.Logger, "Http.Downloads");
-	}
-	#endregion
+					}, cancellationToken, Global.Logger, "Http.Downloads"),
+					attachmentInfo.IsTracked
+						? context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+							{
+								Query = new Dictionary<string, string>
+								{
+									{ "object-identity", "trackers" },
+									{ "x-object-id", attachmentInfo.ID },
+									{ "x-user-id", context.User.Identity.Name },
+									{ "x-refer", context.GetReferUrl() },
+									{ "x-origin", context.GetOriginUri()?.ToString() }
+								},
+								CorrelationID = context.GetCorrelationID()
+							}, cancellationToken, Global.Logger, "Http.Downloads")
+						: Task.CompletedTask);
+		}
+		#endregion
 
 }

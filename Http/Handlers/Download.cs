@@ -24,7 +24,10 @@ namespace net.vieapps.Services.Files
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
 				try
 				{
-					await this.DownloadAsync(context, cts.Token).ConfigureAwait(false);
+					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+						await this.DownloadAsync(context, cts.Token).ConfigureAwait(false);
+					else
+						throw new MethodNotAllowedException(context.Request.Method);
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
@@ -40,10 +43,6 @@ namespace net.vieapps.Services.Files
 
 		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			// check HTTP verb
-			if (!context.Request.Method.IsEquals("GET") && !context.Request.Method.IsEquals("HEAD"))
-				throw new MethodNotAllowedException(context.Request.Method);
-
 			// prepare
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();

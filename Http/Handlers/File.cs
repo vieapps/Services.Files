@@ -5,9 +5,11 @@ using System.Net;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -33,9 +35,11 @@ namespace net.vieapps.Services.Files
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
+					if (ex is AggregateException)
+						ex = ex.InnerException;
 					var requestUri = context.GetRequestUri();
 					var queryString = requestUri.ParseQuery();
-					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Downloads")}", $"Error occurred while processing with a file ({requestUri})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Downloads")}", $"Error occurred while processing with a file ({context.Request.Method} {requestUri})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
 						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
 					else
@@ -96,12 +100,15 @@ namespace net.vieapps.Services.Files
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var serviceName = context.GetParameter("service-name") ?? context.GetParameter("x-service-name");
 			var systemID = context.GetParameter("system-id") ?? context.GetParameter("x-system-id");
 			var definitionID = context.GetParameter("definition-id") ?? context.GetParameter("x-definition-id");
 			var objectName = context.GetParameter("object-name") ?? context.GetParameter("x-object-name");
 			var objectID = context.GetParameter("object-identity") ?? context.GetParameter("object-id") ?? context.GetParameter("x-object-id");
-			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
+			var isShared = "true".IsEquals(context.GetParameter("is-shared") ?? context.GetParameter("x-shared"));
+			var isTracked = "true".IsEquals(context.GetParameter("is-tracked") ?? context.GetParameter("x-tracked"));
+			var isTemporary = "true".IsEquals(context.GetParameter("is-temporary") ?? context.GetParameter("x-temporary"));
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");
@@ -118,14 +125,6 @@ namespace net.vieapps.Services.Files
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// prepare directories
-			var path = Path.Combine(Handler.AttachmentFilesPath, serviceName != "" ? serviceName : systemID);
-			new[] { path, Path.Combine(path, "temp"), Path.Combine(path, "trash") }.ForEach(directory =>
-			{
-				if (!Directory.Exists(directory))
-					Directory.CreateDirectory(directory);
-			});
-
 			// save uploaded files & create meta info
 			var attachmentInfos = new List<AttachmentInfo>();
 			try
@@ -136,24 +135,23 @@ namespace net.vieapps.Services.Files
 					using (var uploadStream = file.OpenReadStream())
 					{
 						// prepare
-						var id = UtilityService.NewUUID;
 						var attachmentInfo = new AttachmentInfo
 						{
-							ID = id,
+							ID = UtilityService.NewUUID,
 							ServiceName = serviceName,
 							SystemID = systemID,
 							DefinitionID = definitionID,
 							ObjectID = objectID,
 							Size = file.Length,
-							Filename = file.Name,
+							Filename = file.FileName,
 							ContentType = file.ContentType,
-							IsShared = false,
-							IsTracked = false,
+							IsShared = isShared,
+							IsTracked = isTracked,
 							IsTemporary = isTemporary,
-							Title = file.Name.ConvertUnicodeToANSI(),
+							Title = file.FileName,
 							Description = "",
 							IsThumbnail = false
-						};
+						}.PrepareDirectories();
 
 						// save file into disc
 						using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true))
@@ -174,20 +172,16 @@ namespace net.vieapps.Services.Files
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				// create meta info
-				await attachmentInfos.ForEachAsync((attachmentInfo, token) => context.CreateAsync(attachmentInfo, objectName, token), cancellationToken).ConfigureAwait(false);
+				var response = new JArray();
+				await attachmentInfos.ForEachAsync(async (attachmentInfo, token) => response.Add(await context.CreateAsync(attachmentInfo, objectName, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
+				stopwatch.Stop();
+				if (Global.IsDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{attachmentInfos.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception)
 			{
-				attachmentInfos.ForEach(attachmentInfo =>
-				{
-					var filePath = attachmentInfo.GetFilePath();
-					if (File.Exists(filePath))
-						try
-						{
-							File.Delete(filePath);
-						}
-						catch { }
-				});
+				attachmentInfos.ForEach(attachmentInfo => attachmentInfo.DeleteFile());
 				throw;
 			}
 		}

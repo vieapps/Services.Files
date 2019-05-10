@@ -54,6 +54,10 @@ namespace net.vieapps.Services.Files
 					options.IdleTimeout = TimeSpan.FromMinutes(5);
 					options.Cookie.Name = "VIEApps-Session";
 					options.Cookie.HttpOnly = true;
+				})
+				.Configure<FormOptions>(options =>
+				{
+					options.MultipartBodyLengthLimit = 1024 * 1024 * (UtilityService.GetAppSetting("Limits:Body", "10").TryCastAs(out int limitSize) ? limitSize : 10);
 				});
 
 			// authentication
@@ -77,11 +81,6 @@ namespace net.vieapps.Services.Files
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
 				});
-
-			// form options to upload files - default is 10 MB
-			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize))
-				limitSize = 1024 * 10;
-			services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 1024 * limitSize);
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
@@ -154,7 +153,7 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
-				Global.Logger.LogInformation($"Request body limits => Mulipart/form-data (upload files): {UtilityService.GetAppSetting("Limits:Body", "100")} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
+				Global.Logger.LogInformation($"Request body limits => Mulipart/form-data (upload files): {UtilityService.GetAppSetting("Limits:Body", "10")} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
 				
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");

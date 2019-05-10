@@ -60,6 +60,12 @@ namespace net.vieapps.Services.Files
 		public string ObjectID { get; set; }
 
 		/// <summary>
+		/// Gets or sets the name of the attachment file
+		/// </summary>
+		[Property(MaxLength = 250, NotEmpty = true), Searchable, Sortable(IndexName = "File")]
+		public string Filename { get; set; }
+
+		/// <summary>
 		/// Gets or sets the size (in bytes) of the attachment file
 		/// </summary>
 		public long Size { get; set; }
@@ -95,15 +101,15 @@ namespace net.vieapps.Services.Files
 		public bool IsTemporary { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the attachment file
+		/// Gets or sets the title of the attachment file
 		/// </summary>
-		[Property(MaxLength = 250, NotNull = true), Sortable]
-		public string Filename { get; set; }
+		[Property(MaxLength = 250, NotEmpty = true), Searchable, Sortable(IndexName = "Title")]
+		public override string Title { get; set; }
 
 		/// <summary>
 		/// Gets or sets the description of the attachment file
 		/// </summary>
-		[Property(MaxLength = 1000)]
+		[Property(MaxLength = 1000), Searchable]
 		public string Description { get; set; }
 
 		/// <summary>
@@ -132,13 +138,6 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region IBusiness properties
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string Title
-		{
-			get { return this.Filename; }
-			set { this.Filename = value; }
-		}
-
 		[JsonIgnore, BsonIgnore, Ignore]
 		public override string RepositoryID { get; set; }
 
