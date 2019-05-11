@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -134,46 +135,9 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// save uploaded files into disc
-				await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async (file, token) =>
-				{
-					using (var uploadStream = file.OpenReadStream())
-					{
-						// prepare
-						var attachmentInfo = new AttachmentInfo
-						{
-							ID = UtilityService.NewUUID,
-							ServiceName = serviceName,
-							SystemID = systemID,
-							DefinitionID = definitionID,
-							ObjectID = objectID,
-							Size = file.Length,
-							Filename = file.FileName,
-							ContentType = file.ContentType,
-							IsShared = isShared,
-							IsTracked = isTracked,
-							IsTemporary = isTemporary,
-							Title = file.FileName,
-							Description = "",
-							IsThumbnail = false
-						}.PrepareDirectories();
-
-						// save file into disc
-						using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
-						{
-							var buffer = new byte[AspNetCoreUtilityService.BufferSize];
-							var read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-							while (read > 0)
-							{
-								await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-								await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-								read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-							}
-						}
-
-						// update attachment info
-						attachmentInfos.Add(attachmentInfo);
-					}
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				attachmentInfos = "true".IsEquals(UtilityService.GetAppSetting("Files:AllowLargeObjects", UtilityService.GetAppSetting("Files:AllowLargeStreams", "false")))
+					? await this.ReceiveByMultipartBoundaryAsync(context, serviceName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
+					: await this.ReceiveByMultipartFileAsync(context, serviceName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
 
 				// create meta info
 				var response = new JArray();
@@ -188,6 +152,111 @@ namespace net.vieapps.Services.Files
 				attachmentInfos.ForEach(attachmentInfo => attachmentInfo.DeleteFile());
 				throw;
 			}
+		}
+
+		async Task<List<AttachmentInfo>> ReceiveByMultipartFileAsync(HttpContext context, string serviceName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		{
+			var attachmentInfos = new List<AttachmentInfo>();
+			await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async (file, token) =>
+			{
+				using (var uploadStream = file.OpenReadStream())
+				{
+					// prepare
+					var attachmentInfo = new AttachmentInfo
+					{
+						ID = UtilityService.NewUUID,
+						ServiceName = serviceName,
+						SystemID = systemID,
+						DefinitionID = definitionID,
+						ObjectID = objectID,
+						Size = file.Length,
+						Filename = file.FileName,
+						ContentType = file.ContentType,
+						IsShared = isShared,
+						IsTracked = isTracked,
+						IsTemporary = isTemporary,
+						Title = file.FileName,
+						Description = "",
+						IsThumbnail = false
+					}.PrepareDirectories();
+
+					// save file into disc
+					using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+					{
+						var buffer = new byte[AspNetCoreUtilityService.BufferSize];
+						var read = 0;
+						do
+						{
+							read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+							await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+						} while (read > 0);
+					}
+
+					// update attachment info
+					attachmentInfos.Add(attachmentInfo);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			return attachmentInfos;
+		}
+
+		async Task<List<AttachmentInfo>> ReceiveByMultipartBoundaryAsync(HttpContext context, string serviceName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		{
+			// check
+			var attachmentInfos = new List<AttachmentInfo>();
+			if (string.IsNullOrWhiteSpace(context.Request.ContentType) || context.Request.ContentType.PositionOf("multipart/") < 0)
+				return attachmentInfos;
+
+			// prepare the boundary of sections
+			var boundary = context.Request.ContentType.ToArray(' ').Where(entry => entry.StartsWith("boundary=")).First().Substring("boundary=".Length);
+			if (boundary.Length >= 2 && boundary[0] == '"' && boundary[boundary.Length - 1] == '"')
+				boundary = boundary.Substring(1, boundary.Length - 2);
+
+			// read all sections (all files) and save into disc
+			var reader = new MultipartReader(boundary, context.Request.Body);
+			var section = await reader.ReadNextSectionAsync(cancellationToken).ConfigureAwait(false);
+			while (section != null)
+			{
+				// prepare
+				var filename = section.ContentDisposition.ToArray(';').SingleOrDefault(part => part.Contains("filename")).ToArray('=').Last().Trim('"');
+				var attachmentInfo = new AttachmentInfo
+				{
+					ID = UtilityService.NewUUID,
+					ServiceName = serviceName,
+					SystemID = systemID,
+					DefinitionID = definitionID,
+					ObjectID = objectID,
+					Size = section.Body.Length,
+					Filename = filename,
+					ContentType = section.ContentType,
+					IsShared = isShared,
+					IsTracked = isTracked,
+					IsTemporary = isTemporary,
+					Title = filename,
+					Description = "",
+					IsThumbnail = false
+				}.PrepareDirectories();
+
+				// save file into disc
+				using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+				{
+					var buffer = new byte[AspNetCoreUtilityService.BufferSize];
+					var read = 0;
+					do
+					{
+						read = await section.Body.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+						await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+						await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+					} while (read > 0);
+				}
+
+				// update attachment info
+				attachmentInfos.Add(attachmentInfo);
+
+				// read next section (next file)
+				section = await reader.ReadNextSectionAsync(cancellationToken).ConfigureAwait(false);
+			}
+			return attachmentInfos;
 		}
 	}
 }
