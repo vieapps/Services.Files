@@ -63,7 +63,8 @@ namespace net.vieapps.Services.Files
 				ServiceName = !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
-				Filename = pathSegments.Length > 4 && pathSegments[3].IsValidUUID() ? $"{pathSegments[3]}-{pathSegments[4]}" : "",
+				Filename = pathSegments.Length > 4 && pathSegments[3].IsValidUUID() ? pathSegments[4] : "",
+				IsThumbnail = false
 			};
 
 			if (string.IsNullOrWhiteSpace(attachmentInfo.ID) || string.IsNullOrWhiteSpace(attachmentInfo.Filename))
@@ -92,7 +93,7 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() ? null : attachmentInfo.Filename.Right(attachmentInfo.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() ? null : attachmentInfo.Filename, eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
 					context.UpdateAsync(attachmentInfo, cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
@@ -157,9 +158,9 @@ namespace net.vieapps.Services.Files
 						}.PrepareDirectories();
 
 						// save file into disc
-						using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true))
+						using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 						{
-							var buffer = new byte[TextFileReader.BufferSize];
+							var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 							var read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
 							while (read > 0)
 							{

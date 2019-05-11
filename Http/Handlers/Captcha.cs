@@ -42,11 +42,7 @@ namespace net.vieapps.Services.Files
 
 						// response
 						var image = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
-						context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-						{
-							{ "Content-Type", "image/jpeg; charset=utf-8" },
-							{ "Cache-Control", "private, no-store, no-cache" }
-						});
+						context.SetResponseHeaders((int)HttpStatusCode.OK, "image/jpeg", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
 						await context.WriteAsync(image, cts.Token).ConfigureAwait(false);
 					}
 					else

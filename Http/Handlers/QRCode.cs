@@ -99,11 +99,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// display
-			context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-			{
-				{ "Content-Type", "image/png; charset=utf-8" },
-				{ "Cache-Control", "private, no-store, no-cache" }
-			});
+			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/png", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
 			await context.WriteAsync(data, cancellationToken).ConfigureAwait(false);
 		}
 

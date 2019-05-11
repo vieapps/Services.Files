@@ -39,10 +39,10 @@ namespace net.vieapps.Services.Files
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "Access-Control-Allow-Methods", "HEAD,GET,POST,PUT,DELETE" }
+					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,DELETE"
 				};
-				if (context.Request.Headers.ContainsKey("Access-Control-Request-Headers"))
-					headers["Access-Control-Allow-Headers"] = context.Request.Headers["Access-Control-Request-Headers"];
+				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
+					headers["Access-Control-Allow-Headers"] = requestHeaders;
 				context.SetResponseHeaders((int)HttpStatusCode.OK, headers, true);
 			}
 
@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		internal async Task ProcessRequestAsync(HttpContext context)
+		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
 			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
@@ -83,7 +83,7 @@ namespace net.vieapps.Services.Files
 				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 
 			// request to static segments
-			if (Global.StaticSegments.Contains(requestPath))
+			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
 			// request to files
@@ -94,7 +94,7 @@ namespace net.vieapps.Services.Files
 				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
-		internal async Task ProcessFileRequestAsync(HttpContext context)
+		async Task ProcessFileRequestAsync(HttpContext context)
 		{
 			// prepare handler
 			var requestPath = context.GetRequestPathSegments(true).First();
@@ -424,6 +424,9 @@ namespace net.vieapps.Services.Files
 
 		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
 		{
+			if (attachmentInfo.IsTemporary)
+				return attachmentInfo;
+
 			var filePath = attachmentInfo.GetFilePath();
 			if (!File.Exists(filePath))
 				return attachmentInfo;

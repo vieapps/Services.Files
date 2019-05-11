@@ -160,24 +160,14 @@ namespace net.vieapps.Services.Files
 				return thumbnail;
 			}
 
-			// do the generate process
-			var data = new byte[0];
+			// generate the thumbnail image
 			var generateThumbnailTask = generateAsync();
-			if (await gotRightsAsync().ConfigureAwait(false))
-			{
-				data = await generateThumbnailTask.ConfigureAwait(false);
-				context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>
-				{
-					{ "Cache-Control", "public" },
-					{ "Expires", $"{DateTime.Now.AddDays(7).ToHttpString()}" },
-					{ "X-CorrelationID", context.GetCorrelationID() }
-				});
-			}
-			else
+			if (!await gotRightsAsync().ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream, update counter & logs
-			await context.WriteAsync(data, $"image/{(isPng ? "png" : "jpeg")}; charset=utf-8", null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), cancellationToken).ConfigureAwait(false);
+			context.SetResponseHeaders((int)HttpStatusCode.OK, $"image/{(isPng ? "png" : "jpeg")}", eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
+			await context.WriteAsync(await generateThumbnailTask.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
 				context.UpdateAsync(attachmentInfo, cancellationToken),
 				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
