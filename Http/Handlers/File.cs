@@ -35,15 +35,18 @@ namespace net.vieapps.Services.Files
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
-					if (ex is AggregateException)
-						ex = ex.InnerException;
 					var requestUri = context.GetRequestUri();
 					var queryString = requestUri.ParseQuery();
 					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Downloads")}", $"Error occurred while processing with a file ({context.Request.Method} {requestUri})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+					if (context.Request.Method.IsEquals("POST"))
+						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 					else
-						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					{
+						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						else
+							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					}
 				}
 		}
 

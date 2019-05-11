@@ -35,10 +35,11 @@ namespace net.vieapps.Services.Files
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
-					if (ex is AggregateException)
-						ex = ex.InnerException;
 					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Avatars")}", $"Error occurred while processing with an avatar image ({context.Request.Method} {context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					if (context.Request.Method.IsEquals("POST"))
+						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					else
+						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 				}
 		}
 

@@ -40,14 +40,17 @@ namespace net.vieapps.Services.Files
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
-					if (ex is AggregateException)
-						ex = ex.InnerException;
 					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Thumbnails")}", $"Error occurred while processing with a thumbnail image ({context.Request.Method} {context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					var queryString = context.GetRequestUri().ParseQuery();
-					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+					if (context.Request.Method.IsEquals("POST"))
+						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 					else
-						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					{
+						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						else
+							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					}
 				}
 		}
 
@@ -314,7 +317,7 @@ namespace net.vieapps.Services.Files
 				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
 				var data = body.Get<string>("Data");
 				if (data.StartsWith("["))
-					(data.ToJson() as JArray).ForEach(file =>
+					(data.ToJson() as JArray).Take(7).ForEach(file =>
 					{
 						var content = (file as JValue).Value?.CastAs<string>()?.ToArray().Last().Base64ToBytes();
 						if (content != null && content.Length <= limitSize * 1024)
@@ -329,9 +332,9 @@ namespace net.vieapps.Services.Files
 			}
 			else
 			{
-				for (var index = 0; index < context.Request.Form.Files.Count; index++)
+				for (var index = 0; index < context.Request.Form.Files.Count && index < 7; index++)
 					contents.Add(null);
-				await context.Request.Form.Files.ForEachAsync(async (file, index, token) =>
+				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, token) =>
 				{
 					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 						using (var stream = file.OpenReadStream())
@@ -348,7 +351,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// save uploaded files into disc
-				var title = (context.GetParameter("object-title") ?? context.GetParameter("x-object-title"))?.GetANSIUri();
+				var title = context.GetParameter("x-object-title")?.GetANSIUri();
 				await contents.ForEachAsync(async (content, index, token) =>
 				{
 					if (content != null)
