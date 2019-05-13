@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Files
 			{
 				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() && direct ? null : attachmentInfo.Filename.Right(attachmentInfo.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
-					context.UpdateAsync(attachmentInfo, cancellationToken),
+					context.UpdateAsync(attachmentInfo, "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}

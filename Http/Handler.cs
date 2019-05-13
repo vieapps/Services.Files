@@ -189,7 +189,7 @@ namespace net.vieapps.Services.Files
 
 		internal static void PrepareHandlers()
 		{
-			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers",  "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler svcConfig)
+			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler svcConfig)
 				if (svcConfig.Section.SelectNodes("handler") is XmlNodeList handlers)
 					handlers.ToList()
 						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
@@ -342,6 +342,8 @@ namespace net.vieapps.Services.Files
 
 		public string ServiceName { get; set; }
 
+		public string ObjectName { get; set; }
+
 		public string SystemID { get; set; }
 
 		public string DefinitionID { get; set; }
@@ -465,6 +467,7 @@ namespace net.vieapps.Services.Files
 			{
 				attachmentInfo.ID = json.Get<string>("ID");
 				attachmentInfo.ServiceName = json.Get<string>("ServiceName");
+				attachmentInfo.ObjectName = json.Get<string>("ObjectName");
 				attachmentInfo.SystemID = json.Get<string>("SystemID");
 				attachmentInfo.DefinitionID = json.Get<string>("DefinitionID");
 				attachmentInfo.ObjectID = json.Get<string>("ObjectID");
@@ -483,13 +486,16 @@ namespace net.vieapps.Services.Files
 			return attachmentInfo;
 		}
 
-		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string objectName, CancellationToken cancellationToken = default(CancellationToken))
-		{
-			var session = context.GetSession();
-			var body = new JObject
+		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
+			=> context.CallServiceAsync(context.GetRequestInfo(attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
+			{
+				{ "object-identity", attachmentInfo.ID },
+				{ "x-object-title", attachmentInfo.Title }
+			}, new JObject
 			{
 				{ "ID", attachmentInfo.ID },
 				{ "ServiceName", attachmentInfo.ServiceName },
+				{ "ObjectName", attachmentInfo.ObjectName },
 				{ "SystemID", attachmentInfo.SystemID },
 				{ "DefinitionID", attachmentInfo.DefinitionID },
 				{ "ObjectID", attachmentInfo.ObjectID },
@@ -501,72 +507,85 @@ namespace net.vieapps.Services.Files
 				{ "IsTracked", attachmentInfo.IsTracked },
 				{ "Title", attachmentInfo.Title },
 				{ "Description", attachmentInfo.Description }
-			}.ToString(Newtonsoft.Json.Formatting.None);
-			return context.CallServiceAsync(new RequestInfo(session, "Files", attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment", "POST")
-			{
-				Query = new Dictionary<string, string>
-				{
-					{ "object-identity", attachmentInfo.ID },
-					{ "x-object-title", attachmentInfo.Title },
-					{ "x-object-name", objectName }
-				},
-				Body = body,
-				Extra = new Dictionary<string, string>
-				{
-					{ "Signature", body.GetHMACSHA256(Global.ValidationKey) },
-					{ "SessionID", session.SessionID.GetHMACBLAKE256(Global.ValidationKey) }
-				},
-				CorrelationID = context.GetCorrelationID()
-			}, cancellationToken, Global.Logger, "Http.Uploads");
-		}
+			}.ToString(Newtonsoft.Json.Formatting.None)), cancellationToken, Global.Logger, "Http.Uploads");
 
 		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default(CancellationToken))
 			=> new AttachmentInfo
 			{
 				IsThumbnail = false
-			}.Fill(string.IsNullOrWhiteSpace(id) ? null : await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+			}.Fill(string.IsNullOrWhiteSpace(id) ? null : await context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 			{
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "object-identity", id }
-				},
-				CorrelationID = context.GetCorrelationID()
-			}, cancellationToken, Global.Logger, "Http.Downloads").ConfigureAwait(false));
+				{ "object-identity", id }
+			}), cancellationToken, Global.Logger, "Http.Downloads").ConfigureAwait(false));
 
 		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo)
 			=> attachmentInfo.IsThumbnail
 				? Task.FromResult(true)
 				: context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID);
 
-		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default(CancellationToken))
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
 				? Task.CompletedTask
 				: Task.WhenAll(
-					context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+					context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 					{
-						Query = new Dictionary<string, string>
-						{
-							{ "object-identity", "counters" },
-							{ "x-object-id", attachmentInfo.ID },
-							{ "x-user-id", context.User.Identity.Name }
-						},
-						CorrelationID = context.GetCorrelationID()
-					}, cancellationToken, Global.Logger, "Http.Downloads"),
+						{ "object-identity", "counters" },
+						{ "x-object-id", attachmentInfo.ID },
+						{ "x-user-id", context.User.Identity.Name }
+					}), cancellationToken, Global.Logger, "Http.Downloads"),
 					attachmentInfo.IsTracked
-						? context.CallServiceAsync(new RequestInfo(context.GetSession(), "Files", "Attachment", "GET")
+						? context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 							{
-								Query = new Dictionary<string, string>
-								{
-									{ "object-identity", "trackers" },
-									{ "x-object-id", attachmentInfo.ID },
-									{ "x-user-id", context.User.Identity.Name },
-									{ "x-refer", context.GetReferUrl() },
-									{ "x-origin", context.GetOriginUri()?.ToString() }
-								},
-								CorrelationID = context.GetCorrelationID()
-							}, cancellationToken, Global.Logger, "Http.Downloads")
-						: Task.CompletedTask);
+								{ "object-identity", "trackers" },
+								{ "x-object-id", attachmentInfo.ID },
+								{ "x-user-id", context.User.Identity.Name },
+								{ "x-refer", context.GetReferUrl() },
+								{ "x-origin", context.GetOriginUri()?.ToString() }
+							}), cancellationToken, Global.Logger, "Http.Downloads")
+						: Task.CompletedTask,
+					new CommunicateMessage(attachmentInfo.ServiceName)
+					{
+						Type = $"File#{type}",
+						Data = new JObject
+						{
+							{ "x-object-id", attachmentInfo.ID },
+							{ "x-user-id", context.User.Identity.Name },
+							{ "x-refer", context.GetReferUrl() },
+							{ "x-origin", context.GetOriginUri()?.ToString() }
+						}
+					}.PublishAsync(Global.Logger, "Http.Downloads")
+				);
+
+		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
+		{
+			var session = context.GetSession();
+			var header = new Dictionary<string, string>
+			{
+				["x-app-token"] = context.GetParameter("x-app-token"),
+				["x-app-name"] = context.GetParameter("x-app-name"),
+				["x-app-platform"] = context.GetParameter("x-app-platform"),
+				["x-device-id"] = context.GetParameter("x-device-id"),
+				["x-passport-token"] = context.GetParameter("x-passport-token")
+			}.Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			var extra = new Dictionary<string, string>
+			{
+				["SessionID"] = session.SessionID.GetHMACBLAKE256(Global.ValidationKey)
+			};
+			if (!string.IsNullOrWhiteSpace(body))
+				extra["Signature"] = body.GetHMACSHA256(Global.ValidationKey);
+			else
+			{
+				if (!header.TryGetValue("x-app-token", out var authenticateToken))
+					header.TryGetValue("x-passport-token", out authenticateToken);
+				if (!string.IsNullOrWhiteSpace(authenticateToken))
+				{
+					header["x-app-token"] = authenticateToken;
+					extra["Signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey);
+				}
+			}
+			return new RequestInfo(session, "Files", objectName, verb, query, header, body, extra, context.GetCorrelationID());
 		}
-		#endregion
+	}
+	#endregion
 
 }

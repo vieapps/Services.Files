@@ -21,6 +21,7 @@ namespace net.vieapps.Services.Files
 		{
 			this.ID = "";
 			this.ServiceName = "";
+			this.ObjectName = "";
 			this.SystemID = "";
 			this.DefinitionID = "";
 			this.ObjectID = "";
@@ -38,6 +39,12 @@ namespace net.vieapps.Services.Files
 		/// </summary>
 		[Property(MaxLength = 50), Sortable(IndexName = "System")]
 		public new string ServiceName { get; set; }
+
+		/// <summary>
+		/// Gets or sets the name of the service object that the attachment file is belong/related to
+		/// </summary>
+		[Property(MaxLength = 50), Sortable(IndexName = "System")]
+		public string ObjectName { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business system that the attachment file is belong/related to
@@ -129,7 +136,7 @@ namespace net.vieapps.Services.Files
 				json["Filename"] = string.IsNullOrWhiteSpace(this.Filename) ? $"{this.ObjectID}.jpg" : this.Filename;
 				if (asNormalized)
 				{
-					var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID)}/0/0/0";
+					var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/0/0";
 					var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
 					json["Index"] = index;
 					json["URI"] = $"{uri}/{this.ObjectID}/{index}/{this.LastModified.ToString("HHmmss")}/{title ?? UtilityService.NewUUID}.jpg";

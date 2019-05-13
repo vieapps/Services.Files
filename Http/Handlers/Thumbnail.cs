@@ -99,7 +99,7 @@ namespace net.vieapps.Services.Files
 				IsThumbnail = isThumbnail,
 				Filename = isThumbnail
 					? identifier + (pathSegments.Length > 6 && pathSegments[6].TryCastAs<int>(out var index) && index > 0 ? $"-{index}" : "") + ".jpg"
-					: pathSegments.Length > 6 ? pathSegments[6] : "",
+					: pathSegments.Length > 6 ? pathSegments[6].UrlDecode() : "",
 				IsTemporary = false,
 				IsTracked = false
 			};
@@ -169,7 +169,7 @@ namespace net.vieapps.Services.Files
 			context.SetResponseHeaders((int)HttpStatusCode.OK, $"image/{(isPng ? "png" : "jpeg")}", eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
 			await context.WriteAsync(await generateThumbnailTask.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				context.UpdateAsync(attachmentInfo, cancellationToken),
+				context.UpdateAsync(attachmentInfo, "Direct", cancellationToken),
 				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -273,12 +273,12 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
-			var serviceName = context.GetParameter("service-name") ?? context.GetParameter("x-service-name");
-			var systemID = context.GetParameter("system-id") ?? context.GetParameter("x-system-id");
-			var definitionID = context.GetParameter("definition-id") ?? context.GetParameter("x-definition-id");
-			var objectName = context.GetParameter("object-name") ?? context.GetParameter("x-object-name");
-			var objectID = context.GetParameter("object-identity") ?? context.GetParameter("object-id") ?? context.GetParameter("x-object-id");
-			var isTemporary = "true".IsEquals(context.GetParameter("is-temporary") ?? context.GetParameter("x-temporary"));
+			var serviceName = context.GetParameter("x-service-name");
+			var objectName = context.GetParameter("x-object-name");
+			var systemID = context.GetParameter("x-system-id");
+			var definitionID = context.GetParameter("x-definition-id");
+			var objectID = context.GetParameter("x-object-id");
+			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");
@@ -304,12 +304,11 @@ namespace net.vieapps.Services.Files
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 			if (asBase64)
 			{
-				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
-				var data = body.Get<string>("Data");
-				if (data.StartsWith("["))
-					(data.ToJson() as JArray).Take(7).ForEach(file =>
+				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson()["Data"];
+				if (base64Data is JArray)
+					(base64Data as JArray).Take(7).ForEach(file =>
 					{
-						var content = (file as JValue).Value?.CastAs<string>()?.ToArray().Last().Base64ToBytes();
+						var content = (file as JValue).Value.ToString().ToArray().Last().Base64ToBytes();
 						if (content != null && content.Length <= limitSize * 1024)
 						{
 							contents.Add(content);
@@ -318,7 +317,7 @@ namespace net.vieapps.Services.Files
 							contents.Add(null);
 					});
 				else
-					contents.Add(data.ToArray().Last().Base64ToBytes());
+					contents.Add((base64Data as JValue).Value.ToString().ToArray().Last().Base64ToBytes());
 			}
 			else
 			{
@@ -341,7 +340,15 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// save uploaded files into disc
-				var title = context.GetParameter("x-object-title")?.GetANSIUri();
+				var title = "";
+				try
+				{
+					title = context.GetParameter("x-object-title")?.Url64Decode()?.GetANSIUri() ?? UtilityService.NewUUID;
+				}
+				catch
+				{
+					title = UtilityService.NewUUID;
+				}
 				await contents.ForEachAsync(async (content, index, token) =>
 				{
 					if (content != null)
@@ -351,6 +358,7 @@ namespace net.vieapps.Services.Files
 						{
 							ID = UtilityService.NewUUID,
 							ServiceName = serviceName,
+							ObjectName = objectName,
 							SystemID = systemID,
 							DefinitionID = definitionID,
 							ObjectID = objectID,
@@ -360,7 +368,7 @@ namespace net.vieapps.Services.Files
 							IsShared = false,
 							IsTracked = false,
 							IsTemporary = isTemporary,
-							Title = title ?? UtilityService.NewUUID,
+							Title = title,
 							Description = "",
 							IsThumbnail = true
 						}.PrepareDirectories().MoveFileIntoTrash(this.Logger, "Http.Uploads");
@@ -375,7 +383,7 @@ namespace net.vieapps.Services.Files
 
 				// create meta info
 				var response = new JArray();
-				await attachmentInfos.ForEachAsync(async (attachmentInfo, token) => response.Add(await context.CreateAsync(attachmentInfo, objectName, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await attachmentInfos.ForEachAsync(async (attachmentInfo, token) => response.Add(await context.CreateAsync(attachmentInfo, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)

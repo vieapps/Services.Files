@@ -122,10 +122,9 @@ namespace net.vieapps.Services.Files
 			// read content from base64 string
 			if (asBase64)
 			{
-				var body = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject();
-				var data = body.Get<string>("Data").ToArray();
+				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson().Get<string>("Data").ToArray();
 
-				var extension = data.First().ToArray(";").First().ToArray(":").Last();
+				var extension = base64Data.First().ToArray(";").First().ToArray(":").Last();
 				fileExtension = extension.IsEndsWith("png")
 					? ".png"
 					: extension.IsEndsWith("bmp")
@@ -134,7 +133,7 @@ namespace net.vieapps.Services.Files
 							? ".gif"
 							: ".jpg";
 
-				content = data.Last().Base64ToBytes();
+				content = base64Data.Last().Base64ToBytes();
 				fileSize = content.Length;
 
 				if (fileSize > limitSize * 1024)

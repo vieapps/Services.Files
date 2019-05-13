@@ -6,6 +6,7 @@ using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -18,6 +19,7 @@ namespace net.vieapps.Services.Files
 		{
 			this.ID = "";
 			this.ServiceName = "";
+			this.ObjectName = "";
 			this.SystemID = "";
 			this.DefinitionID = "";
 			this.ObjectID = "";
@@ -40,6 +42,12 @@ namespace net.vieapps.Services.Files
 		/// </summary>
 		[Property(MaxLength = 50), Sortable(IndexName = "System")]
 		public new string ServiceName { get; set; }
+
+		/// <summary>
+		/// Gets or sets the name of the service object that the attachment file is belong/related to
+		/// </summary>
+		[Property(MaxLength = 50), Sortable(IndexName = "System")]
+		public string ObjectName { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business system that the attachment file is belong/related to
@@ -158,8 +166,8 @@ namespace net.vieapps.Services.Files
 				if (asNormalized)
 					json["URIs"] = new JObject
 					{
-						{ "Direct", $"{Utility.DirectURI}{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename}" },
-						{ "Download", $"{Utility.DownloadURI}{this.ID}/1/{this.Filename}" }
+						{ "Direct", $"{Utility.DirectURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName.ToLower() : this.SystemID.ToLower())}/{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename.UrlEncode()}" },
+						{ "Download", $"{Utility.DownloadURI}{this.ID}/1/{this.Filename.UrlEncode()}" }
 					};
 				onPreCompleted?.Invoke(json);
 			});
