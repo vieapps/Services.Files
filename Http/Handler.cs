@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -118,7 +119,7 @@ namespace net.vieapps.Services.Files
 				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
 			}
 
-			// no authenticate tokenn
+			// no authenticate token
 			if (string.IsNullOrWhiteSpace(authenticateToken))
 				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
 
@@ -126,13 +127,13 @@ namespace net.vieapps.Services.Files
 			else
 				try
 				{
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http.Authenticate", context.GetCorrelationID()).ConfigureAwait(false);
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http.Authentications", context.GetCorrelationID()).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Http.Authenticate", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 				}
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync(Global.Logger, "Http.Authenticate", $"Failure authenticate a token: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Failure authenticate a token: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				}
 
 			// store session
@@ -226,9 +227,11 @@ namespace net.vieapps.Services.Files
 
 		internal static string TempFilesPath
 			=> Handler._TempFilesPath ?? (Handler._TempFilesPath = UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp")));
+
+		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
 		#endregion
 
-		#region Helper: API Gateway Router
+		#region API Gateway Router
 		internal static void OpenRouterChannels(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
@@ -236,7 +239,11 @@ namespace net.vieapps.Services.Files
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)")).ConfigureAwait(false);
+					Task.Run(async () =>
+					{
+						await Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
+						await Handler.RegisterSynchronizerAsync().ConfigureAwait(false);
+					}).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.files")
@@ -285,15 +292,18 @@ namespace net.vieapps.Services.Files
 								Global.InitializeRTUServiceAsync()
 							).ConfigureAwait(false);
 							Global.Logger.LogInformation("Helper services are succesfully initialized");
-							while (Router.IncomingChannel == null || Router.OutgoingChannel == null)
-								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{
 							Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
 						}
 					})
-					.ContinueWith(async _ => await Global.RegisterServiceAsync("Http.WebSockets").ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion)
+					.ContinueWith(async _ =>
+					{
+						while (Router.IncomingChannel == null || Router.OutgoingChannel == null)
+							await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
+						await Global.RegisterServiceAsync("Http.WebSockets").ConfigureAwait(false);
+					}, TaskContinuationOptions.OnlyOnRanToCompletion)
 					.ConfigureAwait(false);
 				},
 				waitingTimes
@@ -301,12 +311,17 @@ namespace net.vieapps.Services.Files
 		}
 
 		internal static void CloseRouterChannels(int waitingTimes = 1234)
-		{
-			Global.UnregisterService("Http.WebSockets", waitingTimes);
-			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			Router.CloseChannels();
-		}
+			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
+				.ContinueWith(_ =>
+				{
+					Global.UnregisterService("Http.WebSockets", waitingTimes);
+					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
+					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
+					Router.CloseChannels();
+				}, TaskContinuationOptions.OnlyOnRanToCompletion)
+				.ConfigureAwait(false)
+				.GetAwaiter()
+				.GetResult();
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
@@ -322,6 +337,12 @@ namespace net.vieapps.Services.Files
 					IsThumbnail = message.Type.IsEquals("Thumbnail#Move")
 				}.Fill(message.Data).MoveFile(Global.Logger, "Http.Sync");
 
+			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync"))
+			{
+				var node = message.Data.Get<string>("Node");
+				if (!Handler.NodeName.IsEquals(node))
+					Task.Run(() => Handler.Synchronizer.SendRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")))).ConfigureAwait(false);
+			}
 			return Task.CompletedTask;
 		}
 
@@ -329,6 +350,62 @@ namespace net.vieapps.Services.Files
 		{
 			if (message.Type.IsEquals("Service#RequestInfo"))
 				await Global.UpdateServiceInfoAsync("Http.WebSockets").ConfigureAwait(false);
+		}
+		#endregion
+
+		#region Synchronization
+		static SystemEx.IAsyncDisposable SynchronizerInstance { get; set; }
+
+		static Synchronizer Synchronizer { get; } = new Synchronizer();
+
+		internal static async Task RegisterSynchronizerAsync()
+		{
+			async Task registerAsync()
+			{
+				try
+				{
+					Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.NodeName, WampInvokePolicy.Single)).ConfigureAwait(false);
+				}
+				catch
+				{
+					await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
+					try
+					{
+						Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.NodeName, WampInvokePolicy.Single)).ConfigureAwait(false);
+					}
+					catch (Exception)
+					{
+						throw;
+					}
+				}
+				Global.Logger.LogInformation("The synchronizer is registered successful");
+			}
+
+			try
+			{
+				await registerAsync().ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				Global.Logger.LogError($"Cannot register the synchronizer => {ex.Message}", ex);
+			}
+		}
+
+		internal static async Task UnregisterSynchronizerAsync()
+		{
+			if (Handler.SynchronizerInstance != null)
+				try
+				{
+					await Handler.SynchronizerInstance.DisposeAsync().ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					Global.Logger?.LogError($"Error occurred while unregistering the synchronizer: {ex.Message}", ex);
+				}
+				finally
+				{
+					Handler.SynchronizerInstance = null;
+				}
 		}
 		#endregion
 
@@ -494,11 +571,11 @@ namespace net.vieapps.Services.Files
 			}, new JObject
 			{
 				{ "ID", attachmentInfo.ID },
-				{ "ServiceName", attachmentInfo.ServiceName },
-				{ "ObjectName", attachmentInfo.ObjectName },
-				{ "SystemID", attachmentInfo.SystemID },
-				{ "DefinitionID", attachmentInfo.DefinitionID },
-				{ "ObjectID", attachmentInfo.ObjectID },
+				{ "ServiceName", attachmentInfo.ServiceName?.ToLower() },
+				{ "ObjectName", attachmentInfo.ObjectName?.ToLower() },
+				{ "SystemID", attachmentInfo.SystemID?.ToLower() },
+				{ "DefinitionID", attachmentInfo.DefinitionID?.ToLower() },
+				{ "ObjectID", attachmentInfo.ObjectID?.ToLower() },
 				{ "Size", attachmentInfo.Size },
 				{ "Filename", attachmentInfo.Filename },
 				{ "ContentType", attachmentInfo.ContentType },
@@ -521,7 +598,9 @@ namespace net.vieapps.Services.Files
 		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo)
 			=> attachmentInfo.IsThumbnail
 				? Task.FromResult(true)
-				: context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID);
+				: !string.IsNullOrWhiteSpace(attachmentInfo.SystemID) && !string.IsNullOrWhiteSpace(attachmentInfo.DefinitionID)
+					? context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID)
+					: context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.ObjectID);
 
 		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default(CancellationToken))
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
@@ -569,6 +648,7 @@ namespace net.vieapps.Services.Files
 			}.Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 			var extra = new Dictionary<string, string>
 			{
+				["Node"] = Handler.NodeName,
 				["SessionID"] = session.SessionID.GetHMACBLAKE256(Global.ValidationKey)
 			};
 			if (!string.IsNullOrWhiteSpace(body))

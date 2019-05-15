@@ -60,14 +60,17 @@ namespace net.vieapps.Services.Files
 					switch (requestInfo.ObjectName.ToLower())
 					{
 						case "thumbnail":
+						case "thumbnails":
 							json = await this.ProcessThumbnailAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
 
 						case "attachment":
+						case "attachments":
 							json = await this.ProcessAttachmentAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
 
 						case "captcha":
+						case "captchas":
 							if (requestInfo.Verb.IsEquals("GET"))
 							{
 								var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
@@ -225,8 +228,21 @@ namespace net.vieapps.Services.Files
 			thumbnail.CreatedID = thumbnail.LastModifiedID = requestInfo.Session.User.ID;
 			thumbnail.Created = thumbnail.LastModified = DateTime.Now;
 			await Thumbnail.CreateAsync(thumbnail, cancellationToken).ConfigureAwait(false);
-
-			await Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
+				requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Thumbnail#Sync",
+					Data = new JObject
+					{
+						{ "Node", node },
+						{ "ServiceName", thumbnail.ServiceName },
+						{ "SystemID", thumbnail.SystemID },
+						{ "Filename", thumbnail.Filename },
+						{ "IsTemporary", thumbnail.IsTemporary }
+					}
+				}, cancellationToken) : Task.CompletedTask
+			).ConfigureAwait(false);
 			return thumbnail.ToJson(false, null, true, (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri());
 		}
 
@@ -253,7 +269,6 @@ namespace net.vieapps.Services.Files
 					Data = thumbnail.ToJson(false, null, false)
 				}, cancellationToken)
 			).ConfigureAwait(false);
-
 			return new JObject();
 		}
 
@@ -443,8 +458,21 @@ namespace net.vieapps.Services.Files
 			attachment.CreatedID = attachment.LastModifiedID = requestInfo.Session.User.ID;
 			attachment.Created = attachment.LastModified = DateTime.Now;
 			await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
-
-			await Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken),
+				requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Attachment#Sync",
+					Data = new JObject
+					{
+						{ "Node", node },
+						{ "ServiceName", attachment.ServiceName },
+						{ "SystemID", attachment.SystemID },
+						{ "Filename", attachment.ID + "-" + attachment.Filename },
+						{ "IsTemporary", attachment.IsTemporary }
+					}
+				}, cancellationToken) : Task.CompletedTask
+			).ConfigureAwait(false);
 			return attachment.ToJson();
 		}
 
@@ -498,7 +526,6 @@ namespace net.vieapps.Services.Files
 					Data = attachment.ToJson(false, null, false)
 				}, cancellationToken)
 			).ConfigureAwait(false);
-
 			return new JObject();
 		}
 
@@ -741,13 +768,13 @@ namespace net.vieapps.Services.Files
 		JArray NormalizeURIs(RequestInfo requestInfo, JArray thumbnails)
 		{
 			// prepare
-			if (!(requestInfo.GetParameter("x-width") ?? "0").TryCastAs<int>(out var width))
+			if (!Int32.TryParse(requestInfo.GetParameter("x-width"), out var width))
 				width = 0;
-			if (!(requestInfo.GetParameter("x-height") ?? "0").TryCastAs<int>(out var height))
+			if (!Int32.TryParse(requestInfo.GetParameter("x-height"), out var height))
 				height = 0;
-			if (!(requestInfo.GetParameter("x-is-big") ?? "false").TryCastAs<bool>(out var isBig))
+			if (!Boolean.TryParse(requestInfo.GetParameter("x-is-big"), out var isBig))
 				isBig = false;
-			if (!(requestInfo.GetParameter("x-is-png") ?? "false").TryCastAs<bool>(out var isPng))
+			if (!Boolean.TryParse(requestInfo.GetParameter("x-is-png"), out var isPng))
 				isPng = false;
 
 			// normalize URIs

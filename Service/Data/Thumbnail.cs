@@ -145,7 +145,7 @@ namespace net.vieapps.Services.Files
 				onPreCompleted?.Invoke(json);
 			});
 
-		static IEnumerable<string> BeRemoved { get; } = new[] { "ID", "ServiceName", "SystemID", "DefinitionID", "ObjectID", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
+		static IEnumerable<string> BeRemoved { get; } = new[] { "ID", "ServiceName", "ObjectName", "SystemID", "DefinitionID", "ObjectID", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
 		#endregion
 
 	}

@@ -166,7 +166,7 @@ namespace net.vieapps.Services.Files
 				if (asNormalized)
 					json["URIs"] = new JObject
 					{
-						{ "Direct", $"{Utility.DirectURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName.ToLower() : this.SystemID.ToLower())}/{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename.UrlEncode()}" },
+						{ "Direct", $"{Utility.DirectURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename.UrlEncode()}" },
 						{ "Download", $"{Utility.DownloadURI}{this.ID}/1/{this.Filename.UrlEncode()}" }
 					};
 				onPreCompleted?.Invoke(json);

@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// response
-			context.SetResponseHeaders((int)HttpStatusCode.OK, fileInfo.GetMimeType(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
+			context.SetResponseHeaders((int)HttpStatusCode.OK, fileInfo.GetMimeType(), eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
 			await context.WriteAsync(fileInfo, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,###,###,###,##0} bytes]").ConfigureAwait(false);

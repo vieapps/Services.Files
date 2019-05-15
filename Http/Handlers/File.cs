@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Files
 			var queryString = requestUri.ParseQuery();
 			var pathSegments = requestUri.GetRequestPathSegments();
 
-			var attachmentInfo = new AttachmentInfo
+			var attachment = new AttachmentInfo
 			{
 				ID = pathSegments.Length > 3 && pathSegments[3].IsValidUUID() ? pathSegments[3] : "",
 				ServiceName = !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
@@ -68,11 +68,11 @@ namespace net.vieapps.Services.Files
 				IsThumbnail = false
 			};
 
-			if (string.IsNullOrWhiteSpace(attachmentInfo.ID) || string.IsNullOrWhiteSpace(attachmentInfo.Filename))
+			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "File#" + attachmentInfo.ID.ToLower();
+			var eTag = "File#" + attachment.ID.ToLower();
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
@@ -81,22 +81,22 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			// get & check permissions
-			attachmentInfo = await context.GetAsync(attachmentInfo.ID, cancellationToken).ConfigureAwait(false);
-			if (!await context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID).ConfigureAwait(false))
+			// check permissions
+			attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
+			if (!await context.CanDownloadAsync(attachment).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// check exist
-			var fileInfo = new FileInfo(attachmentInfo.GetFilePath());
+			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
 
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() ? null : attachmentInfo.Filename, eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
-					context.UpdateAsync(attachmentInfo, attachmentInfo.IsReadable() ? "Direct" : "Download", cancellationToken),
+					context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
@@ -131,38 +131,38 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// save uploaded files & create meta info
-			var attachmentInfos = new List<AttachmentInfo>();
+			var attachments = new List<AttachmentInfo>();
 			try
 			{
 				// save uploaded files into disc
-				attachmentInfos = "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
-					? await this.ReceiveByMultipartFileAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
-					: await this.ReceiveByMultipartBoundaryAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
+				attachments = "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
+					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
+					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
 
 				// create meta info
 				var response = new JArray();
-				await attachmentInfos.ForEachAsync(async (attachmentInfo, token) => response.Add(await context.CreateAsync(attachmentInfo, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{attachmentInfos.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{attachments.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception)
 			{
-				attachmentInfos.ForEach(attachmentInfo => attachmentInfo.DeleteFile());
+				attachments.ForEach(attachment => attachment.DeleteFile());
 				throw;
 			}
 		}
 
-		async Task<List<AttachmentInfo>> ReceiveByMultipartFileAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		async Task<List<AttachmentInfo>> ReceiveByFormFileAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
 		{
-			var attachmentInfos = new List<AttachmentInfo>();
+			var attachments = new List<AttachmentInfo>();
 			await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async (file, token) =>
 			{
 				using (var uploadStream = file.OpenReadStream())
 				{
 					// prepare
-					var attachmentInfo = new AttachmentInfo
+					var attachment = new AttachmentInfo
 					{
 						ID = UtilityService.NewUUID,
 						ServiceName = serviceName,
@@ -182,7 +182,7 @@ namespace net.vieapps.Services.Files
 					}.PrepareDirectories();
 
 					// save file into disc
-					using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+					using (var fileStream = new FileStream(attachment.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 					{
 						var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 						var read = 0;
@@ -195,18 +195,18 @@ namespace net.vieapps.Services.Files
 					}
 
 					// update attachment info
-					attachmentInfos.Add(attachmentInfo);
+					attachments.Add(attachment);
 				}
 			}, cancellationToken, true, false).ConfigureAwait(false);
-			return attachmentInfos;
+			return attachments;
 		}
 
-		async Task<List<AttachmentInfo>> ReceiveByMultipartBoundaryAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		async Task<List<AttachmentInfo>> ReceiveByFormDataAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
 		{
 			// check
-			var attachmentInfos = new List<AttachmentInfo>();
+			var attachments = new List<AttachmentInfo>();
 			if (string.IsNullOrWhiteSpace(context.Request.ContentType) || context.Request.ContentType.PositionOf("multipart/") < 0)
-				return attachmentInfos;
+				return attachments;
 
 			// prepare the reader
 			var boundary = context.Request.ContentType.ToArray(' ').Where(entry => entry.StartsWith("boundary=")).First().Substring(9);
@@ -234,7 +234,7 @@ namespace net.vieapps.Services.Files
 					continue;
 
 				// prepare info
-				var attachmentInfo = new AttachmentInfo
+				var attachment = new AttachmentInfo
 				{
 					ID = UtilityService.NewUUID,
 					ServiceName = serviceName,
@@ -242,7 +242,6 @@ namespace net.vieapps.Services.Files
 					SystemID = systemID,
 					DefinitionID = definitionID,
 					ObjectID = objectID,
-					Size = 0,
 					Filename = filename,
 					ContentType = section.ContentType,
 					IsShared = isShared,
@@ -254,7 +253,7 @@ namespace net.vieapps.Services.Files
 				}.PrepareDirectories();
 
 				// save file into disc
-				using (var fileStream = new FileStream(attachmentInfo.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+				using (var fileStream = new FileStream(attachment.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 				{
 					var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 					var read = 0;
@@ -264,15 +263,15 @@ namespace net.vieapps.Services.Files
 						await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
 						await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
 					} while (read > 0);
-					attachmentInfo.Size = fileStream.Length;
+					attachment.Size = fileStream.Length;
 				}
 
 				// update attachment info
-				attachmentInfos.Add(attachmentInfo);
+				attachments.Add(attachment);
 			} while (section == null);
 
 			// return info of all uploaded files
-			return attachmentInfos;
+			return attachments;
 		}
 	}
 }

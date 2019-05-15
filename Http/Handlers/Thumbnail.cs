@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Files
 			var handlerName = pathSegments[0];
 			var isPng = handlerName.IsEndsWith("pngs");
 			var isBig = handlerName.IsEndsWith("bigs") || handlerName.IsEndsWith("bigpngs");
-			var isThumbnail = pathSegments.Length > 2 && pathSegments[2].TryCastAs<int>(out var isAttachment) && isAttachment == 0;
+			var isThumbnail = pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0;
 			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out int width))
 				width = 0;
 			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out int height))
@@ -91,22 +91,21 @@ namespace net.vieapps.Services.Files
 			var croppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.GetQueryParameter("cropPos")) ? "top" : requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.GetQueryParameter("cropPos")) ? "bottom" : "auto";
 			var isUseAdditionalWatermark = queryString.ContainsKey("nw") ? false : requestUrl.IsContains("--btwm");
 
-			var attachmentInfo = new AttachmentInfo
+			var attachment = new AttachmentInfo
 			{
 				ID = identifier,
 				ServiceName = serviceName,
 				SystemID = systemID,
 				IsThumbnail = isThumbnail,
 				Filename = isThumbnail
-					? identifier + (pathSegments.Length > 6 && pathSegments[6].TryCastAs<int>(out var index) && index > 0 ? $"-{index}" : "") + ".jpg"
+					? identifier + (pathSegments.Length > 6 && Int32.TryParse(pathSegments[6], out var index) && index > 0 ? $"-{index}" : "") + ".jpg"
 					: pathSegments.Length > 6 ? pathSegments[6].UrlDecode() : "",
 				IsTemporary = false,
 				IsTracked = false
 			};
 
 			// check exist
-			var filePath = attachmentInfo.GetFilePath();
-			var fileInfo = new FileInfo(filePath);
+			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -118,8 +117,8 @@ namespace net.vieapps.Services.Files
 			{
 				if (!isThumbnail)
 				{
-					attachmentInfo = await context.GetAsync(attachmentInfo.ID, cancellationToken).ConfigureAwait(false);
-					return await context.CanDownloadAsync(attachmentInfo).ConfigureAwait(false);
+					attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
+					return await context.CanDownloadAsync(attachment).ConfigureAwait(false);
 				}
 				return true;
 			}
@@ -127,7 +126,7 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> generateAsync()
 			{
-				var masterKey = "Thumbnnail#" + filePath.ToLower().GenerateUUID();
+				var masterKey = "Thumbnnail#" + fileInfo.FullName.ToLower().GenerateUUID();
 				var detailKey = $"{masterKey}x{width}x{height}x{isPng}x{isBig}x{isCropped}x{croppedPosition}".ToLower();
 				var cacheStorage = Global.ServiceProvider.GetService<ICache>();
 				var useCache = cacheStorage != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "true"));
@@ -137,7 +136,7 @@ namespace net.vieapps.Services.Files
 
 				using (var stream = UtilityService.CreateMemoryStream())
 				{
-					using (var image = this.Generate(filePath, width, height, isBig, isCropped, croppedPosition))
+					using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
 					{
 						// add watermark
 
@@ -161,15 +160,15 @@ namespace net.vieapps.Services.Files
 			}
 
 			// generate the thumbnail image
-			var generateThumbnailTask = generateAsync();
+			var generateTask = generateAsync();
 			if (!await gotRightsAsync().ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream, update counter & logs
-			context.SetResponseHeaders((int)HttpStatusCode.OK, $"image/{(isPng ? "png" : "jpeg")}", eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
-			await context.WriteAsync(await generateThumbnailTask.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+			context.SetResponseHeaders((int)HttpStatusCode.OK, $"image/{(isPng ? "png" : "jpeg")}", eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
+			await context.WriteAsync(await generateTask.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				context.UpdateAsync(attachmentInfo, "Direct", cancellationToken),
+				context.UpdateAsync(attachment, "Direct", cancellationToken),
 				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -300,43 +299,43 @@ namespace net.vieapps.Services.Files
 				limitSize = 512;
 
 			// read upload file
-			var contents = new List<byte[]>();
+			var thumbnails = new List<byte[]>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 			if (asBase64)
 			{
 				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson()["Data"];
 				if (base64Data is JArray)
-					(base64Data as JArray).Take(7).ForEach(file =>
+					(base64Data as JArray).Take(7).ForEach(data =>
 					{
-						var content = (file as JValue).Value.ToString().ToArray().Last().Base64ToBytes();
-						if (content != null && content.Length <= limitSize * 1024)
+						var thumbnail = (data as JValue).Value.ToString().ToArray().Last().Base64ToBytes();
+						if (thumbnail != null && thumbnail.Length <= limitSize * 1024)
 						{
-							contents.Add(content);
+							thumbnails.Add(thumbnail);
 						}
 						else
-							contents.Add(null);
+							thumbnails.Add(null);
 					});
 				else
-					contents.Add((base64Data as JValue).Value.ToString().ToArray().Last().Base64ToBytes());
+					thumbnails.Add((base64Data as JValue).Value.ToString().ToArray().Last().Base64ToBytes());
 			}
 			else
 			{
 				for (var index = 0; index < context.Request.Form.Files.Count && index < 7; index++)
-					contents.Add(null);
+					thumbnails.Add(null);
 				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, token) =>
 				{
 					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 						using (var stream = file.OpenReadStream())
 						{
-							var content = new byte[file.Length];
-							await stream.ReadAsync(content, 0, (int)file.Length, token).ConfigureAwait(false);
-							contents[index] = content;
+							var thumbnail = new byte[file.Length];
+							await stream.ReadAsync(thumbnail, 0, (int)file.Length, token).ConfigureAwait(false);
+							thumbnails[index] = thumbnail;
 						}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			}
 
 			// save uploaded files & create meta info
-			var attachmentInfos = new List<AttachmentInfo>();
+			var attachments = new List<AttachmentInfo>();
 			try
 			{
 				// save uploaded files into disc
@@ -349,12 +348,12 @@ namespace net.vieapps.Services.Files
 				{
 					title = UtilityService.NewUUID;
 				}
-				await contents.ForEachAsync(async (content, index, token) =>
+				await thumbnails.ForEachAsync(async (thumbnail, index, token) =>
 				{
-					if (content != null)
+					if (thumbnail != null)
 					{
 						// prepare
-						var attachmentInfo = new AttachmentInfo
+						var attachment = new AttachmentInfo
 						{
 							ID = UtilityService.NewUUID,
 							ServiceName = serviceName,
@@ -362,7 +361,7 @@ namespace net.vieapps.Services.Files
 							SystemID = systemID,
 							DefinitionID = definitionID,
 							ObjectID = objectID,
-							Size = content.Length,
+							Size = thumbnail.Length,
 							Filename = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg",
 							ContentType = "image/jpeg",
 							IsShared = false,
@@ -374,24 +373,24 @@ namespace net.vieapps.Services.Files
 						}.PrepareDirectories().MoveFileIntoTrash(this.Logger, "Http.Uploads");
 
 						// save file into disc
-						await UtilityService.WriteBinaryFileAsync(attachmentInfo.GetFilePath(), content, token).ConfigureAwait(false);
+						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(), thumbnail, token).ConfigureAwait(false);
 
 						// update attachment info
-						attachmentInfos.Add(attachmentInfo);
+						attachments.Add(attachment);
 					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				// create meta info
 				var response = new JArray();
-				await attachmentInfos.ForEachAsync(async (attachmentInfo, token) => response.Add(await context.CreateAsync(attachmentInfo, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{contents.Count(content => content != null)} thumbnail image(s) has been uploaded - Mode:  {(asBase64 ? "base64" : "file")} - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{thumbnails.Count(thumbnail => thumbnail != null)} thumbnail image(s) has been uploaded - Mode:  {(asBase64 ? "base64" : "file")} - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception)
 			{
-				attachmentInfos.ForEach(attachmentInfo => attachmentInfo.DeleteFile());
+				attachments.ForEach(attachment => attachment.DeleteFile());
 				throw;
 			}
 		}
