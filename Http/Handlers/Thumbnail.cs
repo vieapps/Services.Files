@@ -370,10 +370,10 @@ namespace net.vieapps.Services.Files
 							Title = title,
 							Description = "",
 							IsThumbnail = true
-						}.PrepareDirectories().MoveFileIntoTrash(this.Logger, "Http.Uploads");
+						};
 
-						// save file into disc
-						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(), thumbnail, token).ConfigureAwait(false);
+						// save file into temporary directory
+						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(true), thumbnail, token).ConfigureAwait(false);
 
 						// update attachment info
 						attachments.Add(attachment);
@@ -383,6 +383,11 @@ namespace net.vieapps.Services.Files
 				// create meta info
 				var response = new JArray();
 				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+
+				// move files from temporary directory to official directory
+				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+
+				// response
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
@@ -390,7 +395,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception)
 			{
-				attachments.ForEach(attachment => attachment.DeleteFile());
+				attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
 				throw;
 			}
 		}

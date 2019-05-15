@@ -111,7 +111,6 @@ namespace net.vieapps.Services.Files
 
 			var fileSize = 0;
 			var fileExtension = ".png";
-			var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name);
 			var content = new byte[0];
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 
@@ -167,17 +166,21 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
-			// write into file on the disc
+			// write into file of temporary directory
+			await UtilityService.WriteBinaryFileAsync(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), content, cancellationToken).ConfigureAwait(false);
+
+			// move file from temporary directory to official directory
 			new[] { ".png", ".jpg" }.ForEach(extension =>
 			{
-				if (File.Exists(filePath + extension))
+				var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name + extension);
+				if (File.Exists(filePath))
 					try
 					{
-						File.Delete(filePath + extension);
+						File.Delete(filePath);
 					}
 					catch { }
 			});
-			await UtilityService.WriteBinaryFileAsync(filePath + fileExtension, content, cancellationToken).ConfigureAwait(false);
+			File.Move(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name + fileExtension));
 
 			// response
 			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
@@ -186,7 +189,7 @@ namespace net.vieapps.Services.Files
 				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{profile.Get<string>("Name").GetANSIUri()}{fileExtension}" }
 			}, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({filePath} - {fileSize:###,###,###,###,##0} bytes)").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({fileSize:###,###,###,###,##0} bytes)").ConfigureAwait(false);
 		}
 	}
 }

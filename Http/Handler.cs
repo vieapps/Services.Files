@@ -159,7 +159,7 @@ namespace net.vieapps.Services.Files
 			else
 				context.User = new UserPrincipal(session.User);
 
-			// process the request to files
+			// process the request
 			Services.FileHandler handler = null;
 			try
 			{
@@ -351,9 +351,7 @@ namespace net.vieapps.Services.Files
 			if (message.Type.IsEquals("Service#RequestInfo"))
 				await Global.UpdateServiceInfoAsync("Http.WebSockets").ConfigureAwait(false);
 		}
-		#endregion
 
-		#region Synchronization
 		static SystemEx.IAsyncDisposable SynchronizerInstance { get; set; }
 
 		static Synchronizer Synchronizer { get; } = new Synchronizer();
@@ -466,9 +464,9 @@ namespace net.vieapps.Services.Files
 				? Path.Combine(Handler.TempFilesPath, attachmentInfo.GetFileName())
 				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), attachmentInfo.GetFileName());
 
-		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
+		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, bool isTemporary, ILogger logger = null, string objectName = null)
 		{
-			var filePath = attachmentInfo.GetFilePath();
+			var filePath = attachmentInfo.GetFilePath(isTemporary);
 			if (File.Exists(filePath))
 				try
 				{
@@ -523,7 +521,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
-				return attachmentInfo.DeleteFile(logger, objectName);
+				return attachmentInfo.DeleteFile(false, logger, objectName);
 			}
 		}
 

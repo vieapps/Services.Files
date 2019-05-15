@@ -43,9 +43,9 @@ namespace net.vieapps.Services.Files
 						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 					else
 					{
-						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
-						else
+						//if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+						//	context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						//else
 							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 					}
 				}
@@ -134,7 +134,7 @@ namespace net.vieapps.Services.Files
 			var attachments = new List<AttachmentInfo>();
 			try
 			{
-				// save uploaded files into disc
+				// save uploaded files into temporary directory
 				attachments = "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
 					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
 					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
@@ -142,6 +142,11 @@ namespace net.vieapps.Services.Files
 				// create meta info
 				var response = new JArray();
 				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+
+				// move files from temporary directory to official directory
+				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+
+				// response
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
@@ -149,7 +154,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception)
 			{
-				attachments.ForEach(attachment => attachment.DeleteFile());
+				attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
 				throw;
 			}
 		}
@@ -179,10 +184,10 @@ namespace net.vieapps.Services.Files
 						Title = file.FileName,
 						Description = "",
 						IsThumbnail = false
-					}.PrepareDirectories();
+					};
 
 					// save file into disc
-					using (var fileStream = new FileStream(attachment.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+					using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 					{
 						var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 						var read = 0;
@@ -214,7 +219,7 @@ namespace net.vieapps.Services.Files
 				boundary = boundary.Substring(1, boundary.Length - 2);
 			var reader = new MultipartReader(boundary, context.Request.Body);
 
-			// save all files into disc
+			// save all files into temporary directory
 			MultipartSection section = null;
 			do
 			{
@@ -250,10 +255,10 @@ namespace net.vieapps.Services.Files
 					Title = filename,
 					Description = "",
 					IsThumbnail = false
-				}.PrepareDirectories();
+				};
 
 				// save file into disc
-				using (var fileStream = new FileStream(attachment.GetFilePath(), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+				using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 				{
 					var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 					var read = 0;
