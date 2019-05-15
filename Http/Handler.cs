@@ -593,13 +593,6 @@ namespace net.vieapps.Services.Files
 				{ "object-identity", id }
 			}), cancellationToken, Global.Logger, "Http.Downloads").ConfigureAwait(false));
 
-		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo)
-			=> attachmentInfo.IsThumbnail
-				? Task.FromResult(true)
-				: !string.IsNullOrWhiteSpace(attachmentInfo.SystemID) && !string.IsNullOrWhiteSpace(attachmentInfo.DefinitionID)
-					? context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID)
-					: context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.ObjectID);
-
 		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default(CancellationToken))
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
 				? Task.CompletedTask

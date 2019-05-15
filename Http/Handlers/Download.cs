@@ -64,23 +64,23 @@ namespace net.vieapps.Services.Files
 			}
 
 			// get & check permissions
-			var attachmentInfo = await context.GetAsync(identifier, cancellationToken).ConfigureAwait(false);
-			if (string.IsNullOrWhiteSpace(attachmentInfo.ID))
+			var attachment = await context.GetAsync(identifier, cancellationToken).ConfigureAwait(false);
+			if (string.IsNullOrWhiteSpace(attachment.ID))
 				throw new FileNotFoundException();
-			if (!await context.CanDownloadAsync(attachmentInfo).ConfigureAwait(false))
+			if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// check exist
-			var fileInfo = new FileInfo(attachmentInfo.GetFilePath());
+			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
 
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachmentInfo.ContentType, attachmentInfo.IsReadable() && direct ? null : attachmentInfo.Filename.Right(attachmentInfo.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() && direct ? null : attachment.Filename.Right(attachment.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
-					context.UpdateAsync(attachmentInfo, "Download", cancellationToken),
+					context.UpdateAsync(attachment, "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}

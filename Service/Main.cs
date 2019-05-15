@@ -214,13 +214,10 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
+			var service = await Router.GetServiceAsync(thumbnail.ServiceName).ConfigureAwait(false);
 			var gotRights = thumbnail.IsTemporary
-				? !string.IsNullOrWhiteSpace(thumbnail.SystemID) && !string.IsNullOrWhiteSpace(thumbnail.DefinitionID)
-					? await requestInfo.Session.User.CanContributeAsync(thumbnail.ServiceName, thumbnail.SystemID, thumbnail.DefinitionID, "").ConfigureAwait(false)
-					: await requestInfo.Session.User.CanContributeAsync(thumbnail.ServiceName, thumbnail.ObjectName, "").ConfigureAwait(false)
-				: !string.IsNullOrWhiteSpace(thumbnail.SystemID) && !string.IsNullOrWhiteSpace(thumbnail.DefinitionID)
-					? await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false)
-					: await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, thumbnail.ObjectName, thumbnail.ObjectID).ConfigureAwait(false);
+				? await service.CanContributeAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, "").ConfigureAwait(false)
+				: await service.CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -253,9 +250,8 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
-			var gotRights = !string.IsNullOrWhiteSpace(thumbnail.SystemID) && !string.IsNullOrWhiteSpace(thumbnail.DefinitionID)
-				? await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(thumbnail.ServiceName, thumbnail.ObjectName, thumbnail.ObjectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(thumbnail.ServiceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -280,9 +276,8 @@ namespace net.vieapps.Services.Files
 			var definitionID = requestInfo.GetParameter("x-definition-id");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			var gotRights = !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
-				? await requestInfo.Session.User.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -444,13 +439,10 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
+			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
 			var gotRights = attachment.IsTemporary
-				? !string.IsNullOrWhiteSpace(attachment.SystemID) && !string.IsNullOrWhiteSpace(attachment.DefinitionID)
-					? await requestInfo.Session.User.CanContributeAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, "").ConfigureAwait(false)
-					: await requestInfo.Session.User.CanContributeAsync(attachment.ServiceName, attachment.ObjectName, "").ConfigureAwait(false)
-				: !string.IsNullOrWhiteSpace(attachment.SystemID) && !string.IsNullOrWhiteSpace(attachment.DefinitionID)
-					? await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false)
-					: await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.ObjectName, attachment.ObjectID).ConfigureAwait(false);
+				? await service.CanContributeAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, "").ConfigureAwait(false)
+				: await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -487,9 +479,8 @@ namespace net.vieapps.Services.Files
 			attachment.CopyFrom(requestInfo.GetBodyExpando(), "ID,ServiceName,ObjectName,SystemID,DefinitionID,ObjectID,Filename,Size,ContentType,DownloadTimes,IsTemporary,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			// check permissions
-			var gotRights = !string.IsNullOrWhiteSpace(attachment.SystemID) && !string.IsNullOrWhiteSpace(attachment.DefinitionID)
-				? await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.ObjectName, attachment.ObjectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -509,10 +500,8 @@ namespace net.vieapps.Services.Files
 				throw new InformationNotFoundException();
 
 			// check permissions
-			var objectName = requestInfo.GetParameter("x-object-name");
-			var gotRights = !string.IsNullOrWhiteSpace(attachment.SystemID) && !string.IsNullOrWhiteSpace(attachment.DefinitionID)
-				? await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(attachment.ServiceName, objectName, attachment.ObjectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -537,9 +526,8 @@ namespace net.vieapps.Services.Files
 			var definitionID = requestInfo.GetParameter("x-definition-id");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			var gotRights = !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
-				? await requestInfo.Session.User.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -719,9 +707,8 @@ namespace net.vieapps.Services.Files
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException();
 
-			var gotRights = !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
-				? await requestInfo.Session.User.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false)
-				: await requestInfo.Session.User.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
+			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
+			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 

@@ -83,7 +83,7 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
-			if (!await context.CanDownloadAsync(attachment).ConfigureAwait(false))
+			if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// check exist
@@ -120,13 +120,8 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			var gotRights = isTemporary
-				? !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
-					? await context.CanContributeAsync(serviceName, systemID, definitionID, "").ConfigureAwait(false)
-					: await context.CanContributeAsync(serviceName, objectName, "").ConfigureAwait(false)
-				: !string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(definitionID)
-					? await context.CanEditAsync(serviceName, systemID, definitionID, objectID).ConfigureAwait(false)
-					: await context.CanEditAsync(serviceName, objectName, objectID).ConfigureAwait(false);
-
+				? await context.CanContributeAsync(serviceName, objectName, systemID, definitionID, "", cancellationToken).ConfigureAwait(false)
+				: await context.CanEditAsync(serviceName, objectName, systemID, definitionID, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
