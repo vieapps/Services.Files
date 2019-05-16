@@ -214,10 +214,9 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
-			var service = await Router.GetServiceAsync(thumbnail.ServiceName).ConfigureAwait(false);
 			var gotRights = thumbnail.IsTemporary
-				? await service.CanContributeAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, "").ConfigureAwait(false)
-				: await service.CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
+				? await Router.GetService(thumbnail.ServiceName).CanContributeAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, "").ConfigureAwait(false)
+				: await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -250,8 +249,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
-			var service = await Router.GetServiceAsync(thumbnail.ServiceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -276,8 +274,7 @@ namespace net.vieapps.Services.Files
 			var definitionID = requestInfo.GetParameter("x-definition-id");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(serviceName).CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -439,10 +436,9 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check permissions
-			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
 			var gotRights = attachment.IsTemporary
-				? await service.CanContributeAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, "").ConfigureAwait(false)
-				: await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+				? await Router.GetService(attachment.ServiceName).CanContributeAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, "").ConfigureAwait(false)
+				: await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -479,8 +475,7 @@ namespace net.vieapps.Services.Files
 			attachment.CopyFrom(requestInfo.GetBodyExpando(), "ID,ServiceName,ObjectName,SystemID,DefinitionID,ObjectID,Filename,Size,ContentType,DownloadTimes,IsTemporary,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			// check permissions
-			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -500,8 +495,7 @@ namespace net.vieapps.Services.Files
 				throw new InformationNotFoundException();
 
 			// check permissions
-			var service = await Router.GetServiceAsync(attachment.ServiceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -526,8 +520,7 @@ namespace net.vieapps.Services.Files
 			var definitionID = requestInfo.GetParameter("x-definition-id");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(serviceName).CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -707,8 +700,7 @@ namespace net.vieapps.Services.Files
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException();
 
-			var service = await Router.GetServiceAsync(serviceName).ConfigureAwait(false);
-			var gotRights = await service.CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
+			var gotRights = await Router.GetService(serviceName).CanEditAsync(requestInfo, objectName, systemID, definitionID, objectID).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 

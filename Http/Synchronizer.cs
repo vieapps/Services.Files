@@ -28,8 +28,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var service = await Router.GetUniqueServiceAsync(node).ConfigureAwait(false);
-				await service.ProcessRequestAsync(new RequestInfo
+				await Router.GetUniqueService(node).ProcessRequestAsync(new RequestInfo
 				{
 					ServiceName = "Files.Http",
 					Verb = "GET",
@@ -66,6 +65,9 @@ namespace net.vieapps.Services.Files
 				, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
 		}
+
+		public void SendRequest(string node, string serviceName, string systemID, string filename, bool isTemporary)
+			=> Task.Run(() => this.SendRequestAsync(node, serviceName, systemID, filename, isTemporary)).ConfigureAwait(false);
 
 		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
@@ -111,7 +113,7 @@ namespace net.vieapps.Services.Files
 							["x-filename"] = filename,
 							["x-temporary"] = isTemporary.ToString().ToLower()
 						};
-						var service = await Router.GetUniqueServiceAsync(node).ConfigureAwait(false);
+						var service = Router.GetUniqueService(node);
 						using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 						{
 							var buffer = new byte[AspNetCoreUtilityService.BufferSize * 10];

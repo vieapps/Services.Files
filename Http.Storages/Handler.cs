@@ -491,10 +491,10 @@ namespace net.vieapps.Services.Files.Storages
 		#endregion
 
 		#region Helper: API Gateway Router
-		internal static void OpenRouterChannels(int waitingTimes = 6789)
+		internal static void Connect(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
-			Global.OpenRouterChannels(
+			Global.Connect(
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
@@ -579,12 +579,12 @@ namespace net.vieapps.Services.Files.Storages
 			);
 		}
 
-		internal static void CloseRouterChannels(int waitingTimes = 1234)
+		internal static void Disconnect(int waitingTimes = 1234)
 		{
 			Global.UnregisterService(null, waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			Router.CloseChannels();
+			Global.Disconnect();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;

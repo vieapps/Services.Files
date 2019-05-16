@@ -122,7 +122,7 @@ namespace net.vieapps.Services.Files.Storages
 			};
 
 			// WAMP connections
-			Handler.OpenRouterChannels();
+			Handler.Connect();
 
 			// setup middlewares
 			appBuilder
@@ -154,7 +154,7 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Handler.CloseRouterChannels();
+				Handler.Disconnect();
 				Global.CancellationTokenSource.Cancel();
 			});
 

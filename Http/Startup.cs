@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Files
 
 			Global.CreateRSA();
 			Handler.PrepareHandlers();
-			Handler.OpenRouterChannels();
+			Handler.Connect();
 
 			// setup middlewares
 			appBuilder
@@ -164,7 +164,7 @@ namespace net.vieapps.Services.Files
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Handler.CloseRouterChannels();
+				Handler.Disconnect();
 				Global.RSA.Dispose();
 				Global.CancellationTokenSource.Cancel();
 			});

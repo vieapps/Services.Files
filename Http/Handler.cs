@@ -232,18 +232,15 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region API Gateway Router
-		internal static void OpenRouterChannels(int waitingTimes = 6789)
+		internal static void Connect(int waitingTimes = 6789)
 		{
-			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
-			Global.OpenRouterChannels(
+			Global.Logger.LogInformation($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
+			Global.Connect(
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(async () =>
-					{
-						await Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
-						await Handler.RegisterSynchronizerAsync().ConfigureAwait(false);
-					}).ConfigureAwait(false);
+					Router.IncomingChannel.Update(arguments.SessionId, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
+					Global.Logger.LogInformation($"The incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
+					Task.Run(() => Handler.RegisterSynchronizerAsync()).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.files")
@@ -281,10 +278,10 @@ namespace net.vieapps.Services.Files
 				},
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
+					Router.OutgoingChannel.Update(arguments.SessionId, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
+					Global.Logger.LogInformation($"The outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
 					Task.Run(async () =>
 					{
-						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 						try
 						{
 							await Task.WhenAll(
@@ -306,18 +303,20 @@ namespace net.vieapps.Services.Files
 					}, TaskContinuationOptions.OnlyOnRanToCompletion)
 					.ConfigureAwait(false);
 				},
-				waitingTimes
+				waitingTimes,
+				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
+				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
 			);
 		}
 
-		internal static void CloseRouterChannels(int waitingTimes = 1234)
+		internal static void Disconnect(int waitingTimes = 1234)
 			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
 				.ContinueWith(_ =>
 				{
 					Global.UnregisterService("Http.WebSockets", waitingTimes);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Router.CloseChannels();
+					Global.Disconnect();
 				}, TaskContinuationOptions.OnlyOnRanToCompletion)
 				.ConfigureAwait(false)
 				.GetAwaiter()
@@ -341,8 +340,9 @@ namespace net.vieapps.Services.Files
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Handler.NodeName.IsEquals(node))
-					Task.Run(() => Handler.Synchronizer.SendRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")))).ConfigureAwait(false);
+					Handler.Synchronizer.SendRequest(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")));
 			}
+
 			return Task.CompletedTask;
 		}
 
