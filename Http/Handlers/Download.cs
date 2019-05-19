@@ -19,26 +19,12 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<DownloadHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
-				try
-				{
-					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-						await this.DownloadAsync(context, cts.Token).ConfigureAwait(false);
-					else
-						throw new MethodNotAllowedException(context.Request.Method);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Error occurred while downloading a file ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					var queryString = context.GetRequestUri().ParseQuery();
-					if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-						context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
-					else
-						context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				}
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+				await this.DownloadAsync(context, cancellationToken).ConfigureAwait(false);
+			else
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
@@ -67,7 +53,7 @@ namespace net.vieapps.Services.Files
 			var attachment = await context.GetAsync(identifier, cancellationToken).ConfigureAwait(false);
 			if (string.IsNullOrWhiteSpace(attachment.ID))
 				throw new FileNotFoundException();
-			if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
+			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// check exist

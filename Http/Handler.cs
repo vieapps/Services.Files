@@ -119,24 +119,42 @@ namespace net.vieapps.Services.Files
 				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
 			}
 
-			// no authenticate token
-			if (string.IsNullOrWhiteSpace(authenticateToken))
-				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
-
-			// authenticate with token
-			else
+			// got authenticate token => update the session
+			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http.Authentications", context.GetCorrelationID()).ConfigureAwait(false);
+					// authenticate
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully authenticate a token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+
+					// perform sign-in (to create authenticate ticket cookie) when the authenticate token its came from passport service
+					if (context.GetParameter("x-passport-token") != null)
+					{
+						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+						if (Global.IsDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})");
+					}
+
+					// jus assign user information
+					else
+						context.User = new UserPrincipal(session.User);
 				}
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Failure authenticate a token: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				}
 
-			// store session
+			// no authenticate token => update user of the session if already signed-in
+			else if (context.IsAuthenticated())
+				session.User = context.GetUser();
+
+			// update session
+			if (string.IsNullOrWhiteSpace(session.User.SessionID))
+				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+			else
+				session.SessionID = session.User.SessionID;
+
 			var appName = context.GetParameter("x-app-name");
 			if (!string.IsNullOrWhiteSpace(appName))
 				session.AppName = appName;
@@ -149,28 +167,42 @@ namespace net.vieapps.Services.Files
 			if (!string.IsNullOrWhiteSpace(deviceID))
 				session.DeviceID = deviceID;
 
+			// store the session for further use
 			context.Items["Session"] = session;
 
-			// sign-in with authenticate token of passport
-			if (session.User.IsAuthenticated && context.GetParameter("x-passport-token") != null)
-				await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-
-			// or just update user information
-			else
-				context.User = new UserPrincipal(session.User);
-
 			// process the request
-			Services.FileHandler handler = null;
-			try
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 			{
-				handler = type.CreateInstance() as Services.FileHandler;
-				await handler.ProcessRequestAsync(context, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-			}
-			catch (OperationCanceledException) { }
-			catch (Exception ex)
-			{
-				await context.WriteLogsAsync(handler?.Logger, $"Http.{(requestPath.IsStartsWith("Thumbnail") ? "Thumbnails" : requestPath)}", ex.Message, ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				Services.FileHandler handler = null;
+				try
+				{
+					handler = type.CreateInstance() as Services.FileHandler;
+					await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					var logName = context.Request.Method.IsEquals("POST")
+						? "Uploads"
+						: requestPath.IsStartsWith("Thumbnail")
+							? "Thumbnails"
+							: requestPath.IsEquals("files") || requestPath.IsEquals("downloads")
+								? "Downloads"
+								: requestPath;
+
+					await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred ({context.Request.Method} {context.GetRequestUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+
+					if (context.Request.Method.IsEquals("POST"))
+						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					else
+					{
+						var queryString = context.ParseQuery();
+						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && Handler.RedirectToPassportOnUnauthorized && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
+							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						else
+							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+					}
+				}
 			}
 		}
 
@@ -214,7 +246,7 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null;
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null;
 
 		internal static string UserAvatarFilesPath
 			=> Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
@@ -229,6 +261,9 @@ namespace net.vieapps.Services.Files
 			=> Handler._TempFilesPath ?? (Handler._TempFilesPath = UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp")));
 
 		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
+
+		internal static bool RedirectToPassportOnUnauthorized
+			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Files:RedirectToPassportOnUnauthorized", "true")));
 		#endregion
 
 		#region API Gateway Router
@@ -236,11 +271,19 @@ namespace net.vieapps.Services.Files
 		{
 			Global.Logger.LogInformation($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
-				(sender, arguments) =>
+				(sender, arguments) => Task.Run(async () =>
 				{
-					Router.IncomingChannel.Update(arguments.SessionId, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
-					Global.Logger.LogInformation($"The incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(() => Handler.RegisterSynchronizerAsync()).ConfigureAwait(false);
+					try
+					{
+						await Handler.RegisterSynchronizerAsync().ConfigureAwait(false);
+						Global.Logger.LogInformation("The synchronizer is registered successful");
+					}
+					catch (Exception ex)
+					{
+						Global.Logger.LogError($"Cannot register the synchronizer => {ex.Message}", ex);
+					}
+				}).ContinueWith(_ =>
+				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.files")
@@ -275,34 +318,8 @@ namespace net.vieapps.Services.Files
 							},
 							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
-				},
-				(sender, arguments) =>
-				{
-					Router.OutgoingChannel.Update(arguments.SessionId, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
-					Global.Logger.LogInformation($"The outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(async () =>
-					{
-						try
-						{
-							await Task.WhenAll(
-								Global.InitializeLoggingServiceAsync(),
-								Global.InitializeRTUServiceAsync()
-							).ConfigureAwait(false);
-							Global.Logger.LogInformation("Helper services are succesfully initialized");
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
-						}
-					})
-					.ContinueWith(async _ =>
-					{
-						while (Router.IncomingChannel == null || Router.OutgoingChannel == null)
-							await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
-						await Global.RegisterServiceAsync("Http.WebSockets").ConfigureAwait(false);
-					}, TaskContinuationOptions.OnlyOnRanToCompletion)
-					.ConfigureAwait(false);
-				},
+				}, TaskContinuationOptions.OnlyOnRanToCompletion).ConfigureAwait(false),
+				(sender, arguments) => Global.RegisterService("Http.WebSockets"),
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
@@ -358,34 +375,21 @@ namespace net.vieapps.Services.Files
 
 		internal static async Task RegisterSynchronizerAsync()
 		{
-			async Task registerAsync()
+			try
 			{
+				Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.NodeName, WampInvokePolicy.Single)).ConfigureAwait(false);
+			}
+			catch
+			{
+				await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
 				try
 				{
 					Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.NodeName, WampInvokePolicy.Single)).ConfigureAwait(false);
 				}
-				catch
+				catch (Exception)
 				{
-					await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
-					try
-					{
-						Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.NodeName, WampInvokePolicy.Single)).ConfigureAwait(false);
-					}
-					catch (Exception)
-					{
-						throw;
-					}
+					throw;
 				}
-				Global.Logger.LogInformation("The synchronizer is registered successful");
-			}
-
-			try
-			{
-				await registerAsync().ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				Global.Logger.LogError($"Cannot register the synchronizer => {ex.Message}", ex);
 			}
 		}
 
@@ -528,11 +532,7 @@ namespace net.vieapps.Services.Files
 		public static AttachmentInfo PrepareDirectories(this AttachmentInfo attachmentInfo)
 		{
 			var path = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower());
-			new[] { path, Path.Combine(path, "trash") }.ForEach(directory =>
-			{
-				if (!Directory.Exists(directory))
-					Directory.CreateDirectory(directory);
-			});
+			new[] { path, Path.Combine(path, "trash") }.Where(directory => !Directory.Exists(directory)).ForEach(directory => Directory.CreateDirectory(directory));
 			return attachmentInfo;
 		}
 
@@ -625,6 +625,9 @@ namespace net.vieapps.Services.Files
 						}
 					}.PublishAsync(Global.Logger, "Http.Downloads")
 				);
+
+		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
+			=> context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID, cancellationToken);
 
 		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
 		{

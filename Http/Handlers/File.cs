@@ -21,34 +21,14 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<FileHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
-				try
-				{
-					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-						await this.FlushAsync(context, cts.Token).ConfigureAwait(false);
-					else if (context.Request.Method.IsEquals("POST"))
-						await this.ReceiveAsync(context, cts.Token).ConfigureAwait(false);
-					else
-						throw new MethodNotAllowedException(context.Request.Method);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					var requestUri = context.GetRequestUri();
-					var queryString = requestUri.ParseQuery();
-					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Downloads")}", $"Error occurred while processing with a file ({context.Request.Method} {requestUri})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					if (context.Request.Method.IsEquals("POST"))
-						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-					else
-					{
-						//if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-						//	context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
-						//else
-							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-					}
-				}
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+				await this.FlushAsync(context, cancellationToken).ConfigureAwait(false);
+			else if (context.Request.Method.IsEquals("POST"))
+				await this.ReceiveAsync(context, cancellationToken).ConfigureAwait(false);
+			else
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
@@ -83,7 +63,7 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
-			if (!await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
+			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// check exist

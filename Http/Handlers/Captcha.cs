@@ -23,37 +23,27 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<CaptchaHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
-				try
-				{
-					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+			{
+				// prepare
+				var pathSegments = context.GetRequestPathSegments().Skip(1).ToArray();
+				var useSmallImage = true;
+				if (pathSegments.Length > 1)
+					try
 					{
-						// prepare
-						var pathSegments = context.GetRequestPathSegments().Skip(1).ToArray();
-						var useSmallImage = true;
-						if (pathSegments.Length > 1)
-							try
-							{
-								useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
-							}
-							catch { }
-
-						// response
-						var image = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
-						context.SetResponseHeaders((int)HttpStatusCode.OK, "image/jpeg", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-						await context.WriteAsync(image, cts.Token).ConfigureAwait(false);
+						useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
 					}
-					else
-						throw new MethodNotAllowedException(context.Request.Method);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(this.Logger, "Http.Captchas", $"Error occurred while processing with a captcha image ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				}
+					catch { }
+
+				// response
+				var image = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
+				context.SetResponseHeaders((int)HttpStatusCode.OK, "image/jpeg", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
+				await context.WriteAsync(image, cancellationToken).ConfigureAwait(false);
+			}
+			else
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		ArraySegment<byte> Generate(string code, bool useSmallImage = true, List<string> noises = null)

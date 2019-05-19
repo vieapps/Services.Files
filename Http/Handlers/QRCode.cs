@@ -25,22 +25,12 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<QRCodeHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
-				try
-				{
-					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-						await this.ShowAsync(context, cts.Token).ConfigureAwait(false);
-					else
-						throw new MethodNotAllowedException(context.Request.Method);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Error occurred while processing with a QR code image ({context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-				}
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
+			else
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)

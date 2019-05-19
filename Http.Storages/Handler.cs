@@ -490,38 +490,29 @@ namespace net.vieapps.Services.Files.Storages
 		}
 		#endregion
 
-		#region Helper: API Gateway Router
+		#region API Gateway Router
 		internal static void Connect(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming (Files {Global.ServiceName} HTTP service)")).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.storages")
 						.Subscribe(
 							async message =>
 							{
-								var correlationID = UtilityService.NewUUID;
 								try
 								{
 									await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
-									if (Global.IsDebugResultsEnabled)
-										await Global.WriteLogsAsync(Global.Logger, "RTU",
-											$"Successfully process an inter-communicate message" + "\r\n" +
-											$"- Type: {message?.Type}" + "\r\n" +
-											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
-										, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -529,53 +520,22 @@ namespace net.vieapps.Services.Files.Storages
 						.Subscribe(
 							async message =>
 							{
-								if (message.Type.IsEquals("Service#RequestInfo"))
+								try
 								{
-									var correlationID = UtilityService.NewUUID;
-									try
-									{
-										await Global.UpdateServiceInfoAsync().ConfigureAwait(false);
-										if (Global.IsDebugResultsEnabled)
-											await Global.WriteLogsAsync(Global.Logger, "RTU",
-												$"Successfully process an inter-communicate message" + "\r\n" +
-												$"- Type: {message?.Type}" + "\r\n" +
-												$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
-											, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-									}
-									catch (Exception ex)
-									{
-										await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-									}
+									await Handler.ProcessAPIGatewayCommunicateMessageAsync(message).ConfigureAwait(false);
+								}
+								catch (Exception ex)
+								{
+									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
-				(sender, arguments) =>
-				{
-					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(async () =>
-					{
-						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing (Files {Global.ServiceName} HTTP service)").ConfigureAwait(false);
-						try
-						{
-							await Task.WhenAll(
-								Global.InitializeLoggingServiceAsync(),
-								Global.InitializeRTUServiceAsync()
-							).ConfigureAwait(false);
-							Global.Logger.LogInformation("Helper services are succesfully initialized");
-							while (Router.IncomingChannel == null || Router.OutgoingChannel == null)
-								await Task.Delay(UtilityService.GetRandomNumber(234, 567), Global.CancellationTokenSource.Token).ConfigureAwait(false);
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
-						}
-					})
-					.ContinueWith(async task => await Global.RegisterServiceAsync().ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion)
-					.ConfigureAwait(false);
-				},
-				waitingTimes
+				(sender, arguments) => Global.RegisterService("Http.WebSockets"),
+				waitingTimes,
+				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
+				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
 			);
 		}
 
@@ -587,7 +547,14 @@ namespace net.vieapps.Services.Files.Storages
 			Global.Disconnect();
 		}
 
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;
+		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+			=> Task.CompletedTask;
+
+		static async Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
+		{
+			if (message.Type.IsEquals("Service#RequestInfo"))
+				await Global.UpdateServiceInfoAsync("Http.WebSockets").ConfigureAwait(false);
+		}
 		#endregion
 
 	}

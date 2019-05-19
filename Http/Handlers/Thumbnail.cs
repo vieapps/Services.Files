@@ -25,33 +25,14 @@ namespace net.vieapps.Services.Files
 	{
 		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<ThumbnailHandler>();
 
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.RequestAborted))
-				try
-				{
-					if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-						await this.ShowAsync(context, cts.Token).ConfigureAwait(false);
-					else if (context.Request.Method.IsEquals("POST"))
-						await this.ReceiveAsync(context, cts.Token).ConfigureAwait(false);
-					else
-						throw new MethodNotAllowedException(context.Request.Method);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(this.Logger, $"Http.{(context.Request.Method.IsEquals("POST") ? "Uploads" : "Thumbnails")}", $"Error occurred while processing with a thumbnail image ({context.Request.Method} {context.GetReferUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					var queryString = context.GetRequestUri().ParseQuery();
-					if (context.Request.Method.IsEquals("POST"))
-						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-					else
-					{
-						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
-						else
-							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
-					}
-				}
+			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
+				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
+			else if (context.Request.Method.IsEquals("POST"))
+				await this.ReceiveAsync(context, cancellationToken).ConfigureAwait(false);
+			else
+				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
@@ -118,7 +99,7 @@ namespace net.vieapps.Services.Files
 				if (!isThumbnail)
 				{
 					attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
-					return await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false);
+					return await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false);
 				}
 				return true;
 			}
