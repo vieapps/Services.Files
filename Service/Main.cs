@@ -216,8 +216,8 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			var gotRights = thumbnail.IsTemporary
-				? await Router.GetService(thumbnail.ServiceName).CanContributeAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, "").ConfigureAwait(false)
-				: await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false);
+				? await Router.GetService(thumbnail.ServiceName).CanContributeAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, "", cancellationToken).ConfigureAwait(false)
+				: await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -250,7 +250,7 @@ namespace net.vieapps.Services.Files
 			if (thumbnail == null)
 				throw new InvalidRequestException();
 
-			else if (!await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID).ConfigureAwait(false))
+			else if (!await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.DefinitionID, thumbnail.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// delete
@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Files
 			var definitionID = requestInfo.GetParameter("x-definition-id");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, definitionID, objectID).ConfigureAwait(false))
+			if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, definitionID, objectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// move from temporary to main directory (mark as official)
@@ -436,8 +436,8 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			var gotRights = attachment.IsTemporary
-				? await Router.GetService(attachment.ServiceName).CanContributeAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, "").ConfigureAwait(false)
-				: await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false);
+				? await Router.GetService(attachment.ServiceName).CanContributeAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, "", cancellationToken).ConfigureAwait(false)
+				: await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -473,7 +473,7 @@ namespace net.vieapps.Services.Files
 			var request = requestInfo.GetBodyExpando();
 			attachment.CopyFrom(requestInfo.GetBodyExpando(), "ID,ServiceName,ObjectName,SystemID,DefinitionID,ObjectID,Filename,Size,ContentType,DownloadTimes,IsTemporary,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
-			if (!await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
+			if (!await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// update
@@ -492,7 +492,7 @@ namespace net.vieapps.Services.Files
 			if (attachment == null)
 				throw new InformationNotFoundException();
 
-			else if (!await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID).ConfigureAwait(false))
+			else if (!await Router.GetService(attachment.ServiceName).CanEditAsync(requestInfo.Session.User, attachment.ObjectName, attachment.SystemID, attachment.DefinitionID, attachment.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// delete
@@ -616,28 +616,27 @@ namespace net.vieapps.Services.Files
 				var thumbnailsSort = objectIDs == null
 					? Sorts<Thumbnail>.Ascending("Filename")
 					: Sorts<Thumbnail>.Ascending("ObjectID").ThenByAscending("Filename");
-				var thumbnailsTask = Thumbnail.FindAsync(thumbnailsFilter, thumbnailsSort, 0, 1, null, cancellationToken)
-					.ContinueWith(async task =>
+				var thumbnailsTask = Thumbnail.FindAsync(thumbnailsFilter, thumbnailsSort, 0, 1, null, cancellationToken).ContinueWith(async task =>
+				{
+					if (objectIDs == null)
 					{
-						if (objectIDs == null)
+						var title = (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
+						thumbnailsJson = task.Result.ToJArray(thumbnail => thumbnail.ToJson(false, null, true, title));
+						await Utility.Cache.SetAsync($"{objectID}:thumbnails", thumbnailsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+					}
+					else
+					{
+						var titles = new JObject();
+						try
 						{
-							var title = (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
-							thumbnailsJson = task.Result.ToJArray(thumbnail => thumbnail.ToJson(false, null, true, title));
-							await Utility.Cache.SetAsync($"{objectID}:thumbnails", thumbnailsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+							titles = (requestInfo.GetParameter("x-object-title") ?? "{}").ToJson() as JObject;
 						}
-						else
-						{
-							var titles = new JObject();
-							try
-							{
-								titles = (requestInfo.GetParameter("x-object-title") ?? "{}").ToJson() as JObject;
-							}
-							catch { }
-							thumbnailsJson = this.BuildJson(task.Result, thumbnail => thumbnail.ToJson(false, null, true, titles.Get<string>(thumbnail.ID) ?? thumbnail.ID));
-							await (thumbnailsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
-							(thumbnailsJson as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
-						}
-					}, TaskContinuationOptions.OnlyOnRanToCompletion);
+						catch { }
+						thumbnailsJson = this.BuildJson(task.Result, thumbnail => thumbnail.ToJson(false, null, true, titles.Get<string>(thumbnail.ID) ?? thumbnail.ID));
+						await (thumbnailsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+						(thumbnailsJson as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
+					}
+				}, TaskContinuationOptions.OnlyOnRanToCompletion);
 
 				JToken attachmentsJson = null;
 				var attachmentsFilter = objectIDs == null
@@ -646,20 +645,19 @@ namespace net.vieapps.Services.Files
 				var attachmentsSort = objectIDs == null
 					? Sorts<Attachment>.Ascending("Title").ThenByAscending("Filename")
 					: Sorts<Attachment>.Ascending("ObjectID").ThenByAscending("Title").ThenByAscending("Filename");
-				var attachmentsTask = Attachment.FindAsync(attachmentsFilter, attachmentsSort, 0, 1, null, cancellationToken)
-					.ContinueWith(async task =>
+				var attachmentsTask = Attachment.FindAsync(attachmentsFilter, attachmentsSort, 0, 1, null, cancellationToken).ContinueWith(async task =>
+				{
+					if (objectIDs == null)
 					{
-						if (objectIDs == null)
-						{
-							attachmentsJson = task.Result.ToJArray(attachment => attachment.ToJson());
-							await Utility.Cache.SetAsync($"{objectID}:attachments", attachmentsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
-						}
-						else
-						{
-							attachmentsJson = this.BuildJson(task.Result, attachment => attachment.ToJson());
-							await (attachmentsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
-						}
-					}, TaskContinuationOptions.OnlyOnRanToCompletion);
+						attachmentsJson = task.Result.ToJArray(attachment => attachment.ToJson());
+						await Utility.Cache.SetAsync($"{objectID}:attachments", attachmentsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+					}
+					else
+					{
+						attachmentsJson = this.BuildJson(task.Result, attachment => attachment.ToJson());
+						await (attachmentsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+					}
+				}, TaskContinuationOptions.OnlyOnRanToCompletion);
 
 				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 				if (objectIDs == null)
