@@ -28,6 +28,8 @@ namespace net.vieapps.Services.Files
 	{
 		RequestDelegate Next { get; }
 
+		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+
 		public Handler(RequestDelegate next) => this.Next = next;
 
 		public async Task Invoke(HttpContext context)
@@ -48,7 +50,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// load balancing health check
-			else if (context.Request.Path.Value.IsEquals("/load-balancing-health-check"))
+			else if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
 				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			// requests of files
@@ -82,6 +84,10 @@ namespace net.vieapps.Services.Files
 			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico"))
 				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+
+			// request to robots.txt file
+			else if (requestPath.Equals("robots.txt"))
+				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
@@ -189,18 +195,25 @@ namespace net.vieapps.Services.Files
 							: requestPath.IsEquals("files") || requestPath.IsEquals("downloads")
 								? "Downloads"
 								: requestPath;
-
 					await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred ({context.Request.Method} {context.GetRequestUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 
 					if (context.Request.Method.IsEquals("POST"))
-						context.WriteHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+						context.WriteError(handler?.Logger, ex, null, null, false);
 					else
 					{
 						var queryString = context.ParseQuery();
 						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && Handler.RedirectToPassportOnUnauthorized && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
 							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
 						else
-							context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+						{
+							if (ex is WampException)
+							{
+								var wampException = (ex as WampException).GetDetails();
+								context.ShowHttpError(statusCode: wampException.Item1, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+							}
+							else
+								context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+						}
 					}
 				}
 			}

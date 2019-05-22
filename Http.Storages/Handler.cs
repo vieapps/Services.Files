@@ -33,7 +33,10 @@ namespace net.vieapps.Services.Files.Storages
 	public class Handler
 	{
 		RequestDelegate Next { get; }
+
 		ICache Cache { get; }
+
+		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
 		public Handler(RequestDelegate next, IServiceProvider serviceProvider)
 		{
@@ -45,7 +48,7 @@ namespace net.vieapps.Services.Files.Storages
 		public async Task Invoke(HttpContext context)
 		{
 			// load balancing health check
-			if (context.Request.Path.Value.IsEquals("/load-balancing-health-check"))
+			if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
 				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			// request of storages
@@ -151,15 +154,15 @@ namespace net.vieapps.Services.Files.Storages
 				return;
 			}
 
-			// favicon.ico
+			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico"))
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 
-			// static segments
+			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
-			// other
+			// request to file storages
 			else
 			{
 				if (requestPath.IsEquals("_signin"))

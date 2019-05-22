@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			// check permissions
+			// get info & check permissions
 			attachment = await context.GetAsync(attachment.ID, cancellationToken).ConfigureAwait(false);
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
