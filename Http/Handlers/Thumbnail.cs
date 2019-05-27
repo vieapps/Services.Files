@@ -165,7 +165,7 @@ namespace net.vieapps.Services.Files
 				// calculate size depend on width
 				if (height < 1)
 				{
-					height = (int)((image.Height * width) / image.Width);
+					height = image.Height * width / image.Width;
 					if (height < 1)
 						height = image.Height;
 				}
@@ -173,7 +173,7 @@ namespace net.vieapps.Services.Files
 				// calculate size depend on height
 				else if (width < 1)
 				{
-					width = (int)((image.Width * height) / image.Height);
+					width = image.Width * height / image.Height;
 					if (width < 1)
 						width = image.Width;
 				}
