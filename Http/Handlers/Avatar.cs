@@ -55,7 +55,7 @@ namespace net.vieapps.Services.Files
 					fileName = null;
 				}
 
-			FileInfo fileInfo = null;
+			FileInfo fileInfo;
 			try
 			{
 				fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, fileName ?? "@default.png"));

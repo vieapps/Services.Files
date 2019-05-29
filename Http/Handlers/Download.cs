@@ -37,7 +37,6 @@ namespace net.vieapps.Services.Files
 
 			var identifier = pathSegments[1];
 			var direct = pathSegments.Length > 2 && pathSegments[2].Equals("0");
-			var queryString = requestUri.ParseQuery();
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = "File#" + identifier.ToLower();

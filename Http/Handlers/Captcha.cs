@@ -97,9 +97,9 @@ namespace net.vieapps.Services.Files
 				// comuting noise texts for the image
 				var texts = noises != null && noises.Count > 0
 					? noises
-					: new List<string>() { "VIEApps", "vieapps.net", "VIEApps API Gateway", "VIEApps REST API" };
+					: new List<string> { "VIEApps", "vieapps.net", "VIEApps API Gateway", "VIEApps REST API" };
 
-				var noiseTexts = new List<string>() { "Winners never quit", "Quitters never win", "Vietnam - The hidden charm", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Enterprise Web Services", "On-Demand Services for Enterprise", "Cloud Computing Enterprise Services", "Where do you want to go today?", "Make business easier", "Simplify business process", "VIEApps", "vieapps.net" };
+				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Vietnam - The hidden charm", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Enterprise Web Services", "On-Demand Services for Enterprise", "Cloud Computing Enterprise Services", "Where do you want to go today?", "Make business easier", "Simplify business process", "VIEApps", "vieapps.net" };
 				noiseTexts.Append(texts);
 
 				var noiseText = noiseTexts[UtilityService.GetRandomNumber(0, noiseTexts.Count)];

@@ -35,7 +35,6 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var requestUri = context.GetRequestUri();
-			var queryString = requestUri.ParseQuery();
 			var pathSegments = requestUri.GetRequestPathSegments();
 
 			var attachment = new AttachmentInfo
