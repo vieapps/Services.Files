@@ -284,7 +284,7 @@ namespace net.vieapps.Services.Files.Storages
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Download", "Error occurred while processing", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Download", "Error occurred while processing", ex).ConfigureAwait(false);
 				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), UtilityService.NewUUID, ex, true);
 			}
 		}
@@ -377,7 +377,7 @@ namespace net.vieapps.Services.Files.Storages
 					await Task.WhenAll(
 						Task.Delay(567 + ((attempt - 1) * 5678)),
 						this.Cache.SetAsync($"Attempt#{context.Connection.RemoteIpAddress}", attempt),
-						context.WriteLogsAsync("SignIn", $"Failure attempt to sign-in ({attempt:#,##0} - {context.Connection.RemoteIpAddress}): {exception.Message}", exception)
+						context.WriteLogsAsync("Http.SignIn", $"Failure attempt to sign-in ({attempt:#,##0} - {context.Connection.RemoteIpAddress}): {exception.Message}", exception)
 					).ConfigureAwait(false);
 
 					// prepare error
@@ -440,7 +440,7 @@ namespace net.vieapps.Services.Files.Storages
 				}
 				catch (Exception exception)
 				{
-					await context.WriteLogsAsync("ChangePassword", $"Failure attempt to change password ({context.Connection.RemoteIpAddress})", exception).ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Password", $"Failure attempt to change password ({context.Connection.RemoteIpAddress})", exception).ConfigureAwait(false);
 
 					// prepare error
 					error = exception is WampException

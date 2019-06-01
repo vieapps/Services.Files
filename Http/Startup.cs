@@ -7,7 +7,6 @@ using System.Text;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
-
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
@@ -17,14 +16,12 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
-
-using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Caching.Distributed;
-
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 #endregion
@@ -52,7 +49,7 @@ namespace net.vieapps.Services.Files
 				.AddSession(options =>
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(5);
-					options.Cookie.Name = "VIEApps-Session";
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
 					options.Cookie.HttpOnly = true;
 				})
 				.Configure<FormOptions>(options =>
@@ -65,22 +62,31 @@ namespace net.vieapps.Services.Files
 				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
 				.AddCookie(options =>
 				{
-					options.Cookie.Name = "VIEApps-Auth";
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
 					options.Cookie.HttpOnly = true;
 					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
 					options.SlidingExpiration = true;
 				});
 
-			// data protection (to encrypt/decrypt authenticate cookies)
-			services
-				.AddDataProtection()
+			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
+			var dataProtection = services.AddDataProtection()
 				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
-				.SetApplicationName("VIEApps-NGX-Files")
+				.SetApplicationName(UtilityService.GetAppSetting("DataProtection:Name:Application", "VIEApps-NGX-Files"))
 				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
 				{
 					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
 					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
+				})
+				.PersistKeysToDistributedCache(new DistributedXmlRepositoryOptions
+				{
+					Key = UtilityService.GetAppSetting("DataProtection:Key", "DataProtection-Keys"),
+					CacheOptions = new DistributedCacheEntryOptions
+					{
+						AbsoluteExpiration = new DateTimeOffset(DateTime.Now.AddDays(7))
+					}
 				});
+			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
+				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
