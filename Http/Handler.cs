@@ -103,21 +103,20 @@ namespace net.vieapps.Services.Files
 
 		async Task ProcessFileRequestAsync(HttpContext context)
 		{
-			// prepare handler
+			// prepare
 			var requestPath = context.GetRequestPathSegments(true).First();
 			if (!Handler.Handlers.TryGetValue(requestPath, out var type))
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 				return;
 			}
+			var header = context.Request.Headers.ToDictionary();
+			var query = context.ParseQuery();
 
 			// get session
 			var session = context.GetSession();
 
 			// get authenticate token
-			var header = context.Request.Headers.ToDictionary();
-			var query = context.GetRequestUri().ParseQuery();
-
 			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
 			if (string.IsNullOrWhiteSpace(authenticateToken)) // Bearer token
 			{
@@ -201,9 +200,8 @@ namespace net.vieapps.Services.Files
 						context.WriteError(handler?.Logger, ex, null, null, false);
 					else
 					{
-						var queryString = context.ParseQuery();
-						if (ex is AccessDeniedException && !context.User.Identity.IsAuthenticated && Handler.RedirectToPassportOnUnauthorized && !queryString.ContainsKey("x-app-token") && !queryString.ContainsKey("x-passport-token"))
-							context.Response.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
+							context.Redirect(context.GetPassportSessionAuthenticatorUrl());
 						else
 						{
 							if (ex is WampException)
