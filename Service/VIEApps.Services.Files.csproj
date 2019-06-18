@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>netstandard2.0</TargetFramework>
+		<TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
 		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
 		<AssemblyName>VIEApps.Services.Files</AssemblyName>
 		<WarningLevel>3</WarningLevel>
@@ -10,9 +10,9 @@
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>
 		<Copyright>© 2019 VIEApps.net</Copyright>
-		<AssemblyVersion>10.2.1906.2</AssemblyVersion>
-		<FileVersion>10.2.1906.2</FileVersion>
-		<InformationalVersion>v10.2.netstandard-2+rev:2019.06.12-latest.components</InformationalVersion>
+		<AssemblyVersion>10.3.1906.3</AssemblyVersion>
+		<FileVersion>10.3.1906.3</FileVersion>
+		<InformationalVersion>v10.3.netstandard-2.x+rev:2019.06.18-preview</InformationalVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -20,7 +20,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="VIEApps.Services.Base" Version="10.2.1906.2" />
+	  <PackageReference Include="VIEApps.Services.Base" Version="10.3.1906.3-preview" />
 	</ItemGroup>
 
 </Project>
