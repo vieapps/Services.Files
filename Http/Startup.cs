@@ -8,7 +8,6 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Authentication;
@@ -17,11 +16,14 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Hosting;
+#if !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
+#endif
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
@@ -65,9 +67,23 @@ namespace net.vieapps.Services.Files
 				{
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
 					options.Cookie.HttpOnly = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
 					options.SlidingExpiration = true;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
 				});
+
+			// authentication with proxy/load balancer
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
+				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
+#if !NETCOREAPP2_2
+			else
+			{
+				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
+					? "X-ARR-ClientCert"
+					: UtilityService.GetAppSetting("Proxy:X-Forwarded-Certificate");
+				if (!string.IsNullOrWhiteSpace(certificateHeader))
+					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
+			}
+#endif
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			var dataProtection = services.AddDataProtection()
@@ -90,7 +106,11 @@ namespace net.vieapps.Services.Files
 				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
+#if NETCOREAPP2_2
+		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
+#else
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
+#endif
 		{
 			// environments
 			var stopwatch = Stopwatch.StartNew();
@@ -143,6 +163,9 @@ namespace net.vieapps.Services.Files
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
+#if !NETCOREAPP2_2
+				.UseCertificateForwarding()
+#endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>();
 
