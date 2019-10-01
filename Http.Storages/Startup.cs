@@ -18,9 +18,7 @@ using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
-#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
@@ -103,11 +101,7 @@ namespace net.vieapps.Services.Files.Storages
 				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
-#if NETCOREAPP2_2
-		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
-#else
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
-#endif
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
