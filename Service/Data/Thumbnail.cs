@@ -44,7 +44,7 @@ namespace net.vieapps.Services.Files
 		/// Gets or sets the name of the service object that the attachment file is belong/related to
 		/// </summary>
 		[Property(MaxLength = 50), Sortable(IndexName = "System")]
-		public string ObjectName { get; set; }
+		public new string ObjectName { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business system that the attachment file is belong/related to

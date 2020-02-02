@@ -18,7 +18,9 @@ using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
+#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
@@ -69,7 +71,7 @@ namespace net.vieapps.Services.Files.Storages
 			// authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
-#if !NETCOREAPP2_2
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 			else
 			{
 				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
@@ -101,7 +103,11 @@ namespace net.vieapps.Services.Files.Storages
 				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
+#else
+		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
+#endif
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
@@ -152,7 +158,7 @@ namespace net.vieapps.Services.Files.Storages
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
-#if !NETCOREAPP2_2
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 				.UseCertificateForwarding()
 #endif
 				.UseAuthentication()
@@ -164,7 +170,7 @@ namespace net.vieapps.Services.Files.Storages
 				Global.Logger.LogInformation($"Root path (base directory): {Global.RootPath}");
 				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel}");
-				Global.Logger.LogInformation($"Rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled - Path format: {logPath}")}");
+				Global.Logger.LogInformation($"Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled - Path format: {logPath}")}");
 				Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");

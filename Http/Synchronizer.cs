@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Files
 		public void SendRequest(string node, string serviceName, string systemID, string filename, bool isTemporary)
 			=> Task.Run(() => this.SendRequestAsync(node, serviceName, systemID, filename, isTemporary)).ConfigureAwait(false);
 
-		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			if (requestInfo.Header.TryGetValue("x-signature", out var signature) && signature.Equals(this.SyncKey.GetHMACBLAKE512(Global.ValidationKey)))
 				switch (requestInfo.Verb)

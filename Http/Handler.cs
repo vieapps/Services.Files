@@ -239,17 +239,15 @@ namespace net.vieapps.Services.Files
 						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
 						.ForEach(handler =>
 						{
-							var type = Type.GetType(handler.Attributes["type"].Value);
-							if (type == null)
-								try
-								{
-									var typeInfo = handler.Attributes["type"].Value.ToArray();
-									type = new AssemblyLoader(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{typeInfo[1]}.dll")).Assembly.GetExportedTypes().FirstOrDefault(serviceType => typeInfo[0].Equals(serviceType.ToString()));
-								}
-								catch (Exception ex)
-								{
-									Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"].Value})", ex);
-								}
+							Type type = null;
+							try
+							{
+								type = AssemblyLoader.GetType(handler.Attributes["type"]?.Value);
+							}
+							catch (Exception ex)
+							{
+								Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"]?.Value})", ex);
+							}
 							if (type != null && type.CreateInstance() is Services.FileHandler)
 								Handler.Handlers[handler.Attributes["key"].Value.ToLower()] = type;
 						});
@@ -307,10 +305,10 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -324,13 +322,13 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion).ConfigureAwait(false),
-				(sender, arguments) => Global.RegisterService("Http.WebSockets"),
+				(sender, arguments) => Global.RegisterService("Http.Files"),
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
@@ -341,7 +339,7 @@ namespace net.vieapps.Services.Files
 			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
 				.ContinueWith(_ =>
 				{
-					Global.UnregisterService("Http.WebSockets", waitingTimes);
+					Global.UnregisterService("Http.Files", waitingTimes);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.Disconnect();
@@ -377,10 +375,10 @@ namespace net.vieapps.Services.Files
 		static async Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
 		{
 			if (message.Type.IsEquals("Service#RequestInfo"))
-				await Global.UpdateServiceInfoAsync("Http.WebSockets").ConfigureAwait(false);
+				await Global.UpdateServiceInfoAsync("Http.Files").ConfigureAwait(false);
 		}
 
-		static SystemEx.IAsyncDisposable SynchronizerInstance { get; set; }
+		static IAsyncDisposable SynchronizerInstance { get; set; }
 
 		static Synchronizer Synchronizer { get; } = new Synchronizer();
 
@@ -572,7 +570,7 @@ namespace net.vieapps.Services.Files
 			return attachmentInfo;
 		}
 
-		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default)
 			=> context.CallServiceAsync(context.GetRequestInfo(attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
 			{
 				{ "object-identity", attachmentInfo.ID },
@@ -595,7 +593,7 @@ namespace net.vieapps.Services.Files
 				{ "Description", attachmentInfo.Description }
 			}.ToString(Newtonsoft.Json.Formatting.None)), cancellationToken, Global.Logger, "Http.Uploads");
 
-		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default(CancellationToken))
+		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default)
 			=> new AttachmentInfo
 			{
 				IsThumbnail = false
@@ -604,7 +602,7 @@ namespace net.vieapps.Services.Files
 				{ "object-identity", id }
 			}), cancellationToken, Global.Logger, "Http.Downloads").ConfigureAwait(false));
 
-		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default(CancellationToken))
+		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default)
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
 				? Task.CompletedTask
 				: Task.WhenAll(
@@ -637,7 +635,7 @@ namespace net.vieapps.Services.Files
 					}.PublishAsync(Global.Logger, "Http.Downloads")
 				);
 
-		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default)
 			=> context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID, cancellationToken);
 
 		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
