@@ -8,14 +8,15 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
@@ -53,6 +54,7 @@ namespace net.vieapps.Services.Files
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(5);
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
+					options.Cookie.SameSite = SameSiteMode.Lax;
 					options.Cookie.HttpOnly = true;
 				})
 				.Configure<FormOptions>(options =>
@@ -72,6 +74,7 @@ namespace net.vieapps.Services.Files
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
+					options.Cookie.SameSite = SameSiteMode.Lax;
 					options.Cookie.HttpOnly = true;
 					options.SlidingExpiration = true;
 					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
@@ -171,6 +174,7 @@ namespace net.vieapps.Services.Files
 				.UseSession()
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 				.UseCertificateForwarding()
+				.UseCookiePolicy()
 #endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>();

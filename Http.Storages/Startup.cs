@@ -9,14 +9,15 @@ using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
@@ -54,6 +55,7 @@ namespace net.vieapps.Services.Files.Storages
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(30);
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
+					options.Cookie.SameSite = SameSiteMode.Lax;
 					options.Cookie.HttpOnly = true;
 				});
 
@@ -69,9 +71,10 @@ namespace net.vieapps.Services.Files.Storages
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
+					options.Cookie.SameSite = SameSiteMode.Lax;
 					options.Cookie.HttpOnly = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
 					options.SlidingExpiration = true;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
 				});
 
 			// authentication with proxy/load balancer
@@ -166,6 +169,7 @@ namespace net.vieapps.Services.Files.Storages
 				.UseSession()
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 				.UseCertificateForwarding()
+				.UseCookiePolicy()
 #endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>();
@@ -173,12 +177,11 @@ namespace net.vieapps.Services.Files.Storages
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
 			{
-				Global.Logger.LogInformation($"Root path (base directory): {Global.RootPath}");
 				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
-				Global.Logger.LogInformation($"Logging level: {this.LogLevel}");
-				Global.Logger.LogInformation($"Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled - Path format: {logPath}")}");
+				Global.Logger.LogInformation($"Root (base) directory: {Global.RootPath}");
 				Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
+				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
 
 				stopwatch.Stop();
