@@ -173,7 +173,7 @@ namespace net.vieapps.Services.Files
 				session.DeviceID = deviceID;
 
 			// store the session for further use
-			context.Items["Session"] = session;
+			context.SetItem("Session", session);
 
 			// process the request
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))

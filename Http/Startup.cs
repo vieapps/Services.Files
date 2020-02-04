@@ -62,7 +62,13 @@ namespace net.vieapps.Services.Files
 
 			// authentication
 			services
-				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
+				.AddAuthentication(options =>
+				{
+					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+					options.RequireAuthenticatedSignIn = false;
+#endif
+				})
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");

@@ -59,7 +59,13 @@ namespace net.vieapps.Services.Files.Storages
 
 			// authentication
 			services
-				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
+				.AddAuthentication(options =>
+				{
+					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+					options.RequireAuthenticatedSignIn = false;
+#endif
+				})
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
@@ -119,7 +125,7 @@ namespace net.vieapps.Services.Files.Storages
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 			{
-				logPath = Path.Combine(logPath, "{Date}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
+				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
 				loggerFactory.AddFile(logPath, this.LogLevel);
 			}
 			else
