@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
 using Microsoft.Extensions.Logging;
@@ -54,9 +55,9 @@ namespace net.vieapps.Services.Files.Storages
 				.AddSession(options =>
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(30);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
-					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
 					options.Cookie.HttpOnly = true;
+					options.Cookie.SameSite = SameSiteMode.Strict;
 				});
 
 			// authentication
@@ -70,16 +71,26 @@ namespace net.vieapps.Services.Files.Storages
 				})
 				.AddCookie(options =>
 				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
-					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
 					options.Cookie.HttpOnly = true;
+					options.Cookie.SameSite = SameSiteMode.Strict;
 					options.SlidingExpiration = true;
 					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
 				});
 
-			// authentication with proxy/load balancer
+			// config cookies
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+			services.Configure<CookiePolicyOptions>(options =>
+			{
+				options.MinimumSameSitePolicy = SameSiteMode.Strict;
+				options.HttpOnly = HttpOnlyPolicy.Always;
+			});
+#endif
+
+			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
+
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 			else
 			{
@@ -178,8 +189,13 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStarted.Register(() =>
 			{
 				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
+				Global.Logger.LogInformation($"API Gateway HTTP service: {UtilityService.GetAppSetting("HttpUri:APIs", "None")}");
+				Global.Logger.LogInformation($"Files HTTP service: {UtilityService.GetAppSetting("HttpUri:Files", "None")}");
+				Global.Logger.LogInformation($"Portals HTTP service: {UtilityService.GetAppSetting("HttpUri:Portals", "None")}");
+				Global.Logger.LogInformation($"Passports HTTP service: {UtilityService.GetAppSetting("HttpUri:Passports", "None")}");
 				Global.Logger.LogInformation($"Root (base) directory: {Global.RootPath}");
-				Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");
+				Global.Logger.LogInformation($"Temporary directory: {UtilityService.GetAppSetting("Path:Temp", "None")}");
+				Global.Logger.LogInformation($"Static files directory: {UtilityService.GetAppSetting("Path:StaticFiles", "None")}");
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");

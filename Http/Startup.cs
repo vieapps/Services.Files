@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
 using Microsoft.Extensions.Logging;
@@ -53,9 +54,9 @@ namespace net.vieapps.Services.Files
 				.AddSession(options =>
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(5);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
-					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
 					options.Cookie.HttpOnly = true;
+					options.Cookie.SameSite = SameSiteMode.Strict;
 				})
 				.Configure<FormOptions>(options =>
 				{
@@ -73,16 +74,26 @@ namespace net.vieapps.Services.Files
 				})
 				.AddCookie(options =>
 				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
-					options.Cookie.SameSite = SameSiteMode.Lax;
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
 					options.Cookie.HttpOnly = true;
+					options.Cookie.SameSite = SameSiteMode.Strict;
 					options.SlidingExpiration = true;
 					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
 				});
 
-			// authentication with proxy/load balancer
+			// config cookies
+#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+			services.Configure<CookiePolicyOptions>(options =>
+			{
+				options.MinimumSameSitePolicy = SameSiteMode.Strict;
+				options.HttpOnly = HttpOnlyPolicy.Always;
+			});
+#endif
+
+			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
+
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
 			else
 			{
