@@ -19,7 +19,7 @@ using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
@@ -42,7 +42,7 @@ namespace net.vieapps.Services.Files.Storages
 
 		public IConfiguration Configuration { get; }
 
-		LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).ToEnum<LogLevel>();
+		LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).TryToEnum(out LogLevel logLevel) ? logLevel : LogLevel.Information;
 
 		public void ConfigureServices(IServiceCollection services)
 		{
@@ -65,7 +65,7 @@ namespace net.vieapps.Services.Files.Storages
 				.AddAuthentication(options =>
 				{
 					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 					options.RequireAuthenticatedSignIn = false;
 #endif
 				})
@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Files.Storages
 				});
 
 			// config cookies
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 			services.Configure<CookiePolicyOptions>(options =>
 			{
 				options.MinimumSameSitePolicy = SameSiteMode.Strict;
@@ -91,7 +91,7 @@ namespace net.vieapps.Services.Files.Storages
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 			else
 			{
 				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
@@ -123,11 +123,16 @@ namespace net.vieapps.Services.Files.Storages
 				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
-		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
+		public void Configure(
+			IApplicationBuilder appBuilder,
+#if !NETCOREAPP2_1
+			IHostApplicationLifetime appLifetime,
+			IWebHostEnvironment environment
 #else
-		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
+			IApplicationLifetime appLifetime,
+			IHostingEnvironment environment
 #endif
+		)
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
@@ -168,7 +173,7 @@ namespace net.vieapps.Services.Files.Storages
 				DateTimeZoneHandling = DateTimeZoneHandling.Local
 			};
 
-			// WAMP connections
+			// connect to API Gateway Router
 			Handler.Connect();
 
 			// setup middlewares
@@ -178,12 +183,15 @@ namespace net.vieapps.Services.Files.Storages
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 				.UseCertificateForwarding()
 				.UseCookiePolicy()
 #endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>();
+
+			// setup the caching storage
+			Global.Cache = appBuilder.ApplicationServices.GetService<ICache>();
 
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>

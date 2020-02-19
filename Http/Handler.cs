@@ -75,7 +75,7 @@ namespace net.vieapps.Services.Files
 		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
-			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
+			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 			var requestPath = context.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
@@ -233,24 +233,23 @@ namespace net.vieapps.Services.Files
 
 		internal static void PrepareHandlers()
 		{
-			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler svcConfig)
-				if (svcConfig.Section.SelectNodes("handler") is XmlNodeList handlers)
-					handlers.ToList()
-						.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
-						.ForEach(handler =>
+			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
+				handlers.ToList()
+					.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
+					.ForEach(handler =>
+					{
+						Type type = null;
+						try
 						{
-							Type type = null;
-							try
-							{
-								type = AssemblyLoader.GetType(handler.Attributes["type"]?.Value);
-							}
-							catch (Exception ex)
-							{
-								Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"]?.Value})", ex);
-							}
-							if (type != null && type.CreateInstance() is Services.FileHandler)
-								Handler.Handlers[handler.Attributes["key"].Value.ToLower()] = type;
-						});
+							type = AssemblyLoader.GetType(handler.Attributes["type"]?.Value);
+						}
+						catch (Exception ex)
+						{
+							Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"]?.Value})", ex);
+						}
+						if (type != null && type.CreateInstance() is Services.FileHandler)
+							Handler.Handlers[handler.Attributes["key"].Value.ToLower()] = type;
+					});
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
@@ -295,7 +294,7 @@ namespace net.vieapps.Services.Files
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("messages.services.files")
+						.GetSubject<CommunicateMessage>($"messages.services.{Global.ServiceName.ToLower()}")
 						.Subscribe(
 							async message =>
 							{
@@ -305,10 +304,10 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -322,13 +321,13 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.Files", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion).ConfigureAwait(false),
-				(sender, arguments) => Global.RegisterService("Http.Files"),
+				(sender, arguments) => Global.RegisterService($"Http.{Global.ServiceName}"),
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
@@ -339,7 +338,7 @@ namespace net.vieapps.Services.Files
 			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
 				.ContinueWith(_ =>
 				{
-					Global.UnregisterService("Http.Files", waitingTimes);
+					Global.UnregisterService($"Http.{Global.ServiceName}", waitingTimes);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.Disconnect();
@@ -350,6 +349,9 @@ namespace net.vieapps.Services.Files
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
+			if ("true".IsEquals(UtilityService.GetAppSetting("Files:NoSync")))
+				return Task.CompletedTask;
+
 			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
 				new AttachmentInfo
 				{
@@ -372,11 +374,10 @@ namespace net.vieapps.Services.Files
 			return Task.CompletedTask;
 		}
 
-		static async Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
-		{
-			if (message.Type.IsEquals("Service#RequestInfo"))
-				await Global.UpdateServiceInfoAsync("Http.Files").ConfigureAwait(false);
-		}
+		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
+			=> message.Type.IsEquals("Service#RequestInfo")
+				? Global.UpdateServiceInfoAsync($"Http.{Global.ServiceName}")
+				: Task.CompletedTask;
 
 		static IAsyncDisposable SynchronizerInstance { get; set; }
 

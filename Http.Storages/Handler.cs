@@ -34,14 +34,11 @@ namespace net.vieapps.Services.Files.Storages
 	{
 		RequestDelegate Next { get; }
 
-		ICache Cache { get; }
-
 		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
-		public Handler(RequestDelegate next, IServiceProvider serviceProvider)
+		public Handler(RequestDelegate next)
 		{
 			this.Next = next;
-			this.Cache = serviceProvider.GetService<ICache>();
 			this.Prepare();
 		}
 
@@ -132,7 +129,7 @@ namespace net.vieapps.Services.Files.Storages
 				$"==> OTP: {(this.AccountOtp.Equals("") ? "None" : this.AccountOtp)} [{this.AccountOtpDomain}]" + "\r\n" +
 				$"==> Default directory: {this.DefaultDirectory} [Include sub-directories: {this.IncludeSubDirectories}]" + "\r\n" +
 				$"==> Sort: {this.SortBy} {this.SortMode}" + "\r\n" +
-				$"==> Maps: \r\n\t\t{(this.Maps.Count < 1? "None" : string.Join("\r\n\t\t", this.Maps.Select(m => $"{m.Key} ({m.Value.ToString(" - ")})")))}" + "\r\n" +
+				$"==> Maps: \r\n\t\t{(this.Maps.Count < 1? "None" : this.Maps.Select(m => $"{m.Key} ({m.Value.ToString(" - ")})").Join("\r\n\t\t"))}" + "\r\n" +
 				$"==> Redirect to HTTPS: {this.RedirectToHTTPS}"
 			);
 		}
@@ -141,13 +138,14 @@ namespace net.vieapps.Services.Files.Storages
 		internal async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
-			context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
+			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+			var requestUri = context.GetRequestUri();
+			var requestPath = requestUri.GetRequestPathSegments(true).First();
+
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
 
 			// redirect to HTTPs
-			var requestUri = context.GetRequestUri();
-			var requestPath = requestUri.GetRequestPathSegments(true).First();
 			if (this.RedirectToHTTPS && !requestUri.Scheme.IsEquals("https"))
 			{
 				context.Redirect($"{requestUri}".Replace("http://", "https://"));
@@ -360,7 +358,7 @@ namespace net.vieapps.Services.Files.Storages
 					context.User = userPrincipal;
 
 					// remove the awaiting flag
-					await this.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false);
+					await Global.Cache.RemoveAsync($"SRP:Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false);
 
 					// redirect to home
 					context.Redirect("/");
@@ -369,14 +367,14 @@ namespace net.vieapps.Services.Files.Storages
 				catch (Exception exception)
 				{
 					// wait
-					var attempt = await this.Cache.ExistsAsync($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
-						? await this.Cache.GetAsync<int>($"Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
+					var attempt = await Global.Cache.ExistsAsync($"SRP:Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
+						? await Global.Cache.GetAsync<int>($"SRP:Attempt#{context.Connection.RemoteIpAddress}").ConfigureAwait(false)
 						: 0;
 					attempt++;
 
 					await Task.WhenAll(
 						Task.Delay(567 + ((attempt - 1) * 5678)),
-						this.Cache.SetAsync($"Attempt#{context.Connection.RemoteIpAddress}", attempt),
+						Global.Cache.SetAsync($"SRP:Attempt#{context.Connection.RemoteIpAddress}", attempt),
 						context.WriteLogsAsync("Http.SignIn", $"Failure attempt to sign-in ({attempt:#,##0} - {context.Connection.RemoteIpAddress}): {exception.Message}", exception)
 					).ConfigureAwait(false);
 
@@ -502,7 +500,7 @@ namespace net.vieapps.Services.Files.Storages
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("messages.services.storages")
+						.GetSubject<CommunicateMessage>($"messages.services.{Global.ServiceName.ToLower()}")
 						.Subscribe(
 							async message =>
 							{
@@ -512,10 +510,10 @@ namespace net.vieapps.Services.Files.Storages
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -529,13 +527,13 @@ namespace net.vieapps.Services.Files.Storages
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
-				(sender, arguments) => Global.RegisterService("Http.WebSockets"),
+				(sender, arguments) => Global.RegisterService($"Http.{Global.ServiceName}"),
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
@@ -553,11 +551,10 @@ namespace net.vieapps.Services.Files.Storages
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 			=> Task.CompletedTask;
 
-		static async Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
-		{
-			if (message.Type.IsEquals("Service#RequestInfo"))
-				await Global.UpdateServiceInfoAsync("Http.WebSockets").ConfigureAwait(false);
-		}
+		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
+			=> message.Type.IsEquals("Service#RequestInfo")
+				? Global.UpdateServiceInfoAsync($"Http.{Global.ServiceName}")
+				: Task.CompletedTask;
 		#endregion
 
 	}
