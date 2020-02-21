@@ -64,9 +64,9 @@ namespace net.vieapps.Services.Files
 			var isPng = handlerName.IsEndsWith("pngs");
 			var isBig = handlerName.IsEndsWith("bigs") || handlerName.IsEndsWith("bigpngs");
 			var isThumbnail = pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0;
-			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out int width))
+			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width))
 				width = 0;
-			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out int height))
+			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var height))
 				height = 0;
 			var isCropped = requestUrl.IsContains("--crop") || queryString.ContainsKey("crop");
 			var croppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.GetQueryParameter("cropPos")) ? "top" : requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.GetQueryParameter("cropPos")) ? "bottom" : "auto";
@@ -109,9 +109,8 @@ namespace net.vieapps.Services.Files
 			{
 				var masterKey = "Thumbnnail#" + fileInfo.FullName.ToLower().GenerateUUID();
 				var detailKey = $"{masterKey}x{width}x{height}x{isPng}x{isBig}x{isCropped}x{croppedPosition}".ToLower();
-				var cacheStorage = Global.ServiceProvider.GetService<ICache>();
-				var useCache = cacheStorage != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "true"));
-				var thumbnail = useCache ? await cacheStorage.GetAsync<byte[]>(detailKey, cancellationToken).ConfigureAwait(false) : null;
+				var useCache = Global.Cache != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "true"));
+				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(detailKey, cancellationToken).ConfigureAwait(false) : null;
 				if (thumbnail != null)
 					return thumbnail;
 
@@ -129,11 +128,11 @@ namespace net.vieapps.Services.Files
 
 				if (useCache)
 				{
-					var keys = await cacheStorage.GetAsync<HashSet<string>>(masterKey, cancellationToken).ConfigureAwait(false) ?? new HashSet<string>();
+					var keys = await Global.Cache.GetAsync<HashSet<string>>(masterKey, cancellationToken).ConfigureAwait(false) ?? new HashSet<string>();
 					keys.Append(detailKey);
 					await Task.WhenAll(
-						cacheStorage.SetAsync(masterKey, keys, 0, cancellationToken),
-						cacheStorage.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancellationToken)
+						Global.Cache.SetAsync(masterKey, keys, 0, cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancellationToken)
 					).ConfigureAwait(false);
 				}
 

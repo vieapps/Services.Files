@@ -218,7 +218,7 @@ namespace net.vieapps.Services.Files
 		}
 
 		#region  Global settings & helpers
-		static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 		{
 			{ "files", typeof(FileHandler) },
 			{ "avatars", typeof(AvatarHandler) },
@@ -235,7 +235,7 @@ namespace net.vieapps.Services.Files
 		{
 			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
 				handlers.ToList()
-					.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"].Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
+					.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"]?.Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
 					.ForEach(handler =>
 					{
 						Type type = null;

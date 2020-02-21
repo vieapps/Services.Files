@@ -168,8 +168,11 @@ namespace net.vieapps.Services.Files
 						do
 						{
 							read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-							await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+							if (read > 0)
+							{
+								await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+								await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+							}
 						} while (read > 0);
 					}
 
@@ -239,8 +242,11 @@ namespace net.vieapps.Services.Files
 					do
 					{
 						read = await section.Body.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-						await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-						await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+						if (read > 0)
+						{
+							await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+						}
 					} while (read > 0);
 					attachment.Size = fileStream.Length;
 				}
