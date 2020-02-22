@@ -35,9 +35,11 @@ namespace net.vieapps.Services.Files
 {
 	public class Startup
 	{
-		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025);
+		public static void Main(string[] args)
+			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8025);
 
-		public Startup(IConfiguration configuration) => this.Configuration = configuration;
+		public Startup(IConfiguration configuration)
+			=> this.Configuration = configuration;
 
 		public IConfiguration Configuration { get; }
 
@@ -197,21 +199,34 @@ namespace net.vieapps.Services.Files
 			// setup the path mappers
 			if (System.Configuration.ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Maps", "net.vieapps.services.files.http.maps")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("map") is System.Xml.XmlNodeList maps)
 				maps.ToList()
-					.Select(map => new Tuple<string, string>(map.Attributes["path"]?.Value?.ToLower()?.Trim(), map.Attributes["type"]?.Value))
-					.Where(map => !string.IsNullOrEmpty(map.Item1) && map.Item1.IsStartsWith("/") && !Handler.Handlers.ContainsKey(map.Item1.Right(map.Item1.Length - 1)) && !string.IsNullOrEmpty(map.Item2))
-					.ForEach(map =>
+					.Select(info => new Tuple<string, string>(info.Attributes["path"]?.Value?.ToLower()?.Trim(), info.Attributes["type"]?.Value))
+					.Where(info => !string.IsNullOrEmpty(info.Item1) && !string.IsNullOrEmpty(info.Item2))
+					.Select(info =>
+					{
+						var path = info.Item1;
+						while (path.StartsWith("/"))
+							path = path.Right(path.Length - 1);
+						while (path.EndsWith("/"))
+							path = path.Left(path.Length - 1);
+						return new Tuple<string, string>(path, info.Item2);
+					})
+					.Where(info => !Handler.Handlers.ContainsKey(info.Item1))
+					.ForEach(info =>
 					{
 						PathMapper pathMapper = null;
 						try
 						{
-							pathMapper = AssemblyLoader.GetType(map.Item2)?.CreateInstance() as PathMapper;
+							pathMapper = AssemblyLoader.GetType(info.Item2)?.CreateInstance() as PathMapper;
 						}
 						catch (Exception ex)
 						{
-							Global.Logger.LogError($"Cannot load a path mapper ({map.Item2})", ex);
+							Global.Logger.LogError($"Cannot load a path mapper ({info.Item2})", ex);
 						}
 						if (pathMapper != null)
-							appBuilder.Map(map.Item1, builder => pathMapper.Map(builder));
+						{
+							appBuilder.Map($"/{info.Item1}", builder => pathMapper.Map(builder, appLifetime));
+							Global.Logger.LogInformation($"Branch the request to a specified path sucessfully: /{info.Item1} => {pathMapper.GetTypeName()}");
+						}
 					});
 
 			// setup the handler for all requests
@@ -245,16 +260,16 @@ namespace net.vieapps.Services.Files
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Handler.Disconnect();
 				Global.RSA.Dispose();
-				Global.CancellationTokenSource.Cancel();
 			});
 
 			// on stopped
 			appLifetime.ApplicationStopped.Register(() =>
 			{
+				Handler.Disconnect();
+				Global.CancellationTokenSource.Cancel();
 				Global.CancellationTokenSource.Dispose();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is stopped");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was stopped");
 			});
 
 			// don't terminate the process immediately, wait for the Main thread to exit gracefully
