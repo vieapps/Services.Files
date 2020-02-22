@@ -36,9 +36,11 @@ namespace net.vieapps.Services.Files.Storages
 {
 	public class Startup
 	{
-		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8027);
+		public static void Main(string[] args)
+			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8027);
 
-		public Startup(IConfiguration configuration) => this.Configuration = configuration;
+		public Startup(IConfiguration configuration)
+			=> this.Configuration = configuration;
 
 		public IConfiguration Configuration { get; }
 
@@ -225,7 +227,7 @@ namespace net.vieapps.Services.Files.Storages
 			appLifetime.ApplicationStopped.Register(() =>
 			{
 				Global.CancellationTokenSource.Dispose();
-				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service is stopped");
+				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service was stopped");
 			});
 
 			// don't terminate the process immediately, wait for the Main thread to exit gracefully

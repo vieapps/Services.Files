@@ -545,7 +545,7 @@ namespace net.vieapps.Services.Files.Storages
 			Global.UnregisterService(null, waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			Global.Disconnect();
+			Global.Disconnect(waitingTimes);
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
@@ -553,7 +553,7 @@ namespace net.vieapps.Services.Files.Storages
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
 			=> message.Type.IsEquals("Service#RequestInfo")
-				? Global.UpdateServiceInfoAsync($"Http.{Global.ServiceName}")
+				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
 				: Task.CompletedTask;
 		#endregion
 

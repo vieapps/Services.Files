@@ -30,7 +30,8 @@ namespace net.vieapps.Services.Files
 
 		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
-		public Handler(RequestDelegate next) => this.Next = next;
+		public Handler(RequestDelegate next)
+			=> this.Next = next;
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -235,20 +236,34 @@ namespace net.vieapps.Services.Files
 		{
 			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
 				handlers.ToList()
-					.Where(handler => !string.IsNullOrWhiteSpace(handler.Attributes["key"]?.Value) && !Handler.Handlers.ContainsKey(handler.Attributes["key"].Value.ToLower()))
-					.ForEach(handler =>
+					.Select(info => new Tuple<string, string>(info.Attributes["path"]?.Value?.ToLower()?.Trim(), info.Attributes["type"]?.Value))
+					.Where(info => !string.IsNullOrEmpty(info.Item1) && !string.IsNullOrEmpty(info.Item2))
+					.Select(info =>
+					{
+						var path = info.Item1;
+						while (path.StartsWith("/"))
+							path = path.Right(path.Length - 1);
+						while (path.EndsWith("/"))
+							path = path.Left(path.Length - 1);
+						return new Tuple<string, string>(path, info.Item2);
+					})
+					.Where(info => !Handler.Handlers.ContainsKey(info.Item1))
+					.ForEach(info =>
 					{
 						Type type = null;
 						try
 						{
-							type = AssemblyLoader.GetType(handler.Attributes["type"]?.Value);
+							type = AssemblyLoader.GetType(info.Item2);
+							if (!(type?.CreateInstance() is FileHandler fileHandler))
+								type = null;
 						}
 						catch (Exception ex)
 						{
-							Global.Logger.LogError($"Cannot load a handler ({handler.Attributes["type"]?.Value})", ex);
+							type = null;
+							Global.Logger.LogError($"Cannot load a file handler ({info.Item2})", ex);
 						}
-						if (type != null && type.CreateInstance() is Services.FileHandler)
-							Handler.Handlers[handler.Attributes["key"].Value.ToLower()] = type;
+						if (type != null)
+							Handler.Handlers[info.Item1] = type;
 					});
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
@@ -341,7 +356,7 @@ namespace net.vieapps.Services.Files
 					Global.UnregisterService($"Http.{Global.ServiceName}", waitingTimes);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.Disconnect();
+					Global.Disconnect(waitingTimes);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion)
 				.ConfigureAwait(false)
 				.GetAwaiter()
@@ -376,7 +391,7 @@ namespace net.vieapps.Services.Files
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
 			=> message.Type.IsEquals("Service#RequestInfo")
-				? Global.UpdateServiceInfoAsync($"Http.{Global.ServiceName}")
+				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
 				: Task.CompletedTask;
 
 		static IAsyncDisposable SynchronizerInstance { get; set; }
