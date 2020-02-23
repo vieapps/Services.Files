@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
+using WampSharp.V2.Realm;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -290,11 +291,21 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region API Gateway Router
-		internal static void Connect(int waitingTimes = 6789)
+		internal static void Connect(List<Action<object, WampSessionCreatedEventArgs>> onIncomingConnectionEstablished = null, List<Action<object, WampSessionCreatedEventArgs>> onOutgoingConnectionEstablished = null, int waitingTimes = 6789)
 		{
 			Global.Logger.LogInformation($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
-				(sender, arguments) => Task.Run(async () =>
+				(sender, arguments) => Task.Run(() => onIncomingConnectionEstablished?.ForEach(action =>
+				{
+					try
+					{
+						action?.Invoke(sender, arguments);
+					}
+					catch (Exception ex)
+					{
+						Global.Logger.LogError($"Error occurred while calling on-incoming action => {ex.Message}", ex);
+					}
+				})).ContinueWith(async _ =>
 				{
 					try
 					{
@@ -305,7 +316,7 @@ namespace net.vieapps.Services.Files
 					{
 						Global.Logger.LogError($"Cannot register the synchronizer => {ex.Message}", ex);
 					}
-				}).ContinueWith(_ =>
+				}, TaskContinuationOptions.OnlyOnRanToCompletion).ContinueWith(_ =>
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -342,7 +353,17 @@ namespace net.vieapps.Services.Files
 							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion).ConfigureAwait(false),
-				(sender, arguments) => Global.RegisterService($"Http.{Global.ServiceName}"),
+				(sender, arguments) => Task.Run(() => onOutgoingConnectionEstablished?.ForEach(action =>
+				{
+					try
+					{
+						action?.Invoke(sender, arguments);
+					}
+					catch (Exception ex)
+					{
+						Global.Logger.LogError($"Error occurred while calling on-outgoing action => {ex.Message}", ex);
+					}
+				})).ContinueWith(async _ => await Global.RegisterServiceAsync($"Http.{Global.ServiceName}").ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion).ConfigureAwait(false),
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)

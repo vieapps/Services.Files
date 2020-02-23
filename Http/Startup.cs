@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
@@ -27,6 +28,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
+using WampSharp.V2.Realm;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 #endregion
@@ -181,7 +183,6 @@ namespace net.vieapps.Services.Files
 
 			Global.CreateRSA();
 			Handler.PrepareHandlers();
-			Handler.Connect();
 
 			// setup middlewares
 			appBuilder
@@ -197,6 +198,8 @@ namespace net.vieapps.Services.Files
 				.UseAuthentication();
 
 			// setup the path mappers
+			var onIncomingConnectionEstablished = new List<Action<object, WampSessionCreatedEventArgs>>();
+			var onOutgoingConnectionEstablished = new List<Action<object, WampSessionCreatedEventArgs>>();
 			if (System.Configuration.ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Maps", "net.vieapps.services.files.http.maps")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("map") is System.Xml.XmlNodeList maps)
 				maps.ToList()
 					.Select(info => new Tuple<string, string>(info.Attributes["path"]?.Value?.ToLower()?.Trim(), info.Attributes["type"]?.Value))
@@ -224,7 +227,7 @@ namespace net.vieapps.Services.Files
 						}
 						if (pathMapper != null)
 						{
-							appBuilder.Map($"/{info.Item1}", builder => pathMapper.Map(builder, appLifetime));
+							appBuilder.Map($"/{info.Item1}", builder => pathMapper.Map(builder, appLifetime, onIncomingConnectionEstablished, onOutgoingConnectionEstablished));
 							Global.Logger.LogInformation($"Branch the request to a specified path sucessfully: /{info.Item1} => {pathMapper.GetTypeName()}");
 						}
 					});
@@ -234,6 +237,9 @@ namespace net.vieapps.Services.Files
 
 			// setup the caching storage
 			Global.Cache = appBuilder.ApplicationServices.GetService<ICache>();
+
+			// connect to API Gateway Router
+			Handler.Connect(onIncomingConnectionEstablished, onOutgoingConnectionEstablished);
 
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
