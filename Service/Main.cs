@@ -21,16 +21,16 @@ namespace net.vieapps.Services.Files
 	{
 		public override string ServiceName => "Files";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
+		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 			Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 			while (Utility.FilesHttpURI.EndsWith("/"))
 				Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
-			base.Start(args, initializeRepository, nextAsync);
+			base.Start(args, initializeRepository, next);
 		}
 
-		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
