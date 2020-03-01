@@ -222,15 +222,19 @@ namespace net.vieapps.Services.Files
 		#region  Global settings & helpers
 		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 		{
-			{ "files", typeof(FileHandler) },
 			{ "avatars", typeof(AvatarHandler) },
-			{ "captchas", typeof(CaptchaHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
+			{ "files", typeof(FileHandler) },
+			{ "file.ashx", typeof(FileHandler) },
+			{ "captchas", typeof(CaptchaHandler) },
+			{ "captcha.ashx", typeof(CaptchaHandler) },
 			{ "downloads", typeof(DownloadHandler) },
+			{ "download.ashx", typeof(DownloadHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
 			{ "thumbnailpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigpngs", typeof(ThumbnailHandler) }
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
+			{ "thumbnail.ashx", typeof(ThumbnailHandler) }
 		};
 
 		internal static void PrepareHandlers()
