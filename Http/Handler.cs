@@ -251,20 +251,16 @@ namespace net.vieapps.Services.Files
 					.Where(info => !Handler.Handlers.ContainsKey(info.Item1))
 					.ForEach(info =>
 					{
-						Type type = null;
 						try
 						{
-							type = AssemblyLoader.GetType(info.Item2);
-							if (!(type?.CreateInstance() is FileHandler fileHandler))
-								type = null;
+							var type = AssemblyLoader.GetType(info.Item2);
+							if (type != null && type.CreateInstance() is Services.FileHandler)
+								Handler.Handlers[info.Item1] = type;
 						}
 						catch (Exception ex)
 						{
-							type = null;
 							Global.Logger.LogError($"Cannot load a file handler ({info.Item2})", ex);
 						}
-						if (type != null)
-							Handler.Handlers[info.Item1] = type;
 					});
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
