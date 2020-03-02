@@ -162,7 +162,7 @@ namespace net.vieapps.Services.Files.Storages
 #else
 			Global.Logger.LogInformation($"Working mode: RELEASE ({(environment.IsDevelopment() ? "Development" : "Production")})");
 #endif
-			Global.Logger.LogInformation($"Environment:\r\n\t- User: {Environment.UserName.ToLower()} @ {Environment.MachineName.ToLower()}\r\n\t- Platform: {RuntimeInformation.FrameworkDescription} @ {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "Linux" : "macOS")} {RuntimeInformation.OSArchitecture} ({(RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "Macintosh; Intel Mac OS X; " : "")}{RuntimeInformation.OSDescription.Trim()})");
+			Global.Logger.LogInformation($"Environment:\r\n\t{Extensions.GetRuntimeEnvironment()}");
 			Global.Logger.LogInformation($"Service URIs:\r\n\t- Round robin: services.{Global.ServiceName.ToLower()}.http\r\n\t- Single (unique): services.{Extensions.GetUniqueName(Global.ServiceName + ".http")}");
 
 			Global.ServiceProvider = appBuilder.ApplicationServices;
@@ -174,9 +174,6 @@ namespace net.vieapps.Services.Files.Storages
 				ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
 				DateTimeZoneHandling = DateTimeZoneHandling.Local
 			};
-
-			// connect to API Gateway Router
-			Handler.Connect();
 
 			// setup middlewares
 			appBuilder
@@ -194,6 +191,9 @@ namespace net.vieapps.Services.Files.Storages
 
 			// setup the caching storage
 			Global.Cache = appBuilder.ApplicationServices.GetService<ICache>();
+
+			// connect to API Gateway Router
+			Handler.Connect();
 
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
@@ -216,16 +216,13 @@ namespace net.vieapps.Services.Files.Storages
 			});
 
 			// on stopping
-			appLifetime.ApplicationStopping.Register(() =>
-			{
-				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Handler.Disconnect();
-				Global.CancellationTokenSource.Cancel();
-			});
+			appLifetime.ApplicationStopping.Register(() => Global.Logger = loggerFactory.CreateLogger<Startup>());
 
 			// on stopped
 			appLifetime.ApplicationStopped.Register(() =>
 			{
+				Handler.Disconnect();
+				Global.CancellationTokenSource.Cancel();
 				Global.CancellationTokenSource.Dispose();
 				Global.Logger.LogInformation($"The Files {Global.ServiceName} HTTP service was stopped");
 			});

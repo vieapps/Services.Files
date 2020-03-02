@@ -542,7 +542,7 @@ namespace net.vieapps.Services.Files.Storages
 
 		internal static void Disconnect(int waitingTimes = 1234)
 		{
-			Global.UnregisterService(null, waitingTimes);
+			Global.UnregisterService($"Http.{Global.ServiceName}", waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 			Global.Disconnect(waitingTimes);
