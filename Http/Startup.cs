@@ -12,6 +12,7 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
@@ -20,7 +21,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_1
-using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
 using Microsoft.Extensions.Logging;
@@ -55,45 +55,34 @@ namespace net.vieapps.Services.Files
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddHttpContextAccessor()
-				.AddSession(options =>
-				{
-					options.IdleTimeout = TimeSpan.FromMinutes(5);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Strict;
-				})
-				.Configure<FormOptions>(options =>
-				{
-					options.MultipartBodyLengthLimit = 1024 * 1024 * (Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize) ? limitSize : 10);
-				});
+				.AddSession(options => Global.PrepareSessionOptions(options))
+				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
+				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
 
 			// authentication
 			services
-				.AddAuthentication(options =>
+				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ =>
 				{
-					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 #if !NETCOREAPP2_1
 					options.RequireAuthenticatedSignIn = false;
 #endif
-				})
-				.AddCookie(options =>
-				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Strict;
-					options.SlidingExpiration = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
-				});
+				}))
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
 
-			// config cookies
+			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
+			services.AddDataProtection().PrepareDataProtection();
+
 #if !NETCOREAPP2_1
-			services.Configure<CookiePolicyOptions>(options =>
-			{
-				options.MinimumSameSitePolicy = SameSiteMode.Strict;
-				options.HttpOnly = HttpOnlyPolicy.Always;
-			});
+			// config options of IIS Server (for working with InProcess hosting model)
+			if (Global.UseIISInProcess)
+				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ =>
+				{
+					options.AllowSynchronousIO = true;
+					options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize;
+				}));
 #endif
 
+			/*
 			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
@@ -108,26 +97,7 @@ namespace net.vieapps.Services.Files
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
 #endif
-
-			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
-			var dataProtection = services.AddDataProtection()
-				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
-				.SetApplicationName(UtilityService.GetAppSetting("DataProtection:Name:Application", "VIEApps-NGX-Files"))
-				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
-				{
-					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
-					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
-				})
-				.PersistKeysToDistributedCache(new DistributedXmlRepositoryOptions
-				{
-					Key = UtilityService.GetAppSetting("DataProtection:Key", "DataProtection-Keys"),
-					CacheOptions = new DistributedCacheEntryOptions
-					{
-						AbsoluteExpiration = new DateTimeOffset(DateTime.Now.AddDays(7))
-					}
-				});
-			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
-				dataProtection.DisableAutomaticKeyGeneration();
+			*/
 		}
 
 		public void Configure(
@@ -193,8 +163,8 @@ namespace net.vieapps.Services.Files
 				.UseSession()
 #if !NETCOREAPP2_1
 				.UseCertificateForwarding()
-				.UseCookiePolicy()
 #endif
+				.UseCookiePolicy()
 				.UseAuthentication();
 
 			// setup the path mappers
@@ -226,7 +196,7 @@ namespace net.vieapps.Services.Files
 						}
 						catch (Exception ex)
 						{
-							Global.Logger.LogError($"Cannot load a path mapper ({info.Item2})", ex);
+							Global.Logger.LogError($"Cannot load a path mapper ({info.Item2}) => {ex.Message}", ex);
 						}
 					});
 
@@ -253,7 +223,7 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
-				Global.Logger.LogInformation($"Request limits => Files (multipart/form-data): {UtilityService.GetAppSetting("Limits:Body", "10")} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
+				Global.Logger.LogInformation($"Request limits => Files (multipart/form-data): {Global.MaxRequestBodySize:###,###,##0} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
 				
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");

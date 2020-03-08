@@ -223,9 +223,10 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		public void Dispose() { }
-
 		public ValueTask DisposeAsync()
 			=> new ValueTask(Task.CompletedTask);
+
+		public void Dispose()
+			=> this.DisposeAsync().AsTask().Wait();
 	}
 }

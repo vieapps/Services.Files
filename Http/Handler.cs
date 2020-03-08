@@ -263,7 +263,7 @@ namespace net.vieapps.Services.Files
 						}
 						catch (Exception ex)
 						{
-							Global.Logger.LogError($"Cannot load a file handler ({info.Item2})", ex);
+							Global.Logger.LogError($"Cannot load a file handler ({info.Item2}) => {ex.Message}", ex);
 						}
 					});
 

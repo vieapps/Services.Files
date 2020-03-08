@@ -12,6 +12,7 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
@@ -20,7 +21,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
 #if !NETCOREAPP2_1
-using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
 using Microsoft.Extensions.Logging;
@@ -54,41 +54,33 @@ namespace net.vieapps.Services.Files.Storages
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddHttpContextAccessor()
-				.AddSession(options =>
-				{
-					options.IdleTimeout = TimeSpan.FromMinutes(30);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Strict;
-				});
+				.AddSession(options => Global.PrepareSessionOptions(options, 30))
+				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
 
 			// authentication
 			services
-				.AddAuthentication(options =>
+				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ =>
 				{
-					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 #if !NETCOREAPP2_1
 					options.RequireAuthenticatedSignIn = false;
 #endif
-				})
-				.AddCookie(options =>
-				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Strict;
-					options.SlidingExpiration = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
-				});
+				}))
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 30));
 
-			// config cookies
+			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
+			services.AddDataProtection().PrepareDataProtection();
+
 #if !NETCOREAPP2_1
-			services.Configure<CookiePolicyOptions>(options =>
-			{
-				options.MinimumSameSitePolicy = SameSiteMode.Strict;
-				options.HttpOnly = HttpOnlyPolicy.Always;
-			});
+			// config options of IIS Server (for working with InProcess hosting model)
+			if (Global.UseIISInProcess)
+				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ =>
+				{
+					options.AllowSynchronousIO = true;
+					options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize;
+				}));
 #endif
 
+			/*
 			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
@@ -103,26 +95,7 @@ namespace net.vieapps.Services.Files.Storages
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
 #endif
-
-			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
-			var dataProtection = services.AddDataProtection()
-				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
-				.SetApplicationName(UtilityService.GetAppSetting("DataProtection:Name:Application", "VIEApps-NGX-Storages"))
-				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
-				{
-					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
-					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
-				})
-				.PersistKeysToDistributedCache(new DistributedXmlRepositoryOptions
-				{
-					Key = UtilityService.GetAppSetting("DataProtection:Key", "DataProtection-Keys"),
-					CacheOptions = new DistributedCacheEntryOptions
-					{
-						AbsoluteExpiration = new DateTimeOffset(DateTime.Now.AddDays(7))
-					}
-				});
-			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
-				dataProtection.DisableAutomaticKeyGeneration();
+			*/
 		}
 
 		public void Configure(
@@ -184,8 +157,8 @@ namespace net.vieapps.Services.Files.Storages
 				.UseSession()
 #if !NETCOREAPP2_1
 				.UseCertificateForwarding()
-				.UseCookiePolicy()
 #endif
+				.UseCookiePolicy()
 				.UseAuthentication()
 				.UseMiddleware<Handler>();
 
