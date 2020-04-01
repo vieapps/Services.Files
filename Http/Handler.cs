@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Files
 	{
 		RequestDelegate Next { get; }
 
-		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
 		public Handler(RequestDelegate next)
 			=> this.Next = next;
@@ -107,20 +107,21 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var requestPath = context.GetRequestPathSegments(true).First();
-			if (!Handler.Handlers.TryGetValue(requestPath, out var type))
+			if (!Handler.Handlers.TryGetValue(requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s"), out var type))
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 				return;
 			}
+
 			var header = context.Request.Headers.ToDictionary();
 			var query = context.ParseQuery();
-
-			// get session
 			var session = context.GetSession();
 
 			// get authenticate token
 			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
-			if (string.IsNullOrWhiteSpace(authenticateToken)) // Bearer token
+
+			// normalize the Bearer token
+			if (string.IsNullOrWhiteSpace(authenticateToken))
 			{
 				authenticateToken = context.GetHeaderParameter("authorization");
 				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
@@ -180,10 +181,9 @@ namespace net.vieapps.Services.Files
 			// process the request
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 			{
-				Services.FileHandler handler = null;
+				var handler = type.CreateInstance() as Services.FileHandler;
 				try
 				{
-					handler = type.CreateInstance() as Services.FileHandler;
 					await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
 				}
 				catch (OperationCanceledException) { }
@@ -191,12 +191,12 @@ namespace net.vieapps.Services.Files
 				{
 					var logName = context.Request.Method.IsEquals("POST")
 						? "Uploads"
-						: requestPath.IsStartsWith("Thumbnail")
+						: requestPath.IsStartsWith("thumbnail")
 							? "Thumbnails"
-							: requestPath.IsEquals("files") || requestPath.IsEquals("downloads")
+							: requestPath.IsStartsWith("file") || requestPath.IsStartsWith("download")
 								? "Downloads"
-								: requestPath;
-					await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred ({context.Request.Method} {context.GetRequestUri()})", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+								: requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s");
+					await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 
 					if (context.Request.Method.IsEquals("POST"))
 						context.WriteError(handler?.Logger, ex, null, null, false);
@@ -223,18 +223,14 @@ namespace net.vieapps.Services.Files
 		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 		{
 			{ "avatars", typeof(AvatarHandler) },
-			{ "qrcodes", typeof(QRCodeHandler) },
-			{ "files", typeof(FileHandler) },
-			{ "file.ashx", typeof(FileHandler) },
 			{ "captchas", typeof(CaptchaHandler) },
-			{ "captcha.ashx", typeof(CaptchaHandler) },
 			{ "downloads", typeof(DownloadHandler) },
-			{ "download.ashx", typeof(DownloadHandler) },
+			{ "files", typeof(FileHandler) },
+			{ "qrcodes", typeof(QRCodeHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
 			{ "thumbnailpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
-			{ "thumbnail.ashx", typeof(ThumbnailHandler) }
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) }
 		};
 
 		internal static void PrepareHandlers()

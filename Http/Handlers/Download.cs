@@ -17,8 +17,6 @@ namespace net.vieapps.Services.Files
 {
 	public class DownloadHandler : Services.FileHandler
 	{
-		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<DownloadHandler>();
-
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))

@@ -19,8 +19,6 @@ namespace net.vieapps.Services.Files
 {
 	public class FileHandler : Services.FileHandler
 	{
-		public override ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<FileHandler>();
-
 		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
@@ -40,8 +38,8 @@ namespace net.vieapps.Services.Files
 			var attachment = new AttachmentInfo
 			{
 				ID = pathSegments.Length > 3 && pathSegments[3].IsValidUUID() ? pathSegments[3] : "",
-				ServiceName = !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
-				SystemID = pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
+				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
+				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
 				Filename = pathSegments.Length > 4 && pathSegments[3].IsValidUUID() ? pathSegments[4].UrlDecode() : "",
 				IsThumbnail = false

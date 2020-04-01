@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Files.Storages
 	{
 		RequestDelegate Next { get; }
 
-		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
 		public Handler(RequestDelegate next)
 		{
