@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Files
 			var serviceName = context.GetParameter("x-service-name");
 			var objectName = context.GetParameter("x-object-name");
 			var systemID = context.GetParameter("x-system-id");
-			var definitionID = context.GetParameter("x-definition-id");
+			var entityInfo = context.GetParameter("x-entity");
 			var objectID = context.GetParameter("x-object-id");
 			var isShared = "true".IsEquals(context.GetParameter("x-shared"));
 			var isTracked = "true".IsEquals(context.GetParameter("x-tracked"));
@@ -97,8 +97,8 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			var gotRights = isTemporary
-				? await context.CanContributeAsync(serviceName, objectName, systemID, definitionID, "", cancellationToken).ConfigureAwait(false)
-				: await context.CanEditAsync(serviceName, objectName, systemID, definitionID, objectID, cancellationToken).ConfigureAwait(false);
+				? await context.CanContributeAsync(serviceName, objectName, systemID, entityInfo, "", cancellationToken).ConfigureAwait(false)
+				: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -108,15 +108,25 @@ namespace net.vieapps.Services.Files
 			{
 				// save uploaded files into temporary directory
 				attachments = "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
-					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
-					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, definitionID, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
+					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
+					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
 
 				// create meta info
-				var response = new JArray();
-				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				JToken response = new JArray();
+				await attachments.ForEachAsync(async (attachment, token) => (response as JArray).Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
 				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+
+				// response as URL of a single image
+				if (context.GetRequestPathSegments(true).First().IsEquals("one.image"))
+				{
+					var info = (response as JArray).First as JObject;
+					response = new JObject
+					{
+						{ context.GetParameter("x-response-name") ?? "url", info["URIs"].Get<string>("Direct") }
+					};
+				}
 
 				// response
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
@@ -131,7 +141,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		async Task<List<AttachmentInfo>> ReceiveByFormFileAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		async Task<List<AttachmentInfo>> ReceiveByFormFileAsync(HttpContext context, string serviceName, string objectName, string systemID, string entityInfo, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
 		{
 			var attachments = new List<AttachmentInfo>();
 			await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async (file, token) =>
@@ -141,11 +151,11 @@ namespace net.vieapps.Services.Files
 					// prepare
 					var attachment = new AttachmentInfo
 					{
-						ID = UtilityService.NewUUID,
+						ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
 						ServiceName = serviceName,
 						ObjectName = objectName,
 						SystemID = systemID,
-						DefinitionID = definitionID,
+						EntityInfo = entityInfo,
 						ObjectID = objectID,
 						Size = file.Length,
 						Filename = file.FileName,
@@ -181,7 +191,7 @@ namespace net.vieapps.Services.Files
 			return attachments;
 		}
 
-		async Task<List<AttachmentInfo>> ReceiveByFormDataAsync(HttpContext context, string serviceName, string objectName, string systemID, string definitionID, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
+		async Task<List<AttachmentInfo>> ReceiveByFormDataAsync(HttpContext context, string serviceName, string objectName, string systemID, string entityInfo, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
 		{
 			// check
 			var attachments = new List<AttachmentInfo>();
@@ -216,11 +226,11 @@ namespace net.vieapps.Services.Files
 				// prepare info
 				var attachment = new AttachmentInfo
 				{
-					ID = UtilityService.NewUUID,
+					ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
 					ServiceName = serviceName,
 					ObjectName = objectName,
 					SystemID = systemID,
-					DefinitionID = definitionID,
+					EntityInfo = entityInfo,
 					ObjectID = objectID,
 					Filename = filename,
 					ContentType = section.ContentType,

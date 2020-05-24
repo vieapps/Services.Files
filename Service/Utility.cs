@@ -21,14 +21,12 @@ namespace net.vieapps.Services.Files
 		public static string DirectURI => $"{Utility.FilesHttpURI}/files/";
 
 		public static string DownloadURI => $"{Utility.FilesHttpURI}/downloads/";
+
+		public static string AttachmentsDirectory { get; internal set; }
 	}
 
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable, Repository]
-	public abstract class Repository<T> : RepositoryBase<T> where T : class
-	{
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
-	}
+	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

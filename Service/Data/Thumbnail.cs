@@ -23,7 +23,7 @@ namespace net.vieapps.Services.Files
 			this.ServiceName = "";
 			this.ObjectName = "";
 			this.SystemID = "";
-			this.DefinitionID = "";
+			this.EntityInfo = "";
 			this.ObjectID = "";
 			this.Filename = "";
 			this.Size = 0;
@@ -53,10 +53,10 @@ namespace net.vieapps.Services.Files
 		public override string SystemID { get; set; }
 
 		/// <summary>
-		/// Gets or sets the identity of the entity definition that the attachment file is belong/related to
+		/// Gets or sets the identity of a specified business repository entity (means a business content-type at run-time) or type-name of an entity definition that the attachment file is belong/related to
 		/// </summary>
-		[Property(MaxLength = 32), Sortable(IndexName = "System")]
-		public string DefinitionID { get; set; }
+		[Property(MaxLength = 250)]
+		public string EntityInfo { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business object that the attachment file is belong/related to
@@ -120,32 +120,37 @@ namespace net.vieapps.Services.Files
 		public override string RepositoryID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override Privileges OriginalPrivileges { get; set; }
 		#endregion
 
 		#region To JSON
-		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted)
-			=> this.ToJson(addTypeOfExtendedProperties, onPreCompleted, true);
+		static IEnumerable<string> BeRemoved { get; } = new[] { "ServiceName", "ObjectName", "SystemID", "EntityInfo", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
 
-		public JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null, bool asNormalized = true, string title = null)
+		public string GetURI(string title = null)
+		{
+			var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/0/0";
+			var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
+			return $"{uri}/{this.ObjectID}/{index}/{this.LastModified:HHmmss}/{title ?? UtilityService.NewUUID}.jpg";
+		}
+
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted)
+			=> this.ToJson(true, null, addTypeOfExtendedProperties, onCompleted);
+
+		public JObject ToJson(bool asNormalized, string title, bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json["Filename"] = string.IsNullOrWhiteSpace(this.Filename) ? $"{this.ObjectID}.jpg" : this.Filename;
 				if (asNormalized)
 				{
-					var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/0/0";
-					var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
-					json["Index"] = index;
-					json["URI"] = $"{uri}/{this.ObjectID}/{index}/{this.LastModified.ToString("HHmmss")}/{title ?? UtilityService.NewUUID}.jpg";
+					json["Index"] = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
+					json["URI"] = this.GetURI(title);
 					Thumbnail.BeRemoved.ForEach(name => json.Remove(name));
 				};
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
-
-		static IEnumerable<string> BeRemoved { get; } = new[] { "ID", "ServiceName", "ObjectName", "SystemID", "DefinitionID", "ObjectID", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
 		#endregion
 
 	}

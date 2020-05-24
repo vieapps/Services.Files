@@ -107,7 +107,7 @@ namespace net.vieapps.Services.Files
 			{
 				var masterKey = "Thumbnnail#" + fileInfo.FullName.ToLower().GenerateUUID();
 				var detailKey = $"{masterKey}x{width}x{height}x{isPng}x{isBig}x{isCropped}x{croppedPosition}".ToLower();
-				var useCache = Global.Cache != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "true"));
+				var useCache = Global.Cache != null && "true".IsEquals(UtilityService.GetAppSetting("Files:CacheThumbnails", "false"));
 				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(detailKey, cancellationToken).ConfigureAwait(false) : null;
 				if (thumbnail != null)
 					return thumbnail;
@@ -253,7 +253,7 @@ namespace net.vieapps.Services.Files
 			var serviceName = context.GetParameter("x-service-name");
 			var objectName = context.GetParameter("x-object-name");
 			var systemID = context.GetParameter("x-system-id");
-			var definitionID = context.GetParameter("x-definition-id");
+			var entityInfo = context.GetParameter("x-entity");
 			var objectID = context.GetParameter("x-object-id");
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
 
@@ -262,8 +262,8 @@ namespace net.vieapps.Services.Files
 
 			// check permissions
 			var gotRights = isTemporary
-				? await context.CanContributeAsync(serviceName, objectName, systemID, definitionID, "", cancellationToken).ConfigureAwait(false)
-				: await context.CanEditAsync(serviceName, objectName, systemID, definitionID, objectID, cancellationToken).ConfigureAwait(false);
+				? await context.CanContributeAsync(serviceName, objectName, systemID, entityInfo, "", cancellationToken).ConfigureAwait(false)
+				: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -328,11 +328,11 @@ namespace net.vieapps.Services.Files
 						// prepare
 						var attachment = new AttachmentInfo
 						{
-							ID = UtilityService.NewUUID,
+							ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
 							ServiceName = serviceName,
 							ObjectName = objectName,
 							SystemID = systemID,
-							DefinitionID = definitionID,
+							EntityInfo = entityInfo,
 							ObjectID = objectID,
 							Size = thumbnail.Length,
 							Filename = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg",

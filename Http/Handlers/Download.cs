@@ -30,6 +30,9 @@ namespace net.vieapps.Services.Files
 			// prepare
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
+			if (Global.IsDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
+
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
 				throw new InvalidRequestException();
 

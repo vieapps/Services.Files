@@ -131,8 +131,8 @@ namespace net.vieapps.Services.Files
 			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
-					// authenticate
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
+					// authenticate (token is expired after 15 minutes)
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 900, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
@@ -144,7 +144,7 @@ namespace net.vieapps.Services.Files
 							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})");
 					}
 
-					// jus assign user information
+					// just assign user information
 					else
 						context.User = new UserPrincipal(session.User);
 				}
@@ -226,6 +226,8 @@ namespace net.vieapps.Services.Files
 			{ "captchas", typeof(CaptchaHandler) },
 			{ "downloads", typeof(DownloadHandler) },
 			{ "files", typeof(FileHandler) },
+			{ "images", typeof(FileHandler) },
+			{ "one.image", typeof(FileHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
@@ -472,7 +474,7 @@ namespace net.vieapps.Services.Files
 
 		public string SystemID { get; set; }
 
-		public string DefinitionID { get; set; }
+		public string EntityInfo { get; set; }
 
 		public string ObjectID { get; set; }
 
@@ -500,12 +502,11 @@ namespace net.vieapps.Services.Files
 	internal static class HandlerExtensions
 	{
 		public static bool IsReadable(this AttachmentInfo attachmentInfo)
-			=> string.IsNullOrWhiteSpace(attachmentInfo.ContentType)
-				? false
-				: attachmentInfo.ContentType.IsStartsWith("image/") || attachmentInfo.ContentType.IsStartsWith("text/")
+			=> !string.IsNullOrWhiteSpace(attachmentInfo.ContentType)
+				&& (attachmentInfo.ContentType.IsStartsWith("image/") || attachmentInfo.ContentType.IsStartsWith("text/")
 					|| attachmentInfo.ContentType.IsStartsWith("audio/") || attachmentInfo.ContentType.IsStartsWith("video/")
 					|| attachmentInfo.ContentType.IsEquals("application/pdf") || attachmentInfo.ContentType.IsEquals("application/x-pdf")
-					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash");
+					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash"));
 
 		public static string GetFileName(this AttachmentInfo attachmentInfo)
 			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename;
@@ -591,7 +592,7 @@ namespace net.vieapps.Services.Files
 				attachmentInfo.ServiceName = json.Get<string>("ServiceName");
 				attachmentInfo.ObjectName = json.Get<string>("ObjectName");
 				attachmentInfo.SystemID = json.Get<string>("SystemID");
-				attachmentInfo.DefinitionID = json.Get<string>("DefinitionID");
+				attachmentInfo.EntityInfo = json.Get<string>("EntityInfo");
 				attachmentInfo.ObjectID = json.Get<string>("ObjectID");
 				attachmentInfo.Filename = json.Get<string>("Filename");
 				attachmentInfo.Size = json.Get<long>("Size");
@@ -619,7 +620,7 @@ namespace net.vieapps.Services.Files
 				{ "ServiceName", attachmentInfo.ServiceName?.ToLower() },
 				{ "ObjectName", attachmentInfo.ObjectName?.ToLower() },
 				{ "SystemID", attachmentInfo.SystemID?.ToLower() },
-				{ "DefinitionID", attachmentInfo.DefinitionID?.ToLower() },
+				{ "EntityInfo", attachmentInfo.EntityInfo },
 				{ "ObjectID", attachmentInfo.ObjectID?.ToLower() },
 				{ "Size", attachmentInfo.Size },
 				{ "Filename", attachmentInfo.Filename },
@@ -674,7 +675,7 @@ namespace net.vieapps.Services.Files
 				);
 
 		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default)
-			=> context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.SystemID, attachmentInfo.DefinitionID, attachmentInfo.ObjectID, cancellationToken);
+			=> context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.SystemID, attachmentInfo.EntityInfo, attachmentInfo.ObjectID, cancellationToken);
 
 		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
 		{

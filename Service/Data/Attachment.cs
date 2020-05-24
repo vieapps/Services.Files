@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Files
 			this.ServiceName = "";
 			this.ObjectName = "";
 			this.SystemID = "";
-			this.DefinitionID = "";
+			this.EntityInfo = "";
 			this.ObjectID = "";
 			this.Filename = "";
 			this.Size = 0;
@@ -56,10 +56,10 @@ namespace net.vieapps.Services.Files
 		public override string SystemID { get; set; }
 
 		/// <summary>
-		/// Gets or sets the identity of the entity definition that the attachment file is belong/related to
+		/// Gets or sets the identity of a specified business repository entity (means a business content-type at run-time) or type-name of an entity definition that the attachment file is belong/related to
 		/// </summary>
-		[Property(MaxLength = 32), Sortable(IndexName = "System")]
-		public string DefinitionID { get; set; }
+		[Property(MaxLength = 250)]
+		public string EntityInfo { get; set; }
 
 		/// <summary>
 		/// Gets or sets the identity of the business object that the attachment file is belong/related to
@@ -150,17 +150,17 @@ namespace net.vieapps.Services.Files
 		public override string RepositoryID { get; set; }
 
 		[JsonIgnore, BsonIgnore, Ignore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[JsonIgnore, BsonIgnore, Ignore]
 		public override Privileges OriginalPrivileges { get; set; }
 		#endregion
 
 		#region To JSON
-		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted)
-			=> this.ToJson(addTypeOfExtendedProperties, onPreCompleted, true);
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted)
+			=> this.ToJson(true, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null, bool asNormalized = true)
+		public JObject ToJson(bool asNormalized, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (asNormalized)
@@ -169,7 +169,7 @@ namespace net.vieapps.Services.Files
 						{ "Direct", $"{Utility.DirectURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/{this.ContentType.Replace("/", "=")}/{this.ID}/{this.Filename.UrlEncode()}" },
 						{ "Download", $"{Utility.DownloadURI}{this.ID}/1/{this.Filename.UrlEncode()}" }
 					};
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
 		#endregion
 
