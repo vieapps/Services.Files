@@ -220,8 +220,11 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
+			// thumbnails of one object
 			if (json is JArray)
 				this.NormalizeURIs(requestInfo, json as JArray);
+
+			// thumbnails of multiple objects
 			else
 				(json as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 
