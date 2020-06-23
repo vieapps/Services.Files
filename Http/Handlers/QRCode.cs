@@ -23,13 +23,10 @@ namespace net.vieapps.Services.Files
 {
 	public class QRCodeHandler : Services.FileHandler
 	{
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
-		{
-			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-				await this.ShowAsync(context, cancellationToken).ConfigureAwait(false);
-			else
-				throw new MethodNotAllowedException(context.Request.Method);
-		}
+		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
+			=> context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD")
+				? this.ShowAsync(context, cancellationToken)
+				: Task.FromException(new MethodNotAllowedException(context.Request.Method));
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{

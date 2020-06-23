@@ -17,13 +17,10 @@ namespace net.vieapps.Services.Files
 {
 	public class DownloadHandler : Services.FileHandler
 	{
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
-		{
-			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-				await this.DownloadAsync(context, cancellationToken).ConfigureAwait(false);
-			else
-				throw new MethodNotAllowedException(context.Request.Method);
-		}
+		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
+			=> context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD")
+				? this.DownloadAsync(context, cancellationToken)
+				: Task.FromException(new MethodNotAllowedException(context.Request.Method));
 
 		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
 		{
@@ -44,6 +41,7 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
@@ -64,7 +62,7 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() && direct ? null : attachment.Filename.Right(attachment.Filename.Length - 33), eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() && direct ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask

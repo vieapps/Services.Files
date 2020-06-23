@@ -19,15 +19,12 @@ namespace net.vieapps.Services.Files
 {
 	public class FileHandler : Services.FileHandler
 	{
-		public override async Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
-		{
-			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
-				await this.FlushAsync(context, cancellationToken).ConfigureAwait(false);
-			else if (context.Request.Method.IsEquals("POST"))
-				await this.ReceiveAsync(context, cancellationToken).ConfigureAwait(false);
-			else
-				throw new MethodNotAllowedException(context.Request.Method);
-		}
+		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
+			=> context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD")
+				? this.FlushAsync(context, cancellationToken)
+				: context.Request.Method.IsEquals("POST")
+					? this.ReceiveAsync(context, cancellationToken)
+					: Task.FromException(new MethodNotAllowedException(context.Request.Method));
 
 		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
 		{
@@ -53,6 +50,7 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					context.WriteLogs(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})");
 				return;
