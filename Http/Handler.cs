@@ -44,7 +44,7 @@ namespace net.vieapps.Services.Files
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					["Access-Control-Allow-Methods"] = "HEAD,GET,POST"
+					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
 				};
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 					headers["Access-Control-Allow-Headers"] = requestHeaders;
