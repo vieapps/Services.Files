@@ -27,9 +27,6 @@ namespace net.vieapps.Services.Files
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 				while (Utility.FilesHttpURI.EndsWith("/"))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
-				Utility.AttachmentsDirectory = this.GetPath("Attachments");
-				this.Logger.LogInformation($"Files HTTP => {Utility.FilesHttpURI}");
-				this.Logger.LogInformation($"Directory of all attachments => {Utility.AttachmentsDirectory}");
 				next?.Invoke(this);
 			});
 
@@ -305,23 +302,7 @@ namespace net.vieapps.Services.Files
 			// delete
 			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
-			// move file into trash
-			var attachmentsPath = Path.Combine(Utility.AttachmentsDirectory, string.IsNullOrWhiteSpace(thumbnail.SystemID) || !thumbnail.SystemID.IsValidUUID() ? thumbnail.ServiceName.ToLower() : thumbnail.SystemID.ToLower());
-			var filePath = Path.Combine(attachmentsPath, thumbnail.Filename);
-			var trashFilePath = Path.Combine(attachmentsPath, "trash", thumbnail.Filename);
-			if (File.Exists(filePath))
-				try
-				{
-					if (File.Exists(trashFilePath))
-						File.Delete(trashFilePath);
-					File.Move(filePath, trashFilePath);
-				}
-				catch (Exception ex)
-				{
-					await this.WriteLogsAsync(requestInfo, $"Error occurred while moving file into trash => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-				}
-
-			// clear cache and send update message to other nodes
+			// clear cache and send update message to other nodes to update and sync files
 			await Task.WhenAll(
 				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
@@ -592,27 +573,14 @@ namespace net.vieapps.Services.Files
 			await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken).ConfigureAwait(false);
 
-			// move file into trash
-			var attachmentsPath = Path.Combine(Utility.AttachmentsDirectory, string.IsNullOrWhiteSpace(attachment.SystemID) || !attachment.SystemID.IsValidUUID() ? attachment.ServiceName.ToLower() : attachment.SystemID.ToLower());
-			var filePath = Path.Combine(attachmentsPath, attachment.Filename);
-			var trashFilePath = Path.Combine(attachmentsPath, "trash", attachment.Filename);
-			if (File.Exists(filePath))
-				try
-				{
-					File.Move(filePath, trashFilePath);
-				}
-				catch (Exception ex)
-				{
-					await this.WriteLogsAsync(requestInfo, $"Error occurred while moving file into trash => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-				}
-
 			// send update message and response
 			var response = attachment.ToJson();
 			await Task.WhenAll(
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Attachment#Delete",
-					Data = response
+					Data = response,
+					ExcludedNodeID = this.NodeID
 				}, cancellationToken),
 				this.SendUpdateMessageAsync(new UpdateMessage
 				{
@@ -860,8 +828,6 @@ namespace net.vieapps.Services.Files
 			else if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			var attachmentsPath = Path.Combine(Utility.AttachmentsDirectory, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
-
 			// get thumbnails and delete (move to trash)
 			var thumbnailsTask = Thumbnail.FindAsync(Filters<Thumbnail>.And
 			(
@@ -873,22 +839,7 @@ namespace net.vieapps.Services.Files
 				// delete
 				await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
 
-				// move file into trash
-				var filePath = Path.Combine(attachmentsPath, thumbnail.Filename);
-				var trashFilePath = Path.Combine(attachmentsPath, "trash", thumbnail.Filename);
-				if (File.Exists(filePath))
-					try
-					{
-						if (File.Exists(trashFilePath))
-							File.Delete(trashFilePath);
-						File.Move(filePath, trashFilePath);
-					}
-					catch (Exception ex)
-					{
-						await this.WriteLogsAsync(requestInfo, $"Error occurred while moving file into trash => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-					}
-
-				// send update message to other nodes
+				// send update message to other nodes to update and sync files
 				await Task.WhenAll(
 					this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
@@ -910,20 +861,7 @@ namespace net.vieapps.Services.Files
 				// delete
 				await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
 
-				// move file into trash
-				var filePath = Path.Combine(attachmentsPath, attachment.Filename);
-				var trashFilePath = Path.Combine(attachmentsPath, "trash", attachment.Filename);
-				if (File.Exists(filePath))
-					try
-					{
-						File.Move(filePath, trashFilePath);
-					}
-					catch (Exception ex)
-					{
-						await this.WriteLogsAsync(requestInfo, $"Error occurred while moving file into trash => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-					}
-
-				// send update message to other nodes
+				// send update message to other nodes to update and sync files
 				await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Attachment#Delete",
@@ -943,6 +881,115 @@ namespace net.vieapps.Services.Files
 
 			// response
 			return new JObject();
+		}
+		#endregion
+
+		#region Sync
+		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var stopwatch = Stopwatch.StartNew();
+			this.WriteLogs(requestInfo, $"Start sync ({requestInfo.Verb} {requestInfo.GetURI()})");
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+				try
+				{
+					// validate
+					var json = await base.SyncAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+
+					// sync
+					switch (requestInfo.ObjectName.ToLower())
+					{
+						case "attachment":
+							json = await this.SyncAttachmentAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "thumbnail":
+							json = await this.SyncThumbnailAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+
+						default:
+							throw new InvalidRequestException($"The request for synchronizing is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
+					}
+
+					stopwatch.Stop();
+					this.WriteLogs(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}");
+					if (this.IsDebugResultsEnabled)
+						this.WriteLogs(requestInfo,
+							$"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" +
+							$"- Response: {json?.ToString(this.JsonFormat)}"
+						);
+					return json;
+				}
+				catch (Exception ex)
+				{
+					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+				}
+		}
+
+		async Task<JToken> SyncAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var attachment = await Attachment.GetAsync<Attachment>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			if (attachment == null)
+			{
+				attachment = Attachment.CreateInstance(data);
+				await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				attachment.Fill(data);
+				await Attachment.UpdateAsync(attachment, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			var sourceDirectory = data.Get<string>("SourceDirectory");
+			if (!string.IsNullOrWhiteSpace(sourceDirectory))
+				await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Attachment#Copy",
+					Data = attachment.ToJson(false, false, json => json["SourceDirectory"] = sourceDirectory)
+				}, this.CancellationTokenSource.Token).ConfigureAwait(false);
+
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", attachment.ID },
+				{ "Type", attachment.GetTypeName(true) }
+			};
+		}
+
+		async Task<JToken> SyncThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			if (thumbnail == null)
+			{
+				thumbnail = Thumbnail.CreateInstance(data);
+				await Thumbnail.CreateAsync(thumbnail, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				thumbnail.Fill(data);
+				await Thumbnail.UpdateAsync(thumbnail, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			var sourceDirectory = data.Get<string>("SourceDirectory");
+			if (!string.IsNullOrWhiteSpace(sourceDirectory))
+				await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+				{
+					Type = "Thumbnail#Copy",
+					Data = thumbnail.ToJson(false, null, false, json => json["SourceDirectory"] = sourceDirectory)
+				}, this.CancellationTokenSource.Token).ConfigureAwait(false);
+
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", thumbnail.ID },
+				{ "Type", thumbnail.GetTypeName(true) }
+			};
+		}
+
+		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			return base.SendSyncRequestAsync(requestInfo, cancellationToken);
 		}
 		#endregion
 

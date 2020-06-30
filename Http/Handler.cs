@@ -269,7 +269,7 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null;
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null, _NoSync = null;
 
 		internal static string UserAvatarFilesPath
 			=> Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
@@ -287,6 +287,9 @@ namespace net.vieapps.Services.Files
 
 		internal static bool RedirectToPassportOnUnauthorized
 			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Files:RedirectToPassportOnUnauthorized", "true")));
+
+		internal static bool NoSync
+			=> "true".IsEquals(Handler._NoSync ?? (Handler._NoSync = UtilityService.GetAppSetting("Files:NoSync", "false")));
 		#endregion
 
 		#region API Gateway Router
@@ -326,6 +329,8 @@ namespace net.vieapps.Services.Files
 							{
 								try
 								{
+									if (Global.IsDebugLogEnabled)
+										await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Got an inter-communicate message\r\n{message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", null, Global.ServiceName).ConfigureAwait(false);
 									await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
 								}
 								catch (Exception ex)
@@ -387,38 +392,6 @@ namespace net.vieapps.Services.Files
 				.GetAwaiter()
 				.GetResult();
 
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
-		{
-			if ("true".IsEquals(UtilityService.GetAppSetting("Files:NoSync")))
-				return Task.CompletedTask;
-
-			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
-				new AttachmentInfo
-				{
-					IsThumbnail = message.Type.IsEquals("Thumbnail#Delete")
-				}.Fill(message.Data).MoveFileIntoTrash(Global.Logger, "Http.Sync");
-
-			else if (message.Type.IsEquals("Thumbnail#Move") || message.Type.IsEquals("Attachment#Move"))
-				new AttachmentInfo
-				{
-					IsThumbnail = message.Type.IsEquals("Thumbnail#Move")
-				}.Fill(message.Data).MoveFile(Global.Logger, "Http.Sync");
-
-			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync"))
-			{
-				var node = message.Data.Get<string>("Node");
-				if (!Handler.NodeName.IsEquals(node))
-					Handler.Synchronizer.SendRequest(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")));
-			}
-
-			return Task.CompletedTask;
-		}
-
-		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
-			=> message.Type.IsEquals("Service#RequestInfo")
-				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
-				: Task.CompletedTask;
-
 		static IAsyncDisposable SynchronizerInstance { get; set; }
 
 		static Synchronizer Synchronizer { get; } = new Synchronizer();
@@ -461,6 +434,48 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
+		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+		{
+			// check no-sync
+			if (Handler.NoSync)
+				return Task.CompletedTask;
+
+			// move files into trash
+			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
+				new AttachmentInfo
+				{
+					IsThumbnail = message.Type.IsEquals("Thumbnail#Delete")
+				}.Fill(message.Data).MoveFileIntoTrash(Global.Logger, "Http.Sync");
+
+			// mark as official => move files from temporary directory to official directory
+			else if (message.Type.IsEquals("Thumbnail#Move") || message.Type.IsEquals("Attachment#Move"))
+				new AttachmentInfo
+				{
+					IsThumbnail = message.Type.IsEquals("Thumbnail#Move")
+				}.Fill(message.Data).MoveFile(Global.Logger, "Http.Sync");
+
+			// download and sync files between instances of Files HTTP Service
+			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync"))
+			{
+				var node = message.Data.Get<string>("Node");
+				if (!Handler.NodeName.IsEquals(node))
+					Handler.Synchronizer.SendRequest(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")));
+			}
+
+			// copy files from a legacy system
+			else if (message.Type.IsEquals("Thumbnail#Copy") || message.Type.IsEquals("Attachment#Copy"))
+				new AttachmentInfo
+				{
+					IsThumbnail = message.Type.IsEquals("Thumbnail#Copy")
+				}.Fill(message.Data).CopyFile(Global.Logger, "Http.Sync", message.Data.Get<string>("SourceDirectory"));
+
+			return Task.CompletedTask;
+		}
+
+		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
+			=> message.Type.IsEquals("Service#RequestInfo")
+				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
+				: Task.CompletedTask;
 	}
 
 	#region Attachment Info
@@ -500,55 +515,78 @@ namespace net.vieapps.Services.Files
 	#endregion
 
 	#region Extensions
-	internal static class HandlerExtensions
+	internal static class FilesHttpHandlerExtensions
 	{
 		public static bool IsReadable(this AttachmentInfo attachmentInfo)
 			=> !string.IsNullOrWhiteSpace(attachmentInfo.ContentType)
 				&& (attachmentInfo.ContentType.IsStartsWith("image/") || attachmentInfo.ContentType.IsStartsWith("text/")
 					|| attachmentInfo.ContentType.IsStartsWith("audio/") || attachmentInfo.ContentType.IsStartsWith("video/")
 					|| attachmentInfo.ContentType.IsEquals("application/pdf") || attachmentInfo.ContentType.IsEquals("application/x-pdf")
+					|| attachmentInfo.ContentType.IsEquals("application/json") || attachmentInfo.ContentType.IsEquals("application/javascript")
 					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash"));
 
 		public static string GetFileName(this AttachmentInfo attachmentInfo)
 			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename;
 
-		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false)
-			=> attachmentInfo.IsTemporary || isTemporary
-				? Path.Combine(Handler.TempFilesPath, attachmentInfo.GetFileName())
+		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
+			=> isTemporary || attachmentInfo.IsTemporary
+				? Path.Combine(tempFilesPath ?? Handler.TempFilesPath, attachmentInfo.GetFileName())
 				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), attachmentInfo.GetFileName());
 
 		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, bool isTemporary, ILogger logger = null, string objectName = null)
 		{
-			var filePath = attachmentInfo.GetFilePath(isTemporary);
-			if (File.Exists(filePath))
+			var fileInfo = new FileInfo(attachmentInfo.GetFilePath(isTemporary));
+			if (fileInfo.Exists)
 				try
 				{
-					File.Delete(filePath);
+					fileInfo.Delete();
 					if (Global.IsDebugLogEnabled)
-						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully delete a file [{filePath}]");
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully delete a file [{fileInfo.FullName}]");
 				}
-				catch (Exception e)
+				catch (Exception ex)
 				{
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while deleting a file => {e.Message}", e, Global.ServiceName, LogLevel.Error);
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while deleting a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
 				}
 			return attachmentInfo;
 		}
 
 		public static AttachmentInfo MoveFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
 		{
-			var from = attachmentInfo.GetFilePath(true);
-			if (File.Exists(from))
+			var source = attachmentInfo.GetFilePath(true);
+			var fileInfo = new FileInfo(source);
+			if (fileInfo.Exists)
 				try
 				{
-					var to = attachmentInfo.MoveFileIntoTrash(logger, objectName).GetFilePath();
-					File.Move(from, to);
+					var destination = attachmentInfo.GetFilePath();
+					fileInfo.MoveTo(destination);
 					if (Global.IsDebugLogEnabled)
-						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file [{from} => {to}]");
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file [{source} => {destination}]");
 				}
-				catch (Exception e)
+				catch (Exception ex)
 				{
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file => {e.Message}", e, Global.ServiceName, LogLevel.Error);
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
 				}
+			return attachmentInfo;
+		}
+
+		public static AttachmentInfo CopyFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, string tempFilesPath = null)
+		{
+			var source = attachmentInfo.GetFilePath(true, tempFilesPath);
+			var fileInfo = new FileInfo(source);
+			if (fileInfo.Exists)
+				try
+				{
+					var destination = attachmentInfo.PrepareDirectories().GetFilePath();
+					fileInfo.CopyTo(destination, true);
+					if (Global.IsDebugLogEnabled)
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Sync", $"Successfully copy a file [{source} => {destination}]");
+				}
+				catch (Exception ex)
+				{
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Sync", $"Error occurred while copying a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
+				}
+			else if (Global.IsDebugLogEnabled)
+				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Sync", $"Cannot copy a doesn't existing file of a legacy system [{source}]");
 			return attachmentInfo;
 		}
 
@@ -557,18 +595,19 @@ namespace net.vieapps.Services.Files
 			if (attachmentInfo.IsTemporary)
 				return attachmentInfo;
 
-			var filePath = attachmentInfo.GetFilePath();
-			if (!File.Exists(filePath))
+			var source = attachmentInfo.GetFilePath();
+			var fileInfo = new FileInfo(source);
+			if (!fileInfo.Exists)
 				return attachmentInfo;
 
 			try
 			{
-				var trashPath = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), "trash", attachmentInfo.GetFileName());
-				if (File.Exists(trashPath))
-					File.Delete(trashPath);
-				File.Move(filePath, trashPath);
+				var destination = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), "trash", attachmentInfo.GetFileName());
+				if (File.Exists(destination))
+					File.Delete(destination);
+				fileInfo.MoveTo(destination);
 				if (Global.IsDebugLogEnabled)
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file into trash [{filePath} => {trashPath}]");
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file into trash [{source} => {destination}]");
 				return attachmentInfo;
 			}
 			catch (Exception ex)

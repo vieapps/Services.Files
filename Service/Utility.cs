@@ -21,8 +21,6 @@ namespace net.vieapps.Services.Files
 		public static string DirectURI => $"{Utility.FilesHttpURI}/files/";
 
 		public static string DownloadURI => $"{Utility.FilesHttpURI}/downloads/";
-
-		public static string AttachmentsDirectory { get; internal set; }
 	}
 
 	//  --------------------------------------------------------------------------------------------
