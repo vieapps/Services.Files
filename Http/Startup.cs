@@ -117,13 +117,6 @@ namespace net.vieapps.Services.Files
 			Global.ServiceName = "Files";
 			AspNetCoreUtilityService.ServerName = UtilityService.GetAppSetting("ServerName", "VIEApps NGX");
 
-			JsonConvert.DefaultSettings = () => new JsonSerializerSettings
-			{
-				Formatting = Formatting.None,
-				ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-				DateTimeZoneHandling = DateTimeZoneHandling.Local
-			};
-
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
@@ -153,6 +146,25 @@ namespace net.vieapps.Services.Files
 
 			Global.CreateRSA();
 			Handler.PrepareHandlers();
+
+			JsonConvert.DefaultSettings = () => new JsonSerializerSettings
+			{
+				Formatting = Formatting.None,
+				ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+				DateTimeZoneHandling = DateTimeZoneHandling.Local
+			};
+
+			// prepare outgoing proxy
+			var proxy = UtilityService.GetAppSetting("Proxy:Host");
+			if (!string.IsNullOrWhiteSpace(proxy))
+				try
+				{
+					UtilityService.AssignWebProxy(proxy, UtilityService.GetAppSetting("Proxy:Port").CastAs<int>(), UtilityService.GetAppSetting("Proxy:User"), UtilityService.GetAppSetting("Proxy:UserPassword"), UtilityService.GetAppSetting("Proxy:Bypass")?.ToArray(";"));
+				}
+				catch (Exception ex)
+				{
+					Global.Logger.LogError($"Error occurred while assigning web-proxy => {ex.Message}", ex);
+				}
 
 			// setup middlewares
 			appBuilder
