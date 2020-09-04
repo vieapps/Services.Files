@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Files
 
 		public string ServiceUniqueURI => $"services.{Handler.NodeName}";
 
-		public string SyncKey => UtilityService.GetAppSetting("Keys:Synchronization", "VIEApps-c98c6942-Default-0ad9-Files-40ed-Synchronization-9e53-Key-65c501fcf7b3");
+		public string SyncKey => UtilityService.GetAppSetting("Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
 
 		public async Task SendRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary)
 		{
