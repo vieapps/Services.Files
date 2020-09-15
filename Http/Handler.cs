@@ -528,10 +528,16 @@ namespace net.vieapps.Services.Files
 		public static string GetFileName(this AttachmentInfo attachmentInfo)
 			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename;
 
-		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
+		public static string GetDirectoryPath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
 			=> isTemporary || attachmentInfo.IsTemporary
-				? Path.Combine(tempFilesPath ?? Handler.TempFilesPath, attachmentInfo.GetFileName())
-				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), attachmentInfo.GetFileName());
+				? tempFilesPath ?? Handler.TempFilesPath
+				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower());
+
+		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
+			=> Path.Combine(attachmentInfo.GetDirectoryPath(isTemporary, tempFilesPath), attachmentInfo.GetFileName());
+
+		public static string GetTrashFilePath(this AttachmentInfo attachmentInfo)
+			=> Path.Combine(attachmentInfo.GetDirectoryPath(), "trash", attachmentInfo.GetFileName());
 
 		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, bool isTemporary, ILogger logger = null, string objectName = null)
 		{
@@ -550,7 +556,7 @@ namespace net.vieapps.Services.Files
 			return attachmentInfo;
 		}
 
-		public static AttachmentInfo MoveFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
+		public static AttachmentInfo MoveFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, bool moveDestinationIntoTrashIfExists = false)
 		{
 			var source = attachmentInfo.GetFilePath(true);
 			var fileInfo = new FileInfo(source);
@@ -558,6 +564,8 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					var destination = attachmentInfo.GetFilePath();
+					if (moveDestinationIntoTrashIfExists && File.Exists(destination))
+						attachmentInfo.MoveFileIntoTrash(logger, objectName);
 					fileInfo.MoveTo(destination);
 					if (Global.IsDebugLogEnabled)
 						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file [{source} => {destination}]");
@@ -590,36 +598,35 @@ namespace net.vieapps.Services.Files
 			return attachmentInfo;
 		}
 
-		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null)
+		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, bool deleteOnUnsucces = true)
 		{
 			if (attachmentInfo.IsTemporary)
 				return attachmentInfo;
 
 			var source = attachmentInfo.GetFilePath();
 			var fileInfo = new FileInfo(source);
-			if (!fileInfo.Exists)
-				return attachmentInfo;
-
-			try
-			{
-				var destination = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower(), "trash", attachmentInfo.GetFileName());
-				if (File.Exists(destination))
-					File.Delete(destination);
-				fileInfo.MoveTo(destination);
-				if (Global.IsDebugLogEnabled)
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file into trash [{source} => {destination}]");
-				return attachmentInfo;
-			}
-			catch (Exception ex)
-			{
-				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
-				return attachmentInfo.DeleteFile(false, logger, objectName);
-			}
+			if (fileInfo.Exists)
+				try
+				{
+					var destination = attachmentInfo.GetTrashFilePath();
+					if (File.Exists(destination))
+						File.Delete(destination);
+					fileInfo.MoveTo(destination);
+					if (Global.IsDebugLogEnabled)
+						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Successfully move a file into trash [{source} => {destination}]");
+				}
+				catch (Exception ex)
+				{
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Http.Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
+					if (deleteOnUnsucces)
+						return attachmentInfo.DeleteFile(false, logger, objectName);
+				}
+			return attachmentInfo;
 		}
 
 		public static AttachmentInfo PrepareDirectories(this AttachmentInfo attachmentInfo)
 		{
-			var path = Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower());
+			var path = attachmentInfo.GetDirectoryPath();
 			new[] { path, Path.Combine(path, "trash") }.Where(directory => !Directory.Exists(directory)).ForEach(directory => Directory.CreateDirectory(directory));
 			return attachmentInfo;
 		}

@@ -292,13 +292,13 @@ namespace net.vieapps.Services.Files
 			{
 				for (var index = 0; index < context.Request.Form.Files.Count && index < 7; index++)
 					thumbnails.Add(null);
-				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, token) =>
+				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, _) =>
 				{
 					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 						using (var stream = file.OpenReadStream())
 						{
 							var thumbnail = new byte[file.Length];
-							await stream.ReadAsync(thumbnail, 0, (int)file.Length, token).ConfigureAwait(false);
+							await stream.ReadAsync(thumbnail, 0, (int)file.Length, cancellationToken).ConfigureAwait(false);
 							thumbnails[index] = thumbnail;
 						}
 				}, cancellationToken, true, false).ConfigureAwait(false);
@@ -318,7 +318,7 @@ namespace net.vieapps.Services.Files
 				{
 					title = UtilityService.NewUUID;
 				}
-				await thumbnails.ForEachAsync(async (thumbnail, index, token) =>
+				await thumbnails.ForEachAsync(async (thumbnail, index, _) =>
 				{
 					if (thumbnail != null)
 					{
@@ -343,7 +343,7 @@ namespace net.vieapps.Services.Files
 						};
 
 						// save file into temporary directory
-						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(true), thumbnail, token).ConfigureAwait(false);
+						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(true), thumbnail, cancellationToken).ConfigureAwait(false);
 
 						// update attachment info
 						attachments.Add(attachment);
@@ -355,7 +355,7 @@ namespace net.vieapps.Services.Files
 				await attachments.ForEachAsync(async (attachment, token) => response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
-				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads", true));
 
 				// response
 				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
