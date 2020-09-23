@@ -133,13 +133,13 @@ namespace net.vieapps.Services.Files
 		{
 			var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/0/0";
 			var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
-			return $"{uri}/{this.ObjectID}/{index}/{this.LastModified:HHmmss}/{title ?? UtilityService.NewUUID}.jpg";
+			return $"{uri}/{this.ObjectID}/{index}/{this.LastModified:HHmmss}/{title ?? UtilityService.NewUUID}";
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted)
-			=> this.ToJson(true, null, addTypeOfExtendedProperties, onCompleted);
+			=> this.ToJson(true, null, onCompleted, addTypeOfExtendedProperties);
 
-		public JObject ToJson(bool asNormalized, string title, bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+		public JObject ToJson(bool asNormalized, string title, Action<JObject> onCompleted = null, bool addTypeOfExtendedProperties = false)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json["Filename"] = string.IsNullOrWhiteSpace(this.Filename) ? $"{this.ObjectID}.jpg" : this.Filename;

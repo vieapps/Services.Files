@@ -143,6 +143,9 @@ namespace net.vieapps.Services.Files
 				? objectIdentity.ToLower().ToArray(",", true)
 				: null;
 
+			if (this.IsDebugLogEnabled)
+				await this.WriteLogsAsync(requestInfo, $"Start to search thumbnail images ({requestInfo.GetHeaderParameter("x-origin")})\r\n- Object IDs: {objectID ?? objectIDs?.Join(", ")}\r\n- Info: {requestInfo.Header.ToJson()}").ConfigureAwait(false);
+
 			// get cached
 			JToken json = null;
 			if (objectID != null)
@@ -156,7 +159,7 @@ namespace net.vieapps.Services.Files
 				if (cached != null && cached.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
 				{
 					json = new JObject();
-					cached.ForEach(kvp => json[kvp.Key.Replace(":thumbnails", "")] = kvp.Value.ToJson());
+					cached.ForEach(kvp => json[kvp.Key.Replace(":thumbnails", "").Replace("@", "")] = kvp.Value.ToJson());
 				}
 			}
 
@@ -173,8 +176,7 @@ namespace net.vieapps.Services.Files
 				var thumbnails = await Thumbnail.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
 
 				// build JSON
-				var asAttachments = requestInfo.GetParameter("x-as-attachments") != null;
-
+				var asAttachments = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-attachments") ?? requestInfo.GetParameter("x-as-attachments"));
 				if (objectIDs == null)
 				{
 					var title = requestInfo.GetParameter("x-object-title");
@@ -190,9 +192,11 @@ namespace net.vieapps.Services.Files
 					else
 						title = UtilityService.NewUUID;
 
-					json = asAttachments 
-						? thumbnails.Select(thumbnail => thumbnail.ToJson(false, title, false, thumbnailJSON => thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } })).ToJArray()
-						: thumbnails.Select(thumbnail => thumbnail.ToJson(true, title)).ToJArray();
+					json = thumbnails.Select(thumbnail => thumbnail.ToJson(true, title, thumbnailJSON =>
+					{
+						if (asAttachments)
+							thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } };
+					})).ToJArray();
 
 					await Utility.Cache.SetAsync($"{objectID}:thumbnails", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
 				}
@@ -208,14 +212,20 @@ namespace net.vieapps.Services.Files
 					json = this.BuildJson(thumbnails, thumbnail =>
 					{
 						var title = titles.Get<string>(thumbnail.ID) ?? thumbnail.ID;
-						return asAttachments
-							? thumbnail.ToJson(false, title, false, thumbnailJSON => thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } })
-							: thumbnail.ToJson(true, title);
+						return thumbnail.ToJson(true, title, thumbnailJSON =>
+						{
+							if (asAttachments)
+								thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } };
+						});
 					});
 
 					await (json as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
 				}
+				if (this.IsDebugLogEnabled)
+					await this.WriteLogsAsync(requestInfo, $"Thumbnail images was searched & built ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
 			}
+			else if (this.IsDebugLogEnabled)
+				await this.WriteLogsAsync(requestInfo, $"Thumbnail images cached was found ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
 
 			// thumbnails of one object
 			if (json is JArray)
@@ -226,6 +236,8 @@ namespace net.vieapps.Services.Files
 				(json as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 
 			// response
+			if (this.IsDebugLogEnabled)
+				await this.WriteLogsAsync(requestInfo, $"Search thumbnail images was done ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
 			return json;
 		}
 
@@ -279,7 +291,7 @@ namespace net.vieapps.Services.Files
 			).ConfigureAwait(false);
 
 			// send update message and response
-			var response = thumbnail.ToJson(true, null, false, json => json["URIs"] = new JObject { { "Direct", thumbnail.GetURI(requestInfo.GetParameter("x-object-title")?.GetANSIUri() ?? UtilityService.NewUUID) } });
+			var response = thumbnail.ToJson(true, null, json => json["URIs"] = new JObject { { "Direct", thumbnail.GetURI(requestInfo.GetParameter("x-object-title")?.GetANSIUri() ?? UtilityService.NewUUID) } });
 			await this.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Thumbnail#{(isCreateNew ? "Create" : "Update")}",
@@ -308,12 +320,12 @@ namespace net.vieapps.Services.Files
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Thumbnail#Delete",
-					Data = thumbnail.ToJson(false, null, false)
+					Data = thumbnail.ToJson(false, null)
 				}, cancellationToken)
 			).ConfigureAwait(false);
 
 			// send update message and response
-			var response = thumbnail.ToJson(false, null, false);
+			var response = thumbnail.ToJson(false, null);
 			await this.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Thumbnail#Delete",
@@ -353,7 +365,7 @@ namespace net.vieapps.Services.Files
 					await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Thumbnail#Move",
-						Data = thumbnail.ToJson(false, null, false)
+						Data = thumbnail.ToJson(false, null)
 					}, token).ConfigureAwait(false);
 				}
 				json.Add(thumbnail.ToJson(true, objectTitle));
@@ -692,18 +704,15 @@ namespace net.vieapps.Services.Files
 					&& attachmentsCachedTask.Result != null && attachmentsCachedTask.Result.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
 				{
 					var thumbnailsJson = new JObject();
-					thumbnailsCachedTask.Result.ForEach(kvp => thumbnailsJson[kvp.Key.Replace(":thumbnails", "")] = kvp.Value.ToJson());
+					thumbnailsCachedTask.Result.ForEach(kvp => thumbnailsJson[kvp.Key.Replace(":thumbnails", "").Replace("@", "")] = kvp.Value.ToJson());
 					thumbnailsJson.ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 					var attachmentsJson = new JObject();
 					attachmentsCachedTask.Result.ForEach(kvp => attachmentsJson[kvp.Key.Replace(":attachments", "")] = kvp.Value.ToJson());
 					json = new JObject();
-					objectIDs.ForEach(id =>
+					objectIDs.ForEach(id => json[id] = new JObject
 					{
-						json[id] = new JObject
-						{
-							{ "Thumbnails", thumbnailsJson[id] },
-							{ "Attachments", attachmentsJson[id] }
-						};
+						{ "Thumbnails", thumbnailsJson[id] },
+						{ "Attachments", attachmentsJson[id] }
 					});
 				}
 			}
@@ -772,13 +781,10 @@ namespace net.vieapps.Services.Files
 				else
 				{
 					json = new JObject();
-					objectIDs.ForEach(id =>
+					objectIDs.ForEach(id => json[id] = new JObject
 					{
-						json[id] = new JObject
-						{
-							{ "Thumbnails", thumbnailsJson?[id] },
-							{ "Attachments", attachmentsJson?[id] }
-						};
+						{ "Thumbnails", thumbnailsJson?[id] },
+						{ "Attachments", attachmentsJson?[id] }
 					});
 				}
 			}
@@ -844,7 +850,7 @@ namespace net.vieapps.Services.Files
 					this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Thumbnail#Delete",
-						Data = thumbnail.ToJson(false, null, false)
+						Data = thumbnail.ToJson(false, null)
 					}, cancellationToken)
 				).ConfigureAwait(false);
 
@@ -976,7 +982,7 @@ namespace net.vieapps.Services.Files
 				await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
 				{
 					Type = "Thumbnail#Copy",
-					Data = thumbnail.ToJson(false, null, false, json => json["SourceDirectory"] = sourceDirectory)
+					Data = thumbnail.ToJson(false, null, json => json["SourceDirectory"] = sourceDirectory)
 				}, this.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			return new JObject
@@ -1020,31 +1026,38 @@ namespace net.vieapps.Services.Files
 		JArray NormalizeURIs(RequestInfo requestInfo, JArray thumbnails)
 		{
 			// prepare
-			if (!Int32.TryParse(requestInfo.GetParameter("x-width"), out var width))
+			var asPng = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-png") ?? requestInfo.GetParameter("x-is-png"));
+			var asBig = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-big") ?? requestInfo.GetParameter("x-is-big"));
+			if (!Int32.TryParse(requestInfo.GetParameter("x-thumbnails-width") ?? requestInfo.GetParameter("x-width"), out var width))
 				width = 0;
-			if (!Int32.TryParse(requestInfo.GetParameter("x-height"), out var height))
+			if (!Int32.TryParse(requestInfo.GetParameter("x-thumbnails-height") ?? requestInfo.GetParameter("x-height"), out var height))
 				height = 0;
-			if (!Boolean.TryParse(requestInfo.GetParameter("x-is-big"), out var isBig))
-				isBig = false;
-			if (!Boolean.TryParse(requestInfo.GetParameter("x-is-png"), out var isPng))
-				isPng = false;
 
 			// normalize URIs
 			thumbnails.ForEach(thumbnail =>
 			{
 				var uri = thumbnail.Get<string>("URI");
-				if (isBig && isPng)
-					uri = uri.Replace("thumbnails", "thumbnailbigpngs");
-				else if (isBig)
-					uri = uri.Replace("thumbnails", "thumbnailbigs");
-				else if (isPng)
-					uri = uri.Replace("thumbnails", "thumbnailpngs");
-				if (width != 0 || height != 0)
+				if (!string.IsNullOrWhiteSpace(uri))
 				{
-					uri = uri.Replace("/0/0/0/", $"/0/{width}/{height}/");
-					uri = uri.Replace("/1/0/0/", $"/1/{width}/{height}/");
+					if (asBig && asPng)
+						uri = uri.Replace("/thumbnails/", "/thumbnailbigpngs/");
+					else if (asBig)
+						uri = uri.Replace("/thumbnails/", "/thumbnailbigs/");
+					else if (asPng)
+						uri = uri.Replace("/thumbnails/", "/thumbnailpngs/");
+
+					if (width != 0 || height != 0)
+					{
+						uri = uri.Replace("/0/0/0/", $"/0/{width}/{height}/");
+						uri = uri.Replace("/1/0/0/", $"/1/{width}/{height}/");
+					}
+
+					uri += asPng ? ".png" : ".jpg";
+
+					thumbnail["URI"] = uri;
+					if (thumbnail["URIs"] != null)
+						thumbnail.Get<JObject>("URIs")["Direct"] = uri;
 				}
-				thumbnail["URI"] = uri;
 			});
 			return thumbnails;
 		}
