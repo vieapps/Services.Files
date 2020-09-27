@@ -64,13 +64,18 @@ namespace net.vieapps.Services.Files
 			// check exist
 			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", null);
+			{
+				if (Global.IsDebugLogEnabled)
+					context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}");
+				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+			}
 
 			// flush the file to output stream, update counter & logs
 			else
 			{
 				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);

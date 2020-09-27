@@ -47,9 +47,9 @@ namespace net.vieapps.Services.Files
 			var requestUrl = $"{requestUri}";
 			var queryString = requestUri.ParseQuery();
 
+			var isNoThumbnailImage = requestUri.PathAndQuery.IsStartsWith("/thumbnail") && (requestUri.PathAndQuery.IsEndsWith("/no-image.png") || requestUri.PathAndQuery.IsEndsWith("/no-image.jpg"));
 			var pathSegments = requestUri.GetRequestPathSegments();
 
-			var isNoThumbnailImage = requestUri.PathAndQuery.IsStartsWith("/thumbnail") && (requestUri.PathAndQuery.IsEndsWith("/no-image.png") || requestUri.PathAndQuery.IsEndsWith("/no-image.jpg"));
 			var serviceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5] : "";
@@ -66,7 +66,7 @@ namespace net.vieapps.Services.Files
 				height = 0;
 			var isCropped = requestUrl.IsContains("--crop") || queryString.ContainsKey("crop");
 			var croppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.GetQueryParameter("cropPos")) ? "top" : requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.GetQueryParameter("cropPos")) ? "bottom" : "auto";
-			var isUseAdditionalWatermark = queryString.ContainsKey("nw") ? false : requestUrl.IsContains("--btwm");
+			//var isUseAdditionalWatermark = queryString.ContainsKey("nw") ? false : requestUrl.IsContains("--btwm");
 
 			var attachment = new AttachmentInfo
 			{
