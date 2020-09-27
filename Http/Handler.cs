@@ -269,7 +269,7 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null, _NoSync = null;
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null, _NoSync = null, _NoThumbnailImageFilePath = null;
 
 		internal static string UserAvatarFilesPath
 			=> Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
@@ -290,6 +290,9 @@ namespace net.vieapps.Services.Files
 
 		internal static bool NoSync
 			=> "true".IsEquals(Handler._NoSync ?? (Handler._NoSync = UtilityService.GetAppSetting("Files:NoSync", "false")));
+
+		internal static string NoThumbnailImageFilePath
+			=> Handler._NoThumbnailImageFilePath ?? (Handler._NoThumbnailImageFilePath = UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png")));
 		#endregion
 
 		#region API Gateway Router

@@ -49,16 +49,17 @@ namespace net.vieapps.Services.Files
 
 			var pathSegments = requestUri.GetRequestPathSegments();
 
+			var isNoThumbnailImage = requestUri.PathAndQuery.IsStartsWith("/thumbnail") && (requestUri.PathAndQuery.IsEndsWith("/no-image.png") || requestUri.PathAndQuery.IsEndsWith("/no-image.jpg"));
 			var serviceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5] : "";
-			if (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID)))
+			if (!isNoThumbnailImage && (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID))))
 				throw new InvalidRequestException();
 
 			var handlerName = pathSegments[0];
-			var isPng = handlerName.IsEndsWith("pngs");
+			var isPng = handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png"));
 			var isBig = handlerName.IsEndsWith("bigs") || handlerName.IsEndsWith("bigpngs");
-			var isThumbnail = pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0;
+			var isThumbnail = isNoThumbnailImage || (pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0);
 			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width))
 				width = 0;
 			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var height))
@@ -81,7 +82,7 @@ namespace net.vieapps.Services.Files
 			};
 
 			// check exist
-			var fileInfo = new FileInfo(attachment.GetFilePath());
+			var fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 			if (!fileInfo.Exists)
 			{
 				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -125,7 +126,8 @@ namespace net.vieapps.Services.Files
 				{
 					var keys = await Global.Cache.GetAsync<HashSet<string>>(masterKey, cancellationToken).ConfigureAwait(false) ?? new HashSet<string>();
 					keys.Append(detailKey);
-					await Task.WhenAll(
+					await Task.WhenAll
+					(
 						Global.Cache.SetAsync(masterKey, keys, 0, cancellationToken),
 						Global.Cache.SetAsFragmentsAsync(detailKey, thumbnail, 0, cancellationToken)
 					).ConfigureAwait(false);
@@ -142,7 +144,8 @@ namespace net.vieapps.Services.Files
 			// flush the thumbnail image to output stream, update counter & logs
 			context.SetResponseHeaders((int)HttpStatusCode.OK, $"image/{(isPng ? "png" : "jpeg")}", eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
 			await context.WriteAsync(await generateTask.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
 				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 			).ConfigureAwait(false);
