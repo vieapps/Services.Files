@@ -11,7 +11,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Files
 {
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public class Attachment : Repository<Attachment>
 	{

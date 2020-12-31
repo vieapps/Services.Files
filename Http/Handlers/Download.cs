@@ -37,10 +37,12 @@ namespace net.vieapps.Services.Files
 			var direct = pathSegments.Length > 2 && pathSegments[2].Equals("0");
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "File#" + identifier.ToLower();
-			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
+			var eTag = "file#" + identifier.ToLower();
+			var noneMatch = context.GetHeaderParameter("If-None-Match");
+			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
@@ -62,7 +64,7 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() && direct ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.IsReadable() && direct ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask

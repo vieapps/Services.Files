@@ -13,7 +13,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Files
 {
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	[Entity(CollectionName = "Thumbnails", TableName = "T_Files_Thumbnails", CacheClass = typeof(Utility), CacheName = "Cache")]
 	public class Thumbnail : Repository<Thumbnail>
 	{

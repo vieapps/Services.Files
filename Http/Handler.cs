@@ -207,10 +207,10 @@ namespace net.vieapps.Services.Files
 							context.Redirect(context.GetPassportSessionAuthenticatorUrl());
 						else
 						{
-							if (ex is WampException)
+							if (ex is WampException wampException)
 							{
-								var wampException = (ex as WampException).GetDetails();
-								context.ShowHttpError(statusCode: wampException.Item1, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+								var wampDetails = wampException.GetDetails();
+								context.ShowHttpError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 							}
 							else
 								context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
@@ -227,13 +227,20 @@ namespace net.vieapps.Services.Files
 			{ "captchas", typeof(CaptchaHandler) },
 			{ "downloads", typeof(DownloadHandler) },
 			{ "files", typeof(FileHandler) },
+			{ "one.file", typeof(FileHandler) },
+			{ "temp.file", typeof(FileHandler) },
 			{ "images", typeof(FileHandler) },
 			{ "one.image", typeof(FileHandler) },
+#if NET5_0
+			{ "webp.image", typeof(WebpImageHandler) },
+#endif
 			{ "qrcodes", typeof(QRCodeHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
 			{ "thumbnailpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigpngs", typeof(ThumbnailHandler) }
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
+			{ "thumbnailwebps", typeof(ThumbnailHandler) },
+			{ "thumbnailbigwebps", typeof(ThumbnailHandler) }
 		};
 
 		internal static void PrepareHandlers()

@@ -149,7 +149,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// write into file of temporary directory
-			await UtilityService.WriteBinaryFileAsync(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), content, cancellationToken).ConfigureAwait(false);
+			await UtilityService.WriteBinaryFileAsync(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), content, false, cancellationToken).ConfigureAwait(false);
 
 			// move file from temporary directory to official directory
 			new[] { ".png", ".jpg" }.ForEach(extension =>

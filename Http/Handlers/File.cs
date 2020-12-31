@@ -46,10 +46,12 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "File#" + attachment.ID.ToLower();
-			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
+			var eTag = "file#" + attachment.ID.ToLower();
+			var noneMatch = context.GetHeaderParameter("If-None-Match");
+			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					context.WriteLogs(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})");
@@ -61,31 +63,60 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// check exist
-			var fileInfo = new FileInfo(attachment.GetFilePath());
-			if (!fileInfo.Exists)
+			// check existed
+			var cacheKey = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
+				? $"Image#{attachment.Filename.ToLower().GenerateUUID()}"
+				: null;
+			var hasCached = cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+
+			FileInfo fileInfo = null;
+			if (!hasCached)
 			{
-				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}");
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				fileInfo = new FileInfo(attachment.GetFilePath());
+				if (!fileInfo.Exists)
+				{
+					if (Global.IsDebugLogEnabled)
+						context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}");
+					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+					return;
+				}
 			}
 
 			// flush the file to output stream, update counter & logs
+			if (hasCached)
+			{
+				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
+				var bytes = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				using (var stream = UtilityService.CreateMemoryStream(bytes))
+				{
+					await context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				}
+				if (Global.IsDebugLogEnabled)
+					context.WriteLogs(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})");
+			}
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
-				).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
+				if (cacheKey != null)
+					await Task.WhenAll
+					(
+						Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
+					).ConfigureAwait(false);
+				if (Global.IsDebugLogEnabled)
+					context.WriteLogs(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]");
 			}
+
+			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
+			var segment = context.GetRequestPathSegments(true).First();
+
 			var serviceName = context.GetParameter("x-service-name");
 			var objectName = context.GetParameter("x-object-name");
 			var systemID = context.GetParameter("x-system-id");
@@ -95,13 +126,15 @@ namespace net.vieapps.Services.Files
 			var isTracked = "true".IsEquals(context.GetParameter("x-tracked"));
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
 
-			if (string.IsNullOrWhiteSpace(objectID))
+			if (string.IsNullOrWhiteSpace(objectID) && !segment.IsEquals("temp.file"))
 				throw new InvalidRequestException("Invalid object identity");
 
 			// check permissions
-			var gotRights = isTemporary
-				? await context.CanContributeAsync(serviceName, objectName, systemID, entityInfo, "", cancellationToken).ConfigureAwait(false)
-				: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
+			var gotRights = segment.IsEquals("temp.file")
+				? isTemporary && (!string.IsNullOrWhiteSpace(serviceName) || (!string.IsNullOrWhiteSpace(systemID) && systemID.IsValidUUID()))
+				: isTemporary
+					? await context.CanContributeAsync(serviceName, objectName, systemID, entityInfo, "", cancellationToken).ConfigureAwait(false)
+					: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -114,21 +147,46 @@ namespace net.vieapps.Services.Files
 					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
 					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
 
+				// update meta
+				if (segment.IsEquals("temp.file"))
+					attachments.ForEach(attachment => attachment.IsTemporary = true);
+
 				// create meta info
+				Exception exception = null;
 				JToken response = new JArray();
-				await attachments.ForEachAsync(async (attachment, token) => (response as JArray).Add(await context.CreateAsync(attachment, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await attachments.ForEachAsync(async (attachment, token) =>
+				{
+					if (exception == null)
+						try
+						{
+							(response as JArray).Add(await context.CreateAsync(attachment, token).ConfigureAwait(false));
+						}
+						catch (Exception ex)
+						{
+							exception = ex;
+						}
+				}, cancellationToken, true, false).ConfigureAwait(false);
+				if (exception != null)
+					throw exception;
 
 				// move files from temporary directory to official directory
-				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
 
-				// response as URL of a single image
-				if (context.GetRequestPathSegments(true).First().IsEquals("one.image"))
+				// response as a single image/file
+				if (segment.IsEquals("one.image") || segment.IsEquals("one.file") || segment.IsEquals("temp.file"))
 				{
 					var info = (response as JArray).First as JObject;
-					response = new JObject
-					{
-						{ context.GetParameter("x-response-name") ?? "url", info["URIs"].Get<string>("Direct") }
-					};
+					response = segment.IsEquals("temp.file")
+						? new JObject
+						{
+							{ "x-url", info["URIs"].Get<string>("Direct") },
+							{ "x-filename", $"{info.Get<string>("ID")}-{info.Get<string>("Filename")}" },
+							{ "x-node", Handler.NodeName }
+						}
+						: new JObject
+						{
+							{ context.GetParameter("x-response-name") ?? "url", info["URIs"].Get<string>("Direct") }
+						};
 				}
 
 				// response
@@ -137,9 +195,10 @@ namespace net.vieapps.Services.Files
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{attachments.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
-			catch (Exception)
+			catch (Exception ex)
 			{
-				attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
+				await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"Error occurred while receiving attachment file(s)", ex).ConfigureAwait(false);
+				//attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
 				throw;
 			}
 		}

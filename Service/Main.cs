@@ -276,7 +276,7 @@ namespace net.vieapps.Services.Files
 			await (isCreateNew ? Thumbnail.CreateAsync(thumbnail, cancellationToken) : Thumbnail.UpdateAsync(thumbnail, false, cancellationToken)).ConfigureAwait(false);
 			await Task.WhenAll(
 				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
-				requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				!thumbnail.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Thumbnail#Sync",
 					Data = new JObject
@@ -516,7 +516,7 @@ namespace net.vieapps.Services.Files
 			await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
 				Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken),
-				requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				!attachment.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Attachment#Sync",
 					Data = new JObject

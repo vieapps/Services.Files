@@ -25,6 +25,6 @@ namespace net.vieapps.Services.Files
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable, Repository]
+	[Repository]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

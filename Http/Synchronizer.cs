@@ -77,9 +77,11 @@ namespace net.vieapps.Services.Files
 					case "GET":
 						this.Send(requestInfo);
 						break;
+
 					case "POST":
 						await this.ReceiveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
+
 					default:
 						throw new InvalidRequestException();
 				}
@@ -166,7 +168,7 @@ namespace net.vieapps.Services.Files
 			var node = requestInfo.Header["x-node"];
 			var serviceName = requestInfo.Header["x-service-name"];
 			var systemID = requestInfo.Header["x-system-id"];
-			var filename = requestInfo.Header["x-filename"];
+			var fileName = requestInfo.Header["x-filename"];
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
 
 			var path = isTemporary
@@ -175,7 +177,7 @@ namespace net.vieapps.Services.Files
 			if (!isTemporary && !Directory.Exists(path))
 				Directory.CreateDirectory(path);
 
-			var filePath = Path.Combine(path, filename);
+			var filePath = Path.Combine(path, fileName);
 			try
 			{
 				var data = new byte[0];
@@ -186,7 +188,7 @@ namespace net.vieapps.Services.Files
 					checksum = data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex();
 				}
 				else
-					checksum = $"{filename}@{node}".GetHMACSHA256(this.SyncKey);
+					checksum = $"{fileName}@{node}".GetHMACSHA256(this.SyncKey);
 
 				if (!requestInfo.Extra.TryGetValue("x-checksum", out var xchecksum) || !xchecksum.Equals(checksum))
 					throw new InvalidDataException();
@@ -202,7 +204,7 @@ namespace net.vieapps.Services.Files
 						$"- To: {Handler.NodeName}" + "\r\n" +
 						$"- Service: {serviceName}" + "\r\n" +
 						$"- System ID: {systemID}" + "\r\n" +
-						$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
+						$"- File: {fileName} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
 					, null, Global.ServiceName, LogLevel.Debug, requestInfo.CorrelationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
@@ -217,11 +219,14 @@ namespace net.vieapps.Services.Files
 					$"- To: {Handler.NodeName}" + "\r\n" +
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
-					$"- File: {filename} ({filePath})"
+					$"- File: {fileName} ({filePath})"
 				, ex, Global.ServiceName, LogLevel.Error, requestInfo.CorrelationID).ConfigureAwait(false);
-				throw ex;
+				throw;
 			}
 		}
+
+		public Task<JToken> FetchTemporaryFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+			=> requestInfo.FetchTemporaryFileAsync(cancellationToken);
 
 		public ValueTask DisposeAsync()
 			=> new ValueTask(Task.CompletedTask);
