@@ -36,12 +36,15 @@ namespace net.vieapps.Services.Files
 		{
 			// check "If-Modified-Since" request to reduce traffict
 			var requestUri = context.GetRequestUri();
-			var eTag = "thumbnail#" + $"{requestUri}".ToLower().GenerateUUID();
+			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
+			var cacheKey = $"{requestUri}".ToLower().GenerateUUID();
+			var lastModified = useCache ? await Global.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
+			var eTag = $"thumbnail#{cacheKey}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
+			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
@@ -93,10 +96,7 @@ namespace net.vieapps.Services.Files
 #if NET5_0
 			var isCached = false;
 #endif
-			var cacheKey = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null
-				? "Thumbnail#" + $"{attachment.Filename.ToLower().GenerateUUID()}x{width}x{height}x{format}x{isBig}x{isCropped}x{croppedPosition}".ToLower()
-				: null;
-			var hasCached = cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = useCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 			FileInfo fileInfo = null;
 			if (!hasCached)
@@ -123,7 +123,7 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> getAsync()
 			{
-				var thumbnail = cacheKey != null ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 				if (thumbnail != null)
 				{
 #if NET5_0
@@ -138,25 +138,38 @@ namespace net.vieapps.Services.Files
 			async Task<byte[]> generateAsync()
 			{
 				byte[] thumbnail;
-				using (var stream = UtilityService.CreateMemoryStream())
-				{
-					using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
-					{
-						// add watermark
 
-						// get thumbnail image
-						image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
+				// generate
+				try
+				{
+					using (var stream = UtilityService.CreateMemoryStream())
+					{
+						using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
+						{
+							// add watermark
+
+							// get thumbnail image
+							image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
+						}
+						thumbnail = stream.ToBytes();
 					}
-					thumbnail = stream.ToBytes();
 				}
 
-				if (cacheKey != null)
+				// read the whole file when got error
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail using Bitmap/Graphics => {ex.Message}", ex).ConfigureAwait(false);
+					thumbnail = await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false);
+				}
+
+				// update cache
+				if (useCache)
 					await Task.WhenAll
 					(
 						Global.Cache.AddSetMemberAsync($"{(attachment.SystemID.IsValidUUID() ? attachment.SystemID : attachment.ServiceName)}:Thumbnails", $"{attachment.ObjectID}:Thumbnails", cancellationToken),
 						Global.Cache.AddSetMemberAsync($"{attachment.ObjectID}:Thumbnails", cacheKey, cancellationToken),
-						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 1440, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToHttpString(), 1440, cancellationToken),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Update a thumbnail image into cache successful [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 					).ConfigureAwait(false);
 
@@ -170,7 +183,8 @@ namespace net.vieapps.Services.Files
 
 			// flush the thumbnail image to output stream, update counter & logs
 			var bytes = await generateTask.ConfigureAwait(false);
-			var lastModified = hasCached ? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : fileInfo.LastWriteTime.ToUnixTimestamp();
+			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
+			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
 
 #if NET5_0
 			if ("webp".IsEquals(format))
@@ -178,7 +192,7 @@ namespace net.vieapps.Services.Files
 				if (isCached)
 					using (var stream = UtilityService.CreateMemoryStream(bytes))
 					{
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 					}
 				else
 					using (var imageFactory = new ImageFactory())
@@ -187,8 +201,8 @@ namespace net.vieapps.Services.Files
 						imageFactory.Load(bytes);
 						imageFactory.Quality = 100;
 						imageFactory.Save(stream);
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-						if (cacheKey != null)
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+						if (useCache)
 							await Task.WhenAll
 							(
 								Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
@@ -200,7 +214,7 @@ namespace net.vieapps.Services.Files
 #endif
 			using (var stream = UtilityService.CreateMemoryStream(bytes))
 			{
-				await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}
 
 			await Task.WhenAll
@@ -212,32 +226,35 @@ namespace net.vieapps.Services.Files
 
 		Bitmap Generate(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
 		{
-			using (var image = Image.FromFile(filePath) as Bitmap)
+			using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize))
 			{
-				// clone original image
-				if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
-					return image.Clone() as Bitmap;
-
-				// calculate size depend on width
-				if (height < 1)
+				using (var image = Image.FromStream(stream) as Bitmap)
 				{
-					height = image.Height * width / image.Width;
+					// clone original image
+					if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
+						return image.Clone() as Bitmap;
+
+					// calculate size depend on width
 					if (height < 1)
-						height = image.Height;
-				}
+					{
+						height = image.Height * width / image.Width;
+						if (height < 1)
+							height = image.Height;
+					}
 
-				// calculate size depend on height
-				else if (width < 1)
-				{
-					width = image.Width * height / image.Height;
-					if (width < 1)
-						width = image.Width;
-				}
+					// calculate size depend on height
+					else if (width < 1)
+					{
+						width = image.Width * height / image.Height;
+						if (width < 1)
+							width = image.Width;
+					}
 
-				// generate thumbnail
-				return isCropped
-					? this.Generate(image, width, height, asBig, cropPosition)
-					: this.Generate(image, width, height, asBig);
+					// generate thumbnail
+					return isCropped
+						? this.Generate(image, width, height, asBig, cropPosition)
+						: this.Generate(image, width, height, asBig);
+				}
 			}
 		}
 
@@ -415,15 +432,21 @@ namespace net.vieapps.Services.Files
 
 				// create meta info
 				var response = new JArray();
+				var cacheKeys = new List<string>();
 				await attachments.ForEachAsync(async (attachment, token) =>
 				{
 					response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false));
 					if (useCache)
 					{
 						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:Thumbnails", cancellationToken).ConfigureAwait(false);
-						await Global.Cache.RemoveAsync(keys, cancellationToken).ConfigureAwait(false);
+						if (keys != null && keys.Count > 0)
+							cacheKeys = cacheKeys.Concat(new[] { $"{attachment.ObjectID}:Thumbnails" }).Concat(keys).ToList();
 					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
+
+				// clear cache
+				if (useCache && cacheKeys.Count > 0)
+					await Global.Cache.RemoveAsync(cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
 				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads", true));

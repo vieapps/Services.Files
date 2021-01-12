@@ -100,8 +100,8 @@ namespace net.vieapps.Services.Files
 				if (cacheKey != null)
 					await Task.WhenAll
 					(
-						Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), 1440, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), 1440, cancellationToken),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
 					).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)

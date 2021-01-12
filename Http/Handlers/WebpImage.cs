@@ -104,8 +104,8 @@ namespace net.vieapps.Services.Files
 				if (cacheKey != null)
 					await Task.WhenAll
 					(
-						Global.Cache.SetAsFragmentsAsync(cacheKey, imageStream.ToBytes(), cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(cacheKey, imageStream.ToBytes(), 1440, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), 1440, cancellationToken),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update a WebP Image file into cache successful ({requestUri})") : Task.CompletedTask
 					).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
