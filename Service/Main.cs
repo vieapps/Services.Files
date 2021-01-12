@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
-			// no cached => search
+			// no cache => search
 			if (json == null)
 			{
 				// search
