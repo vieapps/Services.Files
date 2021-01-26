@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Files
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
 					// verify the request
@@ -91,10 +91,7 @@ namespace net.vieapps.Services.Files
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
-							$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
-						);
+						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 					return json;
 				}
 				catch (Exception ex)
@@ -159,7 +156,7 @@ namespace net.vieapps.Services.Files
 				if (cached != null && cached.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
 				{
 					json = new JObject();
-					cached.ForEach(kvp => json[kvp.Key.Replace(":thumbnails", "").Replace("@", "")] = kvp.Value.ToJson());
+					cached.ForEach(kvp => json[kvp.Key.Replace(":thumbnails", "")] = kvp.Value.ToJson());
 				}
 			}
 
@@ -198,7 +195,7 @@ namespace net.vieapps.Services.Files
 							thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } };
 					})).ToJArray();
 
-					await Utility.Cache.SetAsync($"{objectID}:thumbnails", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.SetAsync($"{objectID}:thumbnails", json.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 				}
 				else
 				{
@@ -219,7 +216,7 @@ namespace net.vieapps.Services.Files
 						});
 					});
 
-					await (json as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+					await (json as JObject).ForEachAsync(kvp => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), cancellationToken)).ConfigureAwait(false);
 				}
 				if (this.IsDebugLogEnabled)
 					await this.WriteLogsAsync(requestInfo, $"Thumbnail images was searched & built ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
@@ -274,7 +271,8 @@ namespace net.vieapps.Services.Files
 
 			// update into repository
 			await (isCreateNew ? Thumbnail.CreateAsync(thumbnail, cancellationToken) : Thumbnail.UpdateAsync(thumbnail, false, cancellationToken)).ConfigureAwait(false);
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
 				!thumbnail.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
@@ -315,7 +313,8 @@ namespace net.vieapps.Services.Files
 			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// clear cache and send update message to other nodes to update and sync files
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
@@ -354,22 +353,22 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> MarkThumbnailsAsOfficialAsync(List<Thumbnail> thumbnails, string userID, string objectTitle, CancellationToken cancellationToken)
 		{
 			var json = new JArray();
-			await thumbnails.ForEachAsync(async (thumbnail, token) =>
+			await thumbnails.ForEachAsync(async thumbnail =>
 			{
 				if (thumbnail.IsTemporary)
 				{
 					thumbnail.IsTemporary = false;
 					thumbnail.LastModified = DateTime.Now;
 					thumbnail.LastModifiedID = userID;
-					await Thumbnail.UpdateAsync(thumbnail, userID, token).ConfigureAwait(false);
+					await Thumbnail.UpdateAsync(thumbnail, userID, cancellationToken).ConfigureAwait(false);
 					await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Thumbnail#Move",
 						Data = thumbnail.ToJson(false, null)
-					}, token).ConfigureAwait(false);
+					}, cancellationToken).ConfigureAwait(false);
 				}
 				json.Add(thumbnail.ToJson(true, objectTitle));
-			}, cancellationToken).ConfigureAwait(false);
+			}).ConfigureAwait(false);
 			return json;
 		}
 		#endregion
@@ -448,12 +447,12 @@ namespace net.vieapps.Services.Files
 				if (objectIDs == null)
 				{
 					json = attachments.ToJArray(attachment => attachment.ToJson());
-					await Utility.Cache.SetAsync($"{objectID}:attachments", json.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.SetAsync($"{objectID}:attachments", json.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 				}
 				else
 				{
 					json = this.BuildJson(attachments, attachment => attachment.ToJson());
-					await (json as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+					await (json as JObject).ForEachAsync(kvp => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), cancellationToken)).ConfigureAwait(false);
 				}
 			}
 
@@ -514,7 +513,8 @@ namespace net.vieapps.Services.Files
 			attachment.CreatedID = attachment.LastModifiedID = requestInfo.Session.User.ID;
 			attachment.Created = attachment.LastModified = DateTime.Now;
 			await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken),
 				!attachment.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
@@ -587,7 +587,8 @@ namespace net.vieapps.Services.Files
 
 			// send update message and response
 			var response = attachment.ToJson();
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Attachment#Delete",
@@ -612,7 +613,7 @@ namespace net.vieapps.Services.Files
 			var entityInfo = requestInfo.GetParameter("x-entity");
 			var objectID = requestInfo.GetObjectIdentity() ?? requestInfo.GetParameter("x-object-id");
 
-			if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID).ConfigureAwait(false))
+			if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// move from temporary to main directory (mark as official)
@@ -623,22 +624,22 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> MarkAttachmentsAsOfficialAsync(List<Attachment> attachments, string userID, CancellationToken cancellationToken)
 		{
 			var json = new JArray();
-			await attachments.ForEachAsync(async (attachment, token) =>
+			await attachments.ForEachAsync(async attachment =>
 			{
 				if (attachment.IsTemporary)
 				{
 					attachment.IsTemporary = false;
 					attachment.LastModified = DateTime.Now;
 					attachment.LastModifiedID = userID;
-					await Attachment.UpdateAsync(attachment, userID, token).ConfigureAwait(false);
+					await Attachment.UpdateAsync(attachment, userID, cancellationToken).ConfigureAwait(false);
 					await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Attachment#Move",
 						Data = attachment.ToJson(false, false)
-					}, token).ConfigureAwait(false);
+					}, cancellationToken).ConfigureAwait(false);
 				}
 				json.Add(attachment.ToJson());
-			}, cancellationToken).ConfigureAwait(false);
+			}).ConfigureAwait(false);
 			return json;
 		}
 		#endregion
@@ -704,7 +705,7 @@ namespace net.vieapps.Services.Files
 					&& attachmentsCachedTask.Result != null && attachmentsCachedTask.Result.Count(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).Equals(objectIDs.Length))
 				{
 					var thumbnailsJson = new JObject();
-					thumbnailsCachedTask.Result.ForEach(kvp => thumbnailsJson[kvp.Key.Replace(":thumbnails", "").Replace("@", "")] = kvp.Value.ToJson());
+					thumbnailsCachedTask.Result.ForEach(kvp => thumbnailsJson[kvp.Key.Replace(":thumbnails", "")] = kvp.Value.ToJson());
 					thumbnailsJson.ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 					var attachmentsJson = new JObject();
 					attachmentsCachedTask.Result.ForEach(kvp => attachmentsJson[kvp.Key.Replace(":attachments", "")] = kvp.Value.ToJson());
@@ -733,7 +734,7 @@ namespace net.vieapps.Services.Files
 					{
 						var title = (requestInfo.GetParameter("x-object-title") ?? UtilityService.NewUUID).GetANSIUri();
 						thumbnailsJson = task.Result.ToJArray(thumbnail => thumbnail.ToJson(true, title));
-						await Utility.Cache.SetAsync($"{objectID}:thumbnails", thumbnailsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+						await Utility.Cache.SetAsync($"{objectID}:thumbnails", thumbnailsJson.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 					}
 					else
 					{
@@ -744,7 +745,7 @@ namespace net.vieapps.Services.Files
 						}
 						catch { }
 						thumbnailsJson = this.BuildJson(task.Result, thumbnail => thumbnail.ToJson(true, titles.Get<string>(thumbnail.ID) ?? thumbnail.ID));
-						await (thumbnailsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+						await (thumbnailsJson as JObject).ForEachAsync(kvp => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), cancellationToken)).ConfigureAwait(false);
 						(thumbnailsJson as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 					}
 				}, TaskContinuationOptions.OnlyOnRanToCompletion);
@@ -761,12 +762,12 @@ namespace net.vieapps.Services.Files
 					if (objectIDs == null)
 					{
 						attachmentsJson = task.Result.ToJArray(attachment => attachment.ToJson());
-						await Utility.Cache.SetAsync($"{objectID}:attachments", attachmentsJson.ToString(Formatting.None), 0, cancellationToken).ConfigureAwait(false);
+						await Utility.Cache.SetAsync($"{objectID}:attachments", attachmentsJson.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 					}
 					else
 					{
 						attachmentsJson = this.BuildJson(task.Result, attachment => attachment.ToJson());
-						await (attachmentsJson as JObject).ForEachAsync((kvp, token) => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), 0, token), cancellationToken).ConfigureAwait(false);
+						await (attachmentsJson as JObject).ForEachAsync(kvp => Utility.Cache.SetAsync($"{kvp.Key}:attachments", kvp.Value.ToString(Formatting.None), cancellationToken)).ConfigureAwait(false);
 					}
 				}, TaskContinuationOptions.OnlyOnRanToCompletion);
 
@@ -802,7 +803,7 @@ namespace net.vieapps.Services.Files
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException();
-			else if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID).ConfigureAwait(false))
+			else if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// move from temporary to main directory (mark as official)
@@ -831,7 +832,7 @@ namespace net.vieapps.Services.Files
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException();
-			else if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID).ConfigureAwait(false))
+			if (!await Router.GetService(serviceName).CanEditAsync(requestInfo.Session.User, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// get thumbnails and delete (move to trash)
@@ -840,21 +841,19 @@ namespace net.vieapps.Services.Files
 				string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? Filters<Thumbnail>.Equals("ServiceName", serviceName) : Filters<Thumbnail>.Equals("SystemID", systemID),
 				Filters<Thumbnail>.Equals("ObjectID", objectID)
 			), null, 0, 1, null, cancellationToken)
-			.ContinueWith(async task => await task.Result.ForEachAsync(async (thumbnail, token) =>
+			.ContinueWith(async task => await task.Result.ForEachAsync(async thumbnail =>
 			{
 				// delete
-				await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+				await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 				// send update message to other nodes to update and sync files
-				await Task.WhenAll(
-					this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-					{
-						Type = "Thumbnail#Delete",
-						Data = thumbnail.ToJson(false, null)
-					}, cancellationToken)
-				).ConfigureAwait(false);
+				await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				{
+					Type = "Thumbnail#Delete",
+					Data = thumbnail.ToJson(false, null)
+				}, cancellationToken).ConfigureAwait(false);
 
-			}, cancellationToken, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
+			}, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
 
 			// get attachments and delete (move to trash)
 			var attachmentsTask = Attachment.FindAsync(Filters<Attachment>.And
@@ -862,10 +861,10 @@ namespace net.vieapps.Services.Files
 				string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? Filters<Attachment>.Equals("ServiceName", serviceName) : Filters<Attachment>.Equals("SystemID", systemID),
 				Filters<Attachment>.Equals("ObjectID", objectID)
 			), null, 0, 1, null, cancellationToken)
-			.ContinueWith(async task => await task.Result.ForEachAsync(async (attachment, token) =>
+			.ContinueWith(async task => await task.Result.ForEachAsync(async attachment =>
 			{
 				// delete
-				await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+				await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 				// send update message to other nodes to update and sync files
 				await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
@@ -874,13 +873,14 @@ namespace net.vieapps.Services.Files
 					Data = attachment.ToJson()
 				}, cancellationToken).ConfigureAwait(false);
 
-			}, cancellationToken, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
+			}, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
 
 			// wait for all the deletion tasks completed
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
 			// clear cache
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync($"{objectID}:attachments", cancellationToken),
 				Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken)
 			).ConfigureAwait(false);
@@ -895,7 +895,7 @@ namespace net.vieapps.Services.Files
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Start sync ({requestInfo.Verb} {requestInfo.GetURI()})");
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
 					// validate
@@ -919,10 +919,7 @@ namespace net.vieapps.Services.Files
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" +
-							$"- Response: {json?.ToString(this.JsonFormat)}"
-						);
+						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 					return json;
 				}
 				catch (Exception ex)
@@ -952,7 +949,7 @@ namespace net.vieapps.Services.Files
 				{
 					Type = "Attachment#Copy",
 					Data = attachment.ToJson(false, false, json => json["SourceDirectory"] = sourceDirectory)
-				}, this.CancellationTokenSource.Token).ConfigureAwait(false);
+				}, this.CancellationToken).ConfigureAwait(false);
 
 			return new JObject
 			{
@@ -983,7 +980,7 @@ namespace net.vieapps.Services.Files
 				{
 					Type = "Thumbnail#Copy",
 					Data = thumbnail.ToJson(false, null, json => json["SourceDirectory"] = sourceDirectory)
-				}, this.CancellationTokenSource.Token).ConfigureAwait(false);
+				}, this.CancellationToken).ConfigureAwait(false);
 
 			return new JObject
 			{
@@ -994,9 +991,7 @@ namespace net.vieapps.Services.Files
 		}
 
 		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-		{
-			return base.SendSyncRequestAsync(requestInfo, cancellationToken);
-		}
+			=> base.SendSyncRequestAsync(requestInfo, cancellationToken);
 		#endregion
 
 		#region Helpers for working with JSON
@@ -1062,6 +1057,31 @@ namespace net.vieapps.Services.Files
 			return thumbnails;
 		}
 		#endregion
+
+		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
+		{
+			var correlationID = UtilityService.NewUUID;
+			if (message.Type.IsEquals("Thumbnail#Rebuild"))
+				try
+				{
+					var objectID = message.Data.Get<string>("ObjectID");
+					var thumbnail = (await Thumbnail.FindAsync(Filters<Thumbnail>.Equals("ObjectID", objectID), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+					if (thumbnail == null)
+					{
+						thumbnail = message.Data.Copy<Thumbnail>("Title,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
+						thumbnail.ID = thumbnail.ID ?? UtilityService.NewUUID;
+						thumbnail.CreatedID = thumbnail.LastModifiedID = message.Data.Get<string>("LastModifiedID");
+						thumbnail.Created = thumbnail.LastModified = message.Data.Get<DateTime>("LastModified");
+						await Thumbnail.CreateAsync(thumbnail, cancellationToken).ConfigureAwait(false);
+						await Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false);
+						this.Logger.LogInformation($"Rebuild thumbnail image info successful => {thumbnail.Filename}");
+					}
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(correlationID, $"Error occurred while rebuilding thumbnail image info => {ex.Message}", ex, this.ServiceName, "Thumbnails.Rebuilds").ConfigureAwait(false);
+				}
+		}
 
 	}
 }

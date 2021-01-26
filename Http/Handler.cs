@@ -444,11 +444,48 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+		static async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
+			// refine thumbnail to rebuild info
+			if (message.Type.IsEquals("Thumbnail#Refine"))
+				try
+				{
+					var attachmentInfo = new AttachmentInfo { IsThumbnail = true }.Fill(message.Data);
+					var fileInfo = new FileInfo(attachmentInfo.GetFilePath());
+					if (fileInfo.Exists)
+						await new CommunicateMessage("Files")
+						{
+							Type = "Thumbnail#Rebuild",
+							Data = new JObject
+							{
+								{ "ID", string.IsNullOrWhiteSpace(attachmentInfo.ID) || !attachmentInfo.ID.IsValidUUID() ? UtilityService.NewUUID : attachmentInfo.ID },
+								{ "ServiceName", attachmentInfo.ServiceName },
+								{ "ObjectName", attachmentInfo.ObjectName },
+								{ "SystemID", attachmentInfo.SystemID },
+								{ "EntityInfo", attachmentInfo.EntityInfo },
+								{ "ObjectID", attachmentInfo.ObjectID },
+								{ "Filename", attachmentInfo.Filename },
+								{ "Size", fileInfo.Length },
+								{ "ContentType", "image/jpeg" },
+								{ "IsTemporary", false },
+								{ "IsShared", false },
+								{ "IsTracked", false },
+								{ "IsThumbnail", true },
+								{ "Title", "" },
+								{ "Description", "" },
+								{ "LastModified", message.Data.Get<DateTime>("LastModified") },
+								{ "LastModifiedID", message.Data.Get<string>("LastModifiedID") }
+							}
+						}.PublishAsync(Global.Logger, "Thumbnails.Refines").ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					Global.Logger.LogError("Cannot send an inter-communicate message to refine thumbnail image", ex);
+				}
+
 			// check no-sync
 			if (Handler.NoSync)
-				return Task.CompletedTask;
+				return;
 
 			// move files into trash
 			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
@@ -478,8 +515,6 @@ namespace net.vieapps.Services.Files
 				{
 					IsThumbnail = message.Type.IsEquals("Thumbnail#Copy")
 				}.Fill(message.Data).CopyFile(Global.Logger, "Http.Sync", message.Data.Get<string>("SourceDirectory"));
-
-			return Task.CompletedTask;
 		}
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
