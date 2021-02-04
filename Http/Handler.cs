@@ -10,8 +10,6 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Xml;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
@@ -231,9 +229,7 @@ namespace net.vieapps.Services.Files
 			{ "temp.file", typeof(FileHandler) },
 			{ "images", typeof(FileHandler) },
 			{ "one.image", typeof(FileHandler) },
-#if NET5_0
 			{ "webp.image", typeof(WebpImageHandler) },
-#endif
 			{ "qrcodes", typeof(QRCodeHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },

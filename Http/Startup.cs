@@ -2,30 +2,17 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
-using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
-using Microsoft.AspNetCore.DataProtection.KeyManagement;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_1
 using Microsoft.Extensions.Hosting;
-#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using WampSharp.V2.Realm;
@@ -61,18 +48,12 @@ namespace net.vieapps.Services.Files
 
 			// authentication
 			services
-				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ =>
-				{
-#if !NETCOREAPP2_1
-					options.RequireAuthenticatedSignIn = false;
-#endif
-				}))
+				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
 				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			services.AddDataProtection().PrepareDataProtection();
 
-#if !NETCOREAPP2_1
 			// config options of IIS Server (for working with InProcess hosting model)
 			if (Global.UseIISInProcess)
 				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ =>
@@ -80,14 +61,12 @@ namespace net.vieapps.Services.Files
 					options.AllowSynchronousIO = true;
 					options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize;
 				}));
-#endif
 
 			/*
 			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
-#if !NETCOREAPP2_1
 			else
 			{
 				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
@@ -96,20 +75,10 @@ namespace net.vieapps.Services.Files
 				if (!string.IsNullOrWhiteSpace(certificateHeader))
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
-#endif
 			*/
 		}
 
-		public void Configure(
-			IApplicationBuilder appBuilder,
-#if !NETCOREAPP2_1
-			IHostApplicationLifetime appLifetime,
-			IWebHostEnvironment environment
-#else
-			IApplicationLifetime appLifetime,
-			IHostingEnvironment environment
-#endif
-		)
+		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
 		{
 			// environments
 			var stopwatch = Stopwatch.StartNew();
@@ -173,9 +142,7 @@ namespace net.vieapps.Services.Files
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
-#if !NETCOREAPP2_1
 				.UseCertificateForwarding()
-#endif
 				.UseCookiePolicy()
 				.UseAuthentication();
 

@@ -1,5 +1,4 @@
 ﻿#region Related component
-#if NET5_0
 using System;
 using System.IO;
 using System.Net;
@@ -7,15 +6,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using ImageProcessorCore;
-using ImageProcessorCore.Plugins.WebP.Formats;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
-#endif
 #endregion
 
 namespace net.vieapps.Services.Files
 {
-#if NET5_0
 	public class WebpImageHandler : Services.FileHandler
 	{
 		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
@@ -31,9 +27,9 @@ namespace net.vieapps.Services.Files
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 2 && pathSegments[2].IsValidUUID() ? pathSegments[2] : "",
+				ID = pathSegments.Length > 2 && pathSegments[2].IsValidUUID() ? pathSegments[2].ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
-				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
+				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = "image/webp",
 				Filename = pathSegments.Length > 3 && pathSegments[2].IsValidUUID() ? pathSegments[3].UrlDecode() : "",
 				IsThumbnail = false
@@ -43,7 +39,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "file#" + attachment.ID.ToLower();
+			var eTag = "file#" + attachment.ID;
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
@@ -115,5 +111,4 @@ namespace net.vieapps.Services.Files
 			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
 		}
 	}
-#endif
 }

@@ -12,10 +12,7 @@ using System.Drawing.Drawing2D;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
-#if NET5_0
 using ImageProcessorCore;
-using ImageProcessorCore.Plugins.WebP.Formats;
-#endif
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Utility;
@@ -58,8 +55,8 @@ namespace net.vieapps.Services.Files
 			var pathSegments = requestUri.GetRequestPathSegments();
 
 			var serviceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
-			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
-			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5] : "";
+			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "";
+			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5].ToLower() : "";
 			if (!isNoThumbnailImage && (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID))))
 				throw new InvalidRequestException();
 
@@ -93,9 +90,7 @@ namespace net.vieapps.Services.Files
 			};
 
 			// check existed
-#if NET5_0
 			var isCached = false;
-#endif
 			var hasCached = useCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 			FileInfo fileInfo = null;
@@ -126,9 +121,7 @@ namespace net.vieapps.Services.Files
 				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 				if (thumbnail != null)
 				{
-#if NET5_0
 					isCached = true;
-#endif
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Cached thumbnail was found ({requestUri})").ConfigureAwait(false);
 				}
@@ -186,7 +179,6 @@ namespace net.vieapps.Services.Files
 			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
 			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
 
-#if NET5_0
 			if ("webp".IsEquals(format))
 			{
 				if (isCached)
@@ -211,11 +203,10 @@ namespace net.vieapps.Services.Files
 					}
 			}
 			else
-#endif
-			using (var stream = UtilityService.CreateMemoryStream(bytes))
-			{
-				await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-			}
+				using (var stream = UtilityService.CreateMemoryStream(bytes))
+				{
+					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				}
 
 			await Task.WhenAll
 			(

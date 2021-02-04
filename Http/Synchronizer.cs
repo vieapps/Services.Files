@@ -225,6 +225,9 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
+		public Task ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+			=> Task.CompletedTask;
+
 		public Task<JToken> FetchTemporaryFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 			=> requestInfo.FetchTemporaryFileAsync(cancellationToken);
 
@@ -232,6 +235,9 @@ namespace net.vieapps.Services.Files
 			=> new ValueTask(Task.CompletedTask);
 
 		public void Dispose()
-			=> this.DisposeAsync().AsTask().Wait();
+		{
+			GC.SuppressFinalize(this);
+			this.DisposeAsync().AsTask().Wait();
+		}
 	}
 }

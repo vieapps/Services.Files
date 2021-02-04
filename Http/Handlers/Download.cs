@@ -1,14 +1,10 @@
 ﻿#region Related component
-using System;
 using System.IO;
 using System.Net;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -33,11 +29,11 @@ namespace net.vieapps.Services.Files
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
 				throw new InvalidRequestException();
 
-			var identifier = pathSegments[1];
+			var identifier = pathSegments[1].ToLower();
 			var direct = pathSegments.Length > 2 && pathSegments[2].Equals("0");
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "file#" + identifier.ToLower();
+			var eTag = "file#" + identifier;
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
@@ -65,7 +61,8 @@ namespace net.vieapps.Services.Files
 			else
 			{
 				await context.WriteAsync(fileInfo, attachment.IsReadable() && direct ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);

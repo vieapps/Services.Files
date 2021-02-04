@@ -9,7 +9,6 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -34,9 +33,9 @@ namespace net.vieapps.Services.Files
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 3 && pathSegments[3].IsValidUUID() ? pathSegments[3] : "",
+				ID = pathSegments.Length > 3 && pathSegments[3].IsValidUUID() ? pathSegments[3].ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
-				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
+				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
 				Filename = pathSegments.Length > 4 && pathSegments[3].IsValidUUID() ? pathSegments[4].UrlDecode() : "",
 				IsThumbnail = false
@@ -46,7 +45,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "file#" + attachment.ID.ToLower();
+			var eTag = "file#" + attachment.ID;
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
