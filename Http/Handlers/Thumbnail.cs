@@ -88,8 +88,10 @@ namespace net.vieapps.Services.Files
 				IsTemporary = false,
 				IsTracked = false
 			};
+			if ("webp".IsEquals(format) && pathSegments[2].Equals("1") && attachment.Filename.IsEndsWith(".webp"))
+				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
-			// check existed
+				// check existed
 			var isCached = false;
 			var hasCached = useCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
