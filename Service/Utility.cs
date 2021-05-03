@@ -1,10 +1,4 @@
-﻿#region Related components
-using System;
-using System.Xml.Serialization;
-using Newtonsoft.Json;
-using MongoDB.Bson.Serialization.Attributes;
-using net.vieapps.Components.Repository;
-#endregion
+﻿using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Files
 {

@@ -37,7 +37,7 @@ namespace net.vieapps.Services.Files
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
-				Filename = pathSegments.Length > 4 && pathSegments[3].IsValidUUID() ? pathSegments[4].UrlDecode() : "",
+				Filename = pathSegments.Length > 4 ? pathSegments[4].UrlDecode() : "",
 				IsThumbnail = false
 			};
 
@@ -75,7 +75,7 @@ namespace net.vieapps.Services.Files
 				if (!fileInfo.Exists)
 				{
 					if (Global.IsDebugLogEnabled)
-						context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}");
+						context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: [{requestUri}] => [{fileInfo.FullName}]");
 					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 					return;
 				}

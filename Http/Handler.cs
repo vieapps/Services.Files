@@ -567,7 +567,7 @@ namespace net.vieapps.Services.Files
 					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash"));
 
 		public static string GetFileName(this AttachmentInfo attachmentInfo)
-			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename;
+			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename.Replace("+", " ").Replace("%20", " ");
 
 		public static string GetDirectoryPath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
 			=> isTemporary || attachmentInfo.IsTemporary
