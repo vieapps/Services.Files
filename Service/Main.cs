@@ -1,6 +1,5 @@
 ﻿#region Related components
 using System;
-using System.IO;
 using System.Linq;
 using System.Diagnostics;
 using System.Threading;
@@ -32,8 +31,8 @@ namespace net.vieapps.Services.Files
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
+			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
-			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
@@ -89,9 +88,9 @@ namespace net.vieapps.Services.Files
 							break;
 					}
 					stopwatch.Stop();
-					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
+					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
+						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
 					return json;
 				}
 				catch (Exception ex)
@@ -1082,6 +1081,5 @@ namespace net.vieapps.Services.Files
 					await this.WriteLogsAsync(correlationID, $"Error occurred while rebuilding thumbnail image info => {ex.Message}", ex, this.ServiceName, "Thumbnails.Rebuilds").ConfigureAwait(false);
 				}
 		}
-
 	}
 }

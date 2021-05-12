@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "file#" + attachment.ID;
+			var eTag = "webp#" + attachment.ID.ToLower();
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Files
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})");
+					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Files
 
 			// check exist
 			var cacheKey = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
-				? $"WebpImage#{attachment.Filename.ToLower().GenerateUUID()}"
+				? eTag
 				: null;
 			var hasCached = cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
@@ -72,7 +72,7 @@ namespace net.vieapps.Services.Files
 				if (!fileInfo.Exists)
 				{
 					if (Global.IsDebugLogEnabled)
-						context.WriteLogs(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}");
+						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}").ConfigureAwait(false);
 					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 					return;
 				}
@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Files
 				using var stream = UtilityService.CreateMemoryStream(bytes);
 				await context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
-					context.WriteLogs(this.Logger, "Http.Downloads", $"Successfully flush a cached WebP Image file ({requestUri})");
+					await context .WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached WebP Image file ({requestUri})").ConfigureAwait(false);
 			}
 			else
 			{
@@ -100,8 +100,8 @@ namespace net.vieapps.Services.Files
 				if (cacheKey != null)
 					await Task.WhenAll
 					(
-						Global.Cache.SetAsFragmentsAsync(cacheKey, imageStream.ToBytes(), 1440, cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), 1440, cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(cacheKey, imageStream.ToBytes(), 0, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), 0, cancellationToken),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update a WebP Image file into cache successful ({requestUri})") : Task.CompletedTask
 					).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)

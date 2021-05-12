@@ -328,16 +328,19 @@ namespace net.vieapps.Services.Files
 					}
 
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
 						.GetSubject<CommunicateMessage>($"messages.services.{Global.ServiceName.ToLower()}")
 						.Subscribe(
 							async message =>
 							{
 								try
 								{
-									if (Global.IsDebugLogEnabled)
-										await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Got an inter-communicate message\r\n{message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", null, Global.ServiceName).ConfigureAwait(false);
-									await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
+									if (!Handler.NodeName.IsEquals(message.ExcludedNodeID))
+									{
+										if (Global.IsDebugLogEnabled)
+											await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Got an inter-communicate message\r\n{message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", null, Global.ServiceName).ConfigureAwait(false);
+										await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
+									}
 								}
 								catch (Exception ex)
 								{
@@ -347,14 +350,15 @@ namespace net.vieapps.Services.Files
 							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.apigateway")
 						.Subscribe(
 							async message =>
 							{
 								try
 								{
-									await Handler.ProcessAPIGatewayCommunicateMessageAsync(message).ConfigureAwait(false);
+									if (!Handler.NodeName.IsEquals(message.ExcludedNodeID))
+										await Handler.ProcessAPIGatewayCommunicateMessageAsync(message).ConfigureAwait(false);
 								}
 								catch (Exception ex)
 								{
@@ -380,19 +384,34 @@ namespace net.vieapps.Services.Files
 					await Global.RegisterServiceAsync($"Http.{Global.ServiceName}").ConfigureAwait(false);
 				},
 				waitingTimes,
-				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in period of times => {exception.Message}", exception),
+				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in a period of times => {exception.Message}", exception),
 				exception => Global.Logger.LogError($"Error occurred while connecting to API Gateway Router => {exception.Message}", exception)
 			);
 		}
 
 		internal static void Disconnect(int waitingTimes = 1234)
 			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
-				.ContinueWith(_ =>
+				.ContinueWith(async task =>
 				{
-					Global.UnregisterService($"Http.{Global.ServiceName}", waitingTimes);
+					var ex = task.Exception?.InnerException ?? task.Exception;
+					if (ex != null)
+						Global.Logger.LogError($"Error occurred while unregistering the synchronizer => {ex.Message}", ex);
+					await Global.UnregisterServiceAsync($"Http.{Global.ServiceName}").ConfigureAwait(false);
+				}, TaskContinuationOptions.OnlyOnRanToCompletion)
+				.ContinueWith(task =>
+				{
+					var ex = task.Exception?.InnerException ?? task.Exception;
+					if (ex != null)
+						Global.Logger.LogError($"Error occurred while unregistering the service => {ex.Message}", ex);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.Disconnect(waitingTimes);
+				}, TaskContinuationOptions.OnlyOnRanToCompletion)
+				.ContinueWith(task =>
+				{
+					var ex = task.Exception?.InnerException ?? task.Exception;
+					if (ex != null)
+						Global.Logger.LogError($"Error occurred while disconnecting from API Gateway Router => {ex.Message}", ex);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion)
 				.ConfigureAwait(false)
 				.GetAwaiter()
@@ -520,7 +539,6 @@ namespace net.vieapps.Services.Files
 	}
 
 	#region Attachment Info
-	[Serializable]
 	public struct AttachmentInfo
 	{
 		public string ID { get; set; }
@@ -732,7 +750,8 @@ namespace net.vieapps.Services.Files
 		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default)
 			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
 				? Task.CompletedTask
-				: Task.WhenAll(
+				: Task.WhenAll
+				(
 					context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 					{
 						{ "object-identity", "counters" },

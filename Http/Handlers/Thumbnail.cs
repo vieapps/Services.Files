@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Files
 				IsTemporary = false,
 				IsTracked = false
 			};
-			if ("webp".IsEquals(format) && pathSegments[2].Equals("1") && attachment.Filename.IsEndsWith(".webp"))
+			if ("webp".IsEquals(format) && !pathSegments[2].Equals("0") && attachment.Filename.IsEndsWith(".webp"))
 				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
 				// check existed
@@ -137,17 +137,15 @@ namespace net.vieapps.Services.Files
 				// generate
 				try
 				{
-					using (var stream = UtilityService.CreateMemoryStream())
+					using var stream = UtilityService.CreateMemoryStream();
+					using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
 					{
-						using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
-						{
-							// add watermark
+						// add watermark
 
-							// get thumbnail image
-							image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
-						}
-						thumbnail = stream.ToBytes();
+						// get thumbnail image
+						image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
 					}
+					thumbnail = stream.ToBytes();
 				}
 
 				// read the whole file when got error
@@ -163,8 +161,8 @@ namespace net.vieapps.Services.Files
 					(
 						Global.Cache.AddSetMemberAsync($"{(attachment.SystemID.IsValidUUID() ? attachment.SystemID : attachment.ServiceName)}:Thumbnails", $"{attachment.ObjectID}:Thumbnails", cancellationToken),
 						Global.Cache.AddSetMemberAsync($"{attachment.ObjectID}:Thumbnails", cacheKey, cancellationToken),
-						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 1440, cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToHttpString(), 1440, cancellationToken),
+						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToHttpString(), 0, cancellationToken),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Update a thumbnail image into cache successful [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 					).ConfigureAwait(false);
 
@@ -219,61 +217,57 @@ namespace net.vieapps.Services.Files
 
 		Bitmap Generate(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
 		{
-			using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize))
+			using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize);
+			using var image = Image.FromStream(stream) as Bitmap;
+
+			// clone original image
+			if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
+				return image.Clone() as Bitmap;
+
+			// calculate size depend on width
+			if (height < 1)
 			{
-				using (var image = Image.FromStream(stream) as Bitmap)
-				{
-					// clone original image
-					if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
-						return image.Clone() as Bitmap;
-
-					// calculate size depend on width
-					if (height < 1)
-					{
-						height = image.Height * width / image.Width;
-						if (height < 1)
-							height = image.Height;
-					}
-
-					// calculate size depend on height
-					else if (width < 1)
-					{
-						width = image.Width * height / image.Height;
-						if (width < 1)
-							width = image.Width;
-					}
-
-					// generate thumbnail
-					return isCropped
-						? this.Generate(image, width, height, asBig, cropPosition)
-						: this.Generate(image, width, height, asBig);
-				}
+				height = image.Height * width / image.Width;
+				if (height < 1)
+					height = image.Height;
 			}
+
+			// calculate size depend on height
+			else if (width < 1)
+			{
+				width = image.Width * height / image.Height;
+				if (width < 1)
+					width = image.Width;
+			}
+
+			// generate thumbnail
+			return isCropped
+				? this.Generate(image, width, height, asBig, cropPosition)
+				: this.Generate(image, width, height, asBig);
 		}
 
 		Bitmap Generate(Bitmap image, int width, int height, bool asBig, string cropPosition)
 		{
-			using (var thumbnail = this.Generate(image, width, (image.Height * width) / image.Width, asBig))
-			{
-				// if height is less than thumbnail image's height, then return thumbnail image
-				if (thumbnail.Height <= height)
-					return thumbnail.Clone() as Bitmap;
+			using var thumbnail = this.Generate(image, width, (image.Height * width) / image.Width, asBig);
 
-				// crop image
-				int top = cropPosition.IsEquals("auto")
-					? (thumbnail.Height - height) / 2
-					: cropPosition.IsEquals("bottom")
-						? thumbnail.Height - height
-						: 0;
-				using (var cropped = new Bitmap(width, height))
-				{
-					using (var graphics = Graphics.FromImage(cropped))
-					{
-						graphics.DrawImage(thumbnail, new Rectangle(0, 0, width, height), new Rectangle(0, top, width, height), GraphicsUnit.Pixel);
-					}
-					return cropped.Clone() as Bitmap;
-				}
+			// if height is less than thumbnail image's height, then return thumbnail image
+			if (thumbnail.Height <= height)
+				return thumbnail.Clone() as Bitmap;
+
+			// crop image
+			int top = cropPosition.IsEquals("auto")
+				? (thumbnail.Height - height) / 2
+				: cropPosition.IsEquals("bottom")
+					? thumbnail.Height - height
+					: 0;
+
+			using var cropped = new Bitmap(width, height);
+			using (var graphics = Graphics.FromImage(cropped))
+			{
+				graphics.DrawImage(thumbnail, new Rectangle(0, 0, width, height), new Rectangle(0, top, width, height), GraphicsUnit.Pixel);
 			}
+
+			return cropped.Clone() as Bitmap;
 		}
 
 		Bitmap Generate(Bitmap image, int width, int height, bool asBig)
@@ -299,20 +293,14 @@ namespace net.vieapps.Services.Files
 
 		internal static ArraySegment<byte> Generate(string message, int width = 300, int height = 100, bool exportAsPng = false)
 		{
-			using (var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555))
-			{
-				using (var graphics = Graphics.FromImage(bitmap))
-				{
-					graphics.SmoothingMode = SmoothingMode.AntiAlias;
-					graphics.Clear(Color.White);
-					graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-					using (var stream = UtilityService.CreateMemoryStream())
-					{
-						bitmap.Save(stream, exportAsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-						return stream.ToArraySegment();
-					}
-				}
-			}
+			using var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
+			using var graphics = Graphics.FromImage(bitmap);
+			graphics.SmoothingMode = SmoothingMode.AntiAlias;
+			graphics.Clear(Color.White);
+			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
+			using var stream = UtilityService.CreateMemoryStream();
+			bitmap.Save(stream, exportAsPng ? ImageFormat.Png : ImageFormat.Jpeg);
+			return stream.ToArraySegment();
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
