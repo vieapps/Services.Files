@@ -4,12 +4,8 @@ using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -28,6 +24,7 @@ namespace net.vieapps.Services.Files
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 			var fileName = pathSegments.Length > 1 ? pathSegments[1] : null;
@@ -69,17 +66,17 @@ namespace net.vieapps.Services.Files
 			}
 
 			// check request headers to reduce traffict
-			var eTag = "Avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID();
+			var eTag = "avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID();
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", correlationID);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
 			// response
-			context.SetResponseHeaders((int)HttpStatusCode.OK, fileInfo.GetMimeType(), eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(7), context.GetCorrelationID());
+			context.SetResponseHeaders((int)HttpStatusCode.OK, fileInfo.GetMimeType(), eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(366), correlationID);
 			await context.WriteAsync(fileInfo, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,###,###,###,##0} bytes]").ConfigureAwait(false);
@@ -93,7 +90,7 @@ namespace net.vieapps.Services.Files
 
 			var fileSize = 0;
 			var fileExtension = ".png";
-			var content = new byte[0];
+			var content = Array.Empty<byte>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 
 			// limit size - default is 1 MB
@@ -141,11 +138,9 @@ namespace net.vieapps.Services.Files
 					return;
 				}
 
-				using (var stream = file.OpenReadStream())
-				{
-					content = new byte[file.Length];
-					await stream.ReadAsync(content, 0, fileSize).ConfigureAwait(false);
-				}
+				using var stream = file.OpenReadStream();
+				content = new byte[file.Length];
+				await stream.ReadAsync(content.AsMemory(0, fileSize), cancellationToken).ConfigureAwait(false);
 			}
 
 			// write into file of temporary directory

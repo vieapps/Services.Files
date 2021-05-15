@@ -9,10 +9,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
 using System.Collections.Generic;
-
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -279,14 +276,12 @@ namespace net.vieapps.Services.Files
 				}
 
 			// export as JPEG image
-			using (var stream = UtilityService.CreateMemoryStream())
-			{
-				noisedBitmap.Save(stream, ImageFormat.Jpeg);
-				securityGraph.Dispose();
-				securityBitmap.Dispose();
-				noisedBitmap.Dispose();
-				return stream.ToArraySegment();
-			}
+			using var stream = UtilityService.CreateMemoryStream();
+			noisedBitmap.Save(stream, ImageFormat.Jpeg);
+			securityGraph.Dispose();
+			securityBitmap.Dispose();
+			noisedBitmap.Dispose();
+			return stream.ToArraySegment();
 		}
 
 		Bitmap CreateBackround(int width, int height, Color[] backgroundColors)

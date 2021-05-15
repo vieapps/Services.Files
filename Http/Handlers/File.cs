@@ -28,6 +28,7 @@ namespace net.vieapps.Services.Files
 		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 
@@ -50,7 +51,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
@@ -76,7 +77,7 @@ namespace net.vieapps.Services.Files
 				{
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: [{requestUri}] => [{fileInfo.FullName}]").ConfigureAwait(false);
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}
@@ -87,9 +88,7 @@ namespace net.vieapps.Services.Files
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				var bytes = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				using (var stream = UtilityService.CreateMemoryStream(bytes))
-				{
-					await context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-				}
+					await context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})").ConfigureAwait(false);
 			}
@@ -153,18 +152,18 @@ namespace net.vieapps.Services.Files
 				// create meta info
 				Exception exception = null;
 				JToken response = new JArray();
-				await attachments.ForEachAsync(async (attachment, token) =>
+				await attachments.ForEachAsync(async attachment =>
 				{
 					if (exception == null)
 						try
 						{
-							(response as JArray).Add(await context.CreateAsync(attachment, token).ConfigureAwait(false));
+							(response as JArray).Add(await context.CreateAsync(attachment, cancellationToken).ConfigureAwait(false));
 						}
 						catch (Exception ex)
 						{
 							exception = ex;
 						}
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 				if (exception != null)
 					throw exception;
 
@@ -205,50 +204,51 @@ namespace net.vieapps.Services.Files
 		async Task<List<AttachmentInfo>> ReceiveByFormFileAsync(HttpContext context, string serviceName, string objectName, string systemID, string entityInfo, string objectID, bool isShared, bool isTracked, bool isTemporary, CancellationToken cancellationToken)
 		{
 			var attachments = new List<AttachmentInfo>();
-			await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async (file, token) =>
+			await context.Request.Form.Files.Where(file => file != null && file.Length > 0).ForEachAsync(async file =>
 			{
-				using (var uploadStream = file.OpenReadStream())
+				using var uploadStream = file.OpenReadStream();
+
+				// prepare
+				var attachment = new AttachmentInfo
 				{
-					// prepare
-					var attachment = new AttachmentInfo
-					{
-						ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
-						ServiceName = serviceName,
-						ObjectName = objectName,
-						SystemID = systemID,
-						EntityInfo = entityInfo,
-						ObjectID = objectID,
-						Size = file.Length,
-						Filename = file.FileName,
-						ContentType = file.ContentType,
-						IsShared = isShared,
-						IsTracked = isTracked,
-						IsTemporary = isTemporary,
-						Title = file.FileName,
-						Description = "",
-						IsThumbnail = false
-					};
+					ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
+					ServiceName = serviceName,
+					ObjectName = objectName,
+					SystemID = systemID,
+					EntityInfo = entityInfo,
+					ObjectID = objectID,
+					Size = file.Length,
+					Filename = file.FileName,
+					ContentType = file.ContentType,
+					IsShared = isShared,
+					IsTracked = isTracked,
+					IsTemporary = isTemporary,
+					Title = file.FileName,
+					Description = "",
+					IsThumbnail = false
+				};
 
-					// save file into disc
-					using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+				// save file into disc
+				using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+				{
+					var buffer = new byte[AspNetCoreUtilityService.BufferSize];
+					var read = 0;
+					do
 					{
-						var buffer = new byte[AspNetCoreUtilityService.BufferSize];
-						var read = 0;
-						do
+						read = await uploadStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+						if (read > 0)
 						{
-							read = await uploadStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-							if (read > 0)
-							{
-								await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-								await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-							}
-						} while (read > 0);
+							await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+						}
 					}
-
-					// update attachment info
-					attachments.Add(attachment);
+					while (read > 0);
 				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
+
+				// update attachment info
+				attachments.Add(attachment);
+			}, true, false).ConfigureAwait(false);
+
 			return attachments;
 		}
 
@@ -310,19 +310,21 @@ namespace net.vieapps.Services.Files
 					var read = 0;
 					do
 					{
-						read = await section.Body.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+						read = await section.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
 						if (read > 0)
 						{
-							await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+							await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
 							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
 						}
-					} while (read > 0);
+					}
+					while (read > 0);
 					attachment.Size = fileStream.Length;
 				}
 
 				// update attachment info
 				attachments.Add(attachment);
-			} while (section == null);
+			}
+			while (section == null);
 
 			// return info of all uploaded files
 			return attachments;

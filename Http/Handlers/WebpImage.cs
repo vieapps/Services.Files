@@ -22,6 +22,7 @@ namespace net.vieapps.Services.Files
 		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 
@@ -39,12 +40,12 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = "webp#" + attachment.ID.ToLower();
+			var eTag = $"webp#{attachment.ID.ToLower()}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
@@ -73,7 +74,7 @@ namespace net.vieapps.Services.Files
 				{
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}").ConfigureAwait(false);
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}
@@ -84,7 +85,7 @@ namespace net.vieapps.Services.Files
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				var bytes = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				using var stream = UtilityService.CreateMemoryStream(bytes);
-				await context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context .WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached WebP Image file ({requestUri})").ConfigureAwait(false);
 			}

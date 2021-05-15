@@ -25,12 +25,9 @@ namespace net.vieapps.Services.Files
 {
 	public class Handler
 	{
-		RequestDelegate Next { get; }
-
 		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
-		public Handler(RequestDelegate next)
-			=> this.Next = next;
+		public Handler(RequestDelegate _) { }
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -56,21 +53,7 @@ namespace net.vieapps.Services.Files
 
 			// requests of files
 			else
-			{
-				// process
 				await this.ProcessRequestAsync(context).ConfigureAwait(false);
-
-				// invoke next middleware
-				try
-				{
-					await this.Next.Invoke(context).ConfigureAwait(false);
-				}
-				catch (InvalidOperationException) { }
-				catch (Exception ex)
-				{
-					Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
-				}
-			}
 		}
 
 		async Task ProcessRequestAsync(HttpContext context)
@@ -140,7 +123,7 @@ namespace net.vieapps.Services.Files
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})");
+							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
 					}
 
 					// just assign user information
@@ -178,41 +161,41 @@ namespace net.vieapps.Services.Files
 			context.SetItem("Session", session);
 
 			// process the request
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted);
+			var handler = type.CreateInstance() as Services.FileHandler;
+			try
 			{
-				var handler = type.CreateInstance() as Services.FileHandler;
-				try
-				{
-					await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
-				}
-				catch (OperationCanceledException) { }
-				catch (Exception ex)
-				{
-					var logName = context.Request.Method.IsEquals("POST")
-						? "Uploads"
-						: requestPath.IsStartsWith("thumbnail")
-							? "Thumbnails"
-							: requestPath.IsStartsWith("file") || requestPath.IsStartsWith("download")
-								? "Downloads"
-								: requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s");
-					await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) { }
+			catch (Exception ex)
+			{
+				var logName = context.Request.Method.IsEquals("POST")
+					? "Uploads"
+					: requestPath.IsStartsWith("thumbnail")
+						? "Thumbnails"
+						: requestPath.IsStartsWith("file") || requestPath.IsStartsWith("download")
+							? "Downloads"
+							: requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s");
+				await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 
-					if (context.Request.Method.IsEquals("POST"))
-						context.WriteError(handler?.Logger, ex, null, null, false);
+				if (context.Request.Method.IsEquals("POST"))
+					context.WriteError(handler?.Logger, ex, null, null, false);
+				else
+				{
+					var statusCode = ex.GetHttpStatusCode();
+					if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
+						context.Redirect(context.GetPassportSessionAuthenticatorUrl());
 					else
 					{
-						if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
-							context.Redirect(context.GetPassportSessionAuthenticatorUrl());
-						else
+						if (ex is WampException wampException)
 						{
-							if (ex is WampException wampException)
-							{
-								var wampDetails = wampException.GetDetails();
-								context.ShowHttpError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
-							}
-							else
-								context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+							var wampDetails = wampException.GetDetails();
+							statusCode = wampDetails.Item1;
+							context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 						}
+						else
+							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
 					}
 				}
 			}

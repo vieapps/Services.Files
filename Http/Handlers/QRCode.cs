@@ -7,14 +7,9 @@ using System.Threading.Tasks;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
-using System.Collections.Generic;
 using System.Diagnostics;
-
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-
 using QRCoder;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -31,7 +26,7 @@ namespace net.vieapps.Services.Files
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// generate
-			var data = new ArraySegment<byte>(new byte[0]);
+			var data = new ArraySegment<byte>(Array.Empty<byte>());
 			var size = 300;
 			var stopwatch = Stopwatch.StartNew();
 
@@ -90,23 +85,19 @@ namespace net.vieapps.Services.Files
 
 		ArraySegment<byte> Generate(string value, int size, QRCodeGenerator.ECCLevel level)
 		{
-			using (var generator = new QRCodeGenerator())
-			using (var data = generator.CreateQrCode(value, level))
-			using (var code = new QRCode(data))
-			using (var bigBmp = code.GetGraphic(20))
-			using (var smallBmp = new Bitmap(size, size))
-			using (var graphics = Graphics.FromImage(smallBmp))
-			{
-				graphics.SmoothingMode = SmoothingMode.HighQuality;
-				graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-				graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-				graphics.DrawImage(bigBmp, new Rectangle(0, 0, size, size));
-				using (var stream = UtilityService.CreateMemoryStream())
-				{
-					smallBmp.Save(stream, ImageFormat.Png);
-					return stream.ToArraySegment();
-				}
-			}
+			using var generator = new QRCodeGenerator();
+			using var data = generator.CreateQrCode(value, level);
+			using var code = new QRCode(data);
+			using var bigBmp = code.GetGraphic(20);
+			using var smallBmp = new Bitmap(size, size);
+			using var graphics = Graphics.FromImage(smallBmp);
+			graphics.SmoothingMode = SmoothingMode.HighQuality;
+			graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+			graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+			graphics.DrawImage(bigBmp, new Rectangle(0, 0, size, size));
+			using var stream = UtilityService.CreateMemoryStream();
+			smallBmp.Save(stream, ImageFormat.Png);
+			return stream.ToArraySegment();
 		}
 	}
 }

@@ -1,28 +1,18 @@
 ﻿#region Related components
 using System;
-using System.Net;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Xml;
-
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
-
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -32,15 +22,10 @@ namespace net.vieapps.Services.Files.Storages
 {
 	public class Handler
 	{
-		RequestDelegate Next { get; }
-
 		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
-		public Handler(RequestDelegate next)
-		{
-			this.Next = next;
-			this.Prepare();
-		}
+		public Handler(RequestDelegate _)
+			=> this.Prepare();
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -50,21 +35,7 @@ namespace net.vieapps.Services.Files.Storages
 
 			// request of storages
 			else
-			{
-				// process the request
 				await this.ProcessRequestAsync(context).ConfigureAwait(false);
-
-				// invoke next middleware
-				try
-				{
-					await this.Next.Invoke(context).ConfigureAwait(false);
-				}
-				catch (InvalidOperationException) { }
-				catch (Exception ex)
-				{
-					Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
-				}
-			}
 		}
 
 		#region Prepare attributes

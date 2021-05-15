@@ -78,7 +78,6 @@ namespace net.vieapps.Services.Files.Storages
 			var stopwatch = Stopwatch.StartNew();
 			Console.OutputEncoding = Encoding.UTF8;
 			Global.ServiceName = "Storages";
-			AspNetCoreUtilityService.ServerName = UtilityService.GetAppSetting("ServerName", "VIEApps NGX");
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");

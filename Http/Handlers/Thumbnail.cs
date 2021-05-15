@@ -31,17 +31,20 @@ namespace net.vieapps.Services.Files
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			// check "If-Modified-Since" request to reduce traffict
+			// prepare
+			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
 			var cacheKey = $"{requestUri}".ToLower().GenerateUUID();
+
+			// check "If-Modified-Since" request to reduce traffict
 			var lastModified = useCache ? await Global.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
 			var eTag = $"thumbnail#{cacheKey}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
@@ -101,7 +104,7 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}
@@ -182,31 +185,31 @@ namespace net.vieapps.Services.Files
 			if ("webp".IsEquals(format))
 			{
 				if (isCached)
-					using (var stream = UtilityService.CreateMemoryStream(bytes))
-					{
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-					}
+				{
+					using var stream = UtilityService.CreateMemoryStream(bytes);
+					await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
+				}
 				else
-					using (var imageFactory = new ImageFactory())
-					using (var stream = UtilityService.CreateMemoryStream())
-					{
-						imageFactory.Load(bytes);
-						imageFactory.Quality = 100;
-						imageFactory.Save(stream);
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-						if (useCache)
-							await Task.WhenAll
-							(
-								Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
-								Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Re-update a thumbnail image with WebP image format into cache successful ({requestUri})") : Task.CompletedTask
-							).ConfigureAwait(false);
-					}
+				{
+					using var imageFactory = new ImageFactory();
+					using var stream = UtilityService.CreateMemoryStream();
+					imageFactory.Load(bytes);
+					imageFactory.Quality = 100;
+					imageFactory.Save(stream);
+					await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
+					if (useCache)
+						await Task.WhenAll
+						(
+							Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Re-update a thumbnail image with WebP image format into cache successful ({requestUri})") : Task.CompletedTask
+						).ConfigureAwait(false);
+				}
 			}
 			else
-				using (var stream = UtilityService.CreateMemoryStream(bytes))
-				{
-					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
-				}
+			{
+				using var stream = UtilityService.CreateMemoryStream(bytes);
+				await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
+			}
 
 			await Task.WhenAll
 			(
@@ -255,17 +258,15 @@ namespace net.vieapps.Services.Files
 				return thumbnail.Clone() as Bitmap;
 
 			// crop image
-			int top = cropPosition.IsEquals("auto")
+			var top = cropPosition.IsEquals("auto")
 				? (thumbnail.Height - height) / 2
 				: cropPosition.IsEquals("bottom")
 					? thumbnail.Height - height
 					: 0;
 
 			using var cropped = new Bitmap(width, height);
-			using (var graphics = Graphics.FromImage(cropped))
-			{
-				graphics.DrawImage(thumbnail, new Rectangle(0, 0, width, height), new Rectangle(0, top, width, height), GraphicsUnit.Pixel);
-			}
+			using var graphics = Graphics.FromImage(cropped);
+			graphics.DrawImage(thumbnail, new Rectangle(0, 0, width, height), new Rectangle(0, top, width, height), GraphicsUnit.Pixel);
 
 			return cropped.Clone() as Bitmap;
 		}
@@ -278,17 +279,15 @@ namespace net.vieapps.Services.Files
 
 			// get and return big thumbnail (set resolution of original thumbnail)
 			else
-				using (var thumbnail = new Bitmap(width, height))
-				{
-					using (var graphics = Graphics.FromImage(thumbnail))
-					{
-						graphics.SmoothingMode = SmoothingMode.HighQuality;
-						graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-						graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-						graphics.DrawImage(image, new Rectangle(0, 0, width, height));
-					}
-					return thumbnail.Clone() as Bitmap;
-				}
+			{
+				using var thumbnail = new Bitmap(width, height);
+				using var graphics = Graphics.FromImage(thumbnail);
+				graphics.SmoothingMode = SmoothingMode.HighQuality;
+				graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+				graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+				graphics.DrawImage(image, new Rectangle(0, 0, width, height));
+				return thumbnail.Clone() as Bitmap;
+			}
 		}
 
 		internal static ArraySegment<byte> Generate(string message, int width = 300, int height = 100, bool exportAsPng = false)
@@ -352,15 +351,16 @@ namespace net.vieapps.Services.Files
 			{
 				for (var index = 0; index < context.Request.Form.Files.Count && index < 7; index++)
 					thumbnails.Add(null);
+
 				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, _) =>
 				{
 					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
-						using (var stream = file.OpenReadStream())
-						{
-							var thumbnail = new byte[file.Length];
-							await stream.ReadAsync(thumbnail, 0, (int)file.Length, cancellationToken).ConfigureAwait(false);
-							thumbnails[index] = thumbnail;
-						}
+					{
+						using var stream = file.OpenReadStream();
+						var thumbnail = new byte[file.Length];
+						await stream.ReadAsync(thumbnail.AsMemory(0, (int)file.Length), cancellationToken).ConfigureAwait(false);
+						thumbnails[index] = thumbnail;
+					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			}
 
@@ -379,6 +379,7 @@ namespace net.vieapps.Services.Files
 				{
 					title = UtilityService.NewUUID;
 				}
+
 				await thumbnails.ForEachAsync(async (thumbnail, index, _) =>
 				{
 					if (thumbnail != null)
@@ -414,16 +415,16 @@ namespace net.vieapps.Services.Files
 				// create meta info
 				var response = new JArray();
 				var cacheKeys = new List<string>();
-				await attachments.ForEachAsync(async (attachment, token) =>
+				await attachments.ForEachAsync(async attachment =>
 				{
-					response.Add(await context.CreateAsync(attachment, token).ConfigureAwait(false));
+					response.Add(await context.CreateAsync(attachment, cancellationToken).ConfigureAwait(false));
 					if (useCache)
 					{
 						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:Thumbnails", cancellationToken).ConfigureAwait(false);
 						if (keys != null && keys.Count > 0)
 							cacheKeys = cacheKeys.Concat(new[] { $"{attachment.ObjectID}:Thumbnails" }).Concat(keys).ToList();
 					}
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 
 				// clear cache
 				if (useCache && cacheKeys.Count > 0)

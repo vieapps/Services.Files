@@ -21,6 +21,7 @@ namespace net.vieapps.Services.Files
 		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 			if (Global.IsDebugLogEnabled)
@@ -38,7 +39,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", context.GetCorrelationID());
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
@@ -55,7 +56,7 @@ namespace net.vieapps.Services.Files
 			// check exist
 			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 
 			// flush the file to output stream, update counter & logs
 			else

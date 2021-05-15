@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
@@ -18,7 +17,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using WampSharp.V2.Realm;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -53,18 +51,10 @@ namespace net.vieapps.Services.Files
 				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
-			services.AddDataProtection().PrepareDataProtection();
-
-			// config options of IIS Server (for working with InProcess hosting model)
-			if (Global.UseIISInProcess)
-				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ =>
-				{
-					options.AllowSynchronousIO = true;
-					options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize;
-				}));
+			services.AddDataProtection().PrepareDataProtection("VIEApps-NGX-Files");
 
 			// config authentication with proxy/load balancer
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
+			if (Global.UseIISIntegration)
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
 			else
@@ -75,6 +65,10 @@ namespace net.vieapps.Services.Files
 				if (!string.IsNullOrWhiteSpace(certificateHeader))
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
+
+			// config options of IIS server (for working with InProcess hosting model)
+			if (Global.UseIISInProcess)
+				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ => options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize));
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
@@ -83,7 +77,6 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			Console.OutputEncoding = Encoding.UTF8;
 			Global.ServiceName = "Files";
-			AspNetCoreUtilityService.ServerName = UtilityService.GetAppSetting("ServerName", "VIEApps NGX");
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
@@ -180,9 +173,6 @@ namespace net.vieapps.Services.Files
 
 			// setup the handler for all requests
 			appBuilder.UseMiddleware<Handler>();
-
-			// setup the caching storage
-			Global.Cache = appBuilder.ApplicationServices.GetService<ICache>();
 
 			// connect to API Gateway Router
 			Handler.Connect(onIncomingConnectionEstablished, onOutgoingConnectionEstablished);
