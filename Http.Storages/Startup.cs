@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -14,7 +13,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Files.Storages
@@ -22,7 +20,7 @@ namespace net.vieapps.Services.Files.Storages
 	public class Startup
 	{
 		public static void Main(string[] args)
-			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8027);
+			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args);
 
 		public Startup(IConfiguration configuration)
 			=> this.Configuration = configuration;
@@ -50,16 +48,8 @@ namespace net.vieapps.Services.Files.Storages
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			services.AddDataProtection().PrepareDataProtection();
 
-			// config options of IIS Server (for working with InProcess hosting model)
-			if (Global.UseIISInProcess)
-				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ =>
-				{
-					options.AllowSynchronousIO = true;
-					options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize;
-				}));
-
 			// config authentication with proxy/load balancer
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
+			if (Global.UseIISIntegration)
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
 			else
@@ -70,6 +60,10 @@ namespace net.vieapps.Services.Files.Storages
 				if (!string.IsNullOrWhiteSpace(certificateHeader))
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
+
+			// config options of IIS Server (for working with InProcess hosting model)
+			if (Global.UseIISInProcess)
+				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ => options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize));
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
@@ -135,9 +129,6 @@ namespace net.vieapps.Services.Files.Storages
 				.UseCookiePolicy()
 				.UseAuthentication()
 				.UseMiddleware<Handler>();
-
-			// setup the caching storage
-			Global.Cache = appBuilder.ApplicationServices.GetService<ICache>();
 
 			// connect to API Gateway Router
 			Handler.Connect();

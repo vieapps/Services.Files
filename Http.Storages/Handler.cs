@@ -246,10 +246,8 @@ namespace net.vieapps.Services.Files.Storages
 				if (!this.DirectFlush)
 					headers["Content-Disposition"] = $"Attachment; Filename=\"{fileInfo.Name.UrlEncode()}\"";
 
-				using (var stream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true))
-				{
-					await context.WriteAsync(stream, headers, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-				}
+				using var stream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true);
+				await context.WriteAsync(stream, headers, null, Global.CancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
