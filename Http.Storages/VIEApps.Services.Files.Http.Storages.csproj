@@ -5,6 +5,7 @@
 		<WarningLevel>3</WarningLevel>
 		<NoWarn>1573,1591</NoWarn>
 		<OutputType>Exe</OutputType>
+		<InvariantGlobalization>true</InvariantGlobalization>
 		<AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
 		<RootNamespace>net.vieapps.Services.Files.Storages</RootNamespace>
 		<StartupObject>net.vieapps.Services.Files.Storages.Startup</StartupObject>
@@ -31,7 +32,7 @@
 		<PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.linux-x64" Version="3.9.1" Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'" />
 		<PackageReference Include="Microsoft.AspNetCore" Version="2.2.0" />
 		<PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.2.0" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.4.2105.1" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.4.2107.2" />
 	</ItemGroup>
 
 </Project>

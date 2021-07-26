@@ -37,10 +37,10 @@ namespace net.vieapps.Services.Files
 		{
 			// mandatory services
 			services
+				.AddHttpContextAccessor()
 				.AddResponseCompression(options => options.EnableForHttps = true)
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
-				.AddHttpContextAccessor()
 				.AddSession(options => Global.PrepareSessionOptions(options))
 				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
 				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
@@ -183,19 +183,21 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"API Gateway Router: {new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service: {UtilityService.GetAppSetting("HttpUri:APIs", "None")}");
 				Global.Logger.LogInformation($"Files HTTP service: {UtilityService.GetAppSetting("HttpUri:Files", "None")}");
-				Global.Logger.LogInformation($"Passports HTTP service: {UtilityService.GetAppSetting("HttpUri:Passports", "None")}");
 				Global.Logger.LogInformation($"Portals HTTP service: {UtilityService.GetAppSetting("HttpUri:Portals", "None")}");
 				Global.Logger.LogInformation($"Root (base) directory: {Global.RootPath}");
-				Global.Logger.LogInformation($"Temporary directory: {UtilityService.GetAppSetting("Path:Temp", "None")}");
 				Global.Logger.LogInformation($"Status files directory: {UtilityService.GetAppSetting("Path:Status", "None")}");
 				Global.Logger.LogInformation($"Static files directory: {UtilityService.GetAppSetting("Path:Statics", "None")}");
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
+				Global.Logger.LogInformation($"Temporary directory: {Handler.TempFilesPath}");
+				Global.Logger.LogInformation($"Attachments directory: {Handler.AttachmentFilesPath}");
+				Global.Logger.LogInformation($"User avatars directory: {Handler.UserAvatarFilesPath}");
+				Global.Logger.LogInformation($"Default user avatar: {Handler.DefaultUserAvatarFilePath}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
 				Global.Logger.LogInformation($"Request limits => Files (multipart/form-data): {Global.MaxRequestBodySize:###,###,##0} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
 				
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Environment.ProcessId} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 

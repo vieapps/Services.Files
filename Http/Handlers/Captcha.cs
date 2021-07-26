@@ -94,7 +94,7 @@ namespace net.vieapps.Services.Files
 					? noises
 					: new List<string> { "VIEApps", "vieapps.net", "VIEApps API Gateway", "VIEApps REST API" };
 
-				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Vietnam - The hidden charm", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Enterprise Web Services", "On-Demand Services for Enterprise", "Cloud Computing Enterprise Services", "Where do you want to go today?", "Make business easier", "Simplify business process", "VIEApps", "vieapps.net" };
+				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Where do you want to go today?", "Make business easier", "Simplify business process", "VIEApps", "vieapps.net" };
 				noiseTexts.Append(texts);
 
 				var noiseText = noiseTexts[UtilityService.GetRandomNumber(0, noiseTexts.Count)];
@@ -291,38 +291,45 @@ namespace net.vieapps.Services.Files
 			int bmpHeight = UtilityService.GetRandomNumber(height / 4, height / 2);
 			if (height > 20)
 				bmpHeight = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(1, 10), UtilityService.GetRandomNumber(12, height));
-			var bitmap1 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
-			var graph = Graphics.FromImage(bitmap1);
-			graph.SmoothingMode = SmoothingMode.AntiAlias;
-			graph.Clear(backgroundColors[0]);
+			using var bitmap1 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
+			using (var graph = Graphics.FromImage(bitmap1))
+			{
+				graph.SmoothingMode = SmoothingMode.AntiAlias;
+				graph.Clear(backgroundColors[0]);
+			}
 
 			bmpWidth = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(15, width / 3), UtilityService.GetRandomNumber(width / 3, width / 2));
 			bmpHeight = UtilityService.GetRandomNumber(5, height / 3);
 			if (height > 20)
 				bmpHeight = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(5, height / 4), UtilityService.GetRandomNumber(height / 4, height / 2));
-			var bitmap2 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
-			graph = Graphics.FromImage(bitmap2);
-			graph.SmoothingMode = SmoothingMode.AntiAlias;
-			graph.Clear(backgroundColors[1]);
+			using var bitmap2 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
+			using (var graph = Graphics.FromImage(bitmap2))
+			{
+				graph.SmoothingMode = SmoothingMode.AntiAlias;
+				graph.Clear(backgroundColors[1]);
+			}
 
 			bmpWidth = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(width / 4, width / 2), UtilityService.GetRandomNumber(width / 2, width));
 			bmpHeight = UtilityService.GetRandomNumber(height / 2, height);
 			if (height > 20)
 				bmpHeight = UtilityService.GetRandomNumber(UtilityService.GetRandomNumber(height / 5, height / 2), UtilityService.GetRandomNumber(height / 2, height));
-			var bitmap3 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
-			graph = Graphics.FromImage(bitmap3);
-			graph.SmoothingMode = SmoothingMode.AntiAlias;
-			graph.Clear(backgroundColors[2]);
+			using var bitmap3 = new Bitmap(bmpWidth, bmpHeight, PixelFormat.Format16bppRgb555);
+			using (var graph = Graphics.FromImage(bitmap3))
+			{
+				graph.SmoothingMode = SmoothingMode.AntiAlias;
+				graph.Clear(backgroundColors[2]);
+			}
 
-			var backroundBitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
-			graph = Graphics.FromImage(backroundBitmap);
-			graph.SmoothingMode = SmoothingMode.AntiAlias;
-			graph.Clear(backgroundColors[3]);
-			graph.DrawImage(bitmap1, UtilityService.GetRandomNumber(0, width / 2), UtilityService.GetRandomNumber(0, height / 2));
-			graph.DrawImage(bitmap2, UtilityService.GetRandomNumber(width / 5, width / 2), UtilityService.GetRandomNumber(height / 5, height / 2));
-			graph.DrawImage(bitmap3, UtilityService.GetRandomNumber(width / 4, width / 3), UtilityService.GetRandomNumber(0, height / 3));
-
-			return backroundBitmap;
+			using var backroundBitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
+			using (var graph = Graphics.FromImage(backroundBitmap))
+			{
+				graph.SmoothingMode = SmoothingMode.AntiAlias;
+				graph.Clear(backgroundColors[3]);
+				graph.DrawImage(bitmap1, UtilityService.GetRandomNumber(0, width / 2), UtilityService.GetRandomNumber(0, height / 2));
+				graph.DrawImage(bitmap2, UtilityService.GetRandomNumber(width / 5, width / 2), UtilityService.GetRandomNumber(height / 5, height / 2));
+				graph.DrawImage(bitmap3, UtilityService.GetRandomNumber(width / 4, width / 3), UtilityService.GetRandomNumber(0, height / 3));
+			}
+			return backroundBitmap.Clone() as Bitmap;
 		}
 	}
 }

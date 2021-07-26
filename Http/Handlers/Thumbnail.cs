@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using ImageProcessorCore;
 using net.vieapps.Components.Security;
-using net.vieapps.Components.Caching;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -352,16 +351,15 @@ namespace net.vieapps.Services.Files
 				for (var index = 0; index < context.Request.Form.Files.Count && index < 7; index++)
 					thumbnails.Add(null);
 
-				await context.Request.Form.Files.Take(7).ForEachAsync(async (file, index, _) =>
-				{
-					if (file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
+				await context.Request.Form.Files.Take(7)
+					.Where(file => file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
+					.ForEachAsync(async (file, index) =>
 					{
 						using var stream = file.OpenReadStream();
 						var thumbnail = new byte[file.Length];
-						await stream.ReadAsync(thumbnail.AsMemory(0, (int)file.Length), cancellationToken).ConfigureAwait(false);
+						await stream.ReadAsync(thumbnail.AsMemory(0, thumbnail.Length), cancellationToken).ConfigureAwait(false);
 						thumbnails[index] = thumbnail;
-					}
-				}, cancellationToken, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 			}
 
 			// save uploaded files & create meta info
@@ -380,7 +378,7 @@ namespace net.vieapps.Services.Files
 					title = UtilityService.NewUUID;
 				}
 
-				await thumbnails.ForEachAsync(async (thumbnail, index, _) =>
+				await thumbnails.ForEachAsync(async (thumbnail, index) =>
 				{
 					if (thumbnail != null)
 					{
@@ -410,7 +408,7 @@ namespace net.vieapps.Services.Files
 						// update attachment info
 						attachments.Add(attachment);
 					}
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 
 				// create meta info
 				var response = new JArray();

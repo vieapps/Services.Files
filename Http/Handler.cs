@@ -183,20 +183,13 @@ namespace net.vieapps.Services.Files
 					context.WriteError(handler?.Logger, ex, null, null, false);
 				else
 				{
-					var statusCode = ex.GetHttpStatusCode();
-					if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
-						context.Redirect(context.GetPassportSessionAuthenticatorUrl());
-					else
+					if (ex is WampException wampException)
 					{
-						if (ex is WampException wampException)
-						{
-							var wampDetails = wampException.GetDetails();
-							statusCode = wampDetails.Item1;
-							context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
-						}
-						else
-							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+						var wampDetails = wampException.GetDetails();
+						context.ShowHttpError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 					}
+					else
+						context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
 				}
 			}
 		}
