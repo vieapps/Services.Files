@@ -232,12 +232,12 @@ namespace net.vieapps.Services.Files
 			=> requestInfo.FetchTemporaryFileAsync(cancellationToken);
 
 		public ValueTask DisposeAsync()
-			=> new ValueTask(Task.CompletedTask);
+			=> new(Task.CompletedTask);
 
 		public void Dispose()
 		{
 			GC.SuppressFinalize(this);
-			this.DisposeAsync().AsTask().Wait();
+			this.DisposeAsync().Run(true);
 		}
 	}
 }

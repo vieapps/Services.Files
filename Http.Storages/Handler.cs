@@ -252,7 +252,7 @@ namespace net.vieapps.Services.Files.Storages
 			catch (Exception ex)
 			{
 				await context.WriteLogsAsync("Http.Download", "Error occurred while processing", ex).ConfigureAwait(false);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), UtilityService.NewUUID, ex, true);
+				context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), UtilityService.NewUUID, ex, true);
 			}
 		}
 		#endregion

@@ -103,7 +103,7 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}

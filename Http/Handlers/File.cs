@@ -77,7 +77,7 @@ namespace net.vieapps.Services.Files
 				{
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: [{requestUri}] => [{fileInfo.FullName}]").ConfigureAwait(false);
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}

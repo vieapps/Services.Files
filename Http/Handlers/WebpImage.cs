@@ -16,10 +16,10 @@ namespace net.vieapps.Services.Files
 	{
 		public override Task ProcessRequestAsync(HttpContext context, CancellationToken cancellationToken)
 			=> context.Request.Method.IsEquals("GET")
-				? this.FlushAsync(context, cancellationToken)
+				? this.ShowAsync(context, cancellationToken)
 				: Task.FromException(new MethodNotAllowedException(context.Request.Method));
 
-		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
+		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
 			var correlationID = context.GetCorrelationID();
@@ -74,7 +74,7 @@ namespace net.vieapps.Services.Files
 				{
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}").ConfigureAwait(false);
-					context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}

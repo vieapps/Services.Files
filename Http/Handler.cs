@@ -91,7 +91,7 @@ namespace net.vieapps.Services.Files
 			var requestPath = context.GetRequestPathSegments(true).First();
 			if (!Handler.Handlers.TryGetValue(requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s"), out var type))
 			{
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
+				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 				return;
 			}
 
@@ -186,10 +186,10 @@ namespace net.vieapps.Services.Files
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails();
-						context.ShowHttpError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+						context.ShowError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 					}
 					else
-						context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+						context.ShowError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
 				}
 			}
 		}

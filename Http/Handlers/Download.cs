@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Files
 			// check exist
 			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 
 			// flush the file to output stream, update counter & logs
 			else
