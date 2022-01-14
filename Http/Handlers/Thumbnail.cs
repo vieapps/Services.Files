@@ -43,7 +43,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, new Dictionary<string, string> { ["X-Cache"] = "SVC-304" });
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
@@ -93,7 +93,7 @@ namespace net.vieapps.Services.Files
 			if ("webp".IsEquals(format) && !pathSegments[2].Equals("0") && attachment.Filename.IsEndsWith(".webp"))
 				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
-				// check existed
+			// check existed
 			var isCached = false;
 			var hasCached = useCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
@@ -177,38 +177,56 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream, update counter & logs
-			var bytes = await generateTask.ConfigureAwait(false);
+			fileInfo = fileInfo ?? new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
 			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
 
 			if ("webp".IsEquals(format))
 			{
 				if (isCached)
-				{
-					using var stream = UtilityService.CreateMemoryStream(bytes);
-					await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
-				}
+					try
+					{
+						using var stream = UtilityService.CreateMemoryStream(await generateTask.ConfigureAwait(false));
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "SVC-200" }, correlationID, cancellationToken).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing WebP thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+						throw;
+					}
 				else
-				{
-					using var imageFactory = new ImageFactory();
-					using var stream = UtilityService.CreateMemoryStream();
-					imageFactory.Load(bytes);
-					imageFactory.Quality = 100;
-					imageFactory.Save(stream);
-					await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
-					if (useCache)
-						await Task.WhenAll
-						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Re-update a thumbnail image with WebP image format into cache successful ({requestUri})") : Task.CompletedTask
-						).ConfigureAwait(false);
-				}
+					try
+					{
+						using var imageFactory = new ImageFactory();
+						using var stream = UtilityService.CreateMemoryStream();
+						imageFactory.Load(await generateTask.ConfigureAwait(false));
+						imageFactory.Quality = 100;
+						imageFactory.Save(stream);
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "None" }, correlationID, cancellationToken).ConfigureAwait(false);
+						if (useCache)
+							await Task.WhenAll
+							(
+								Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
+								Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Re-update a thumbnail image with WebP image format into cache successful ({requestUri})") : Task.CompletedTask
+							).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing WebP thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+						throw;
+					}
 			}
 			else
-			{
-				using var stream = UtilityService.CreateMemoryStream(bytes);
-				await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
-			}
+				try
+				{
+					using var stream = UtilityService.CreateMemoryStream(await generateTask.ConfigureAwait(false));
+					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = hasCached ? "SVC-200" : "None" }, correlationID, cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+					throw;
+				}
 
 			await Task.WhenAll
 			(

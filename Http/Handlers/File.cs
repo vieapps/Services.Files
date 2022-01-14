@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Files
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 3 && pathSegments[3].IsValidUUID() ? pathSegments[3].ToLower() : "",
+				ID = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
@@ -51,10 +51,12 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
-				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, new Dictionary<string, string> { ["X-Cache"] = "SVC-304" });
+				await Task.WhenAll
+				(
+					context.FlushAsync(cancellationToken),
+					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})") : Task.CompletedTask
+				).ConfigureAwait(false);
 				return;
 			}
 
@@ -87,23 +89,27 @@ namespace net.vieapps.Services.Files
 			{
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				var bytes = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
-				using (var stream = UtilityService.CreateMemoryStream(bytes))
-					await context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), null, correlationID, cancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})").ConfigureAwait(false);
+				using var stream = UtilityService.CreateMemoryStream(bytes);
+				await Task.WhenAll
+				(
+					context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "SVC-200" }, correlationID, cancellationToken),
+					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})") : Task.CompletedTask
+				).ConfigureAwait(false);
 			}
 			else
 			{
 				await context.WriteAsync(fileInfo, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
-				if (cacheKey != null)
-					await Task.WhenAll
-					(
-						Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), 0, cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), 0, cancellationToken),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
-					).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]").ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					cacheKey != null
+						? Task.WhenAll
+						(
+							Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), cancellationToken),
+							Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
+						) : Task.CompletedTask,
+					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
+				).ConfigureAwait(false);
 			}
 
 			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
