@@ -154,7 +154,7 @@ namespace net.vieapps.Services.Files
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail using Bitmap/Graphics => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false);
+					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				}
 
 				// update cache
@@ -375,7 +375,7 @@ namespace net.vieapps.Services.Files
 					{
 						using var stream = file.OpenReadStream();
 						var thumbnail = new byte[file.Length];
-						await stream.ReadAsync(thumbnail.AsMemory(0, thumbnail.Length), cancellationToken).ConfigureAwait(false);
+						await stream.ReadAsync(thumbnail, cancellationToken).ConfigureAwait(false);
 						thumbnails[index] = thumbnail;
 					}, true, false).ConfigureAwait(false);
 			}
@@ -421,7 +421,7 @@ namespace net.vieapps.Services.Files
 						};
 
 						// save file into temporary directory
-						await UtilityService.WriteBinaryFileAsync(attachment.GetFilePath(true), thumbnail, false, cancellationToken).ConfigureAwait(false);
+						await thumbnail.SaveAsBinaryAsync(attachment.GetFilePath(true), cancellationToken).ConfigureAwait(false);
 
 						// update attachment info
 						attachments.Add(attachment);

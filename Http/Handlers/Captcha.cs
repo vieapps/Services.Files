@@ -92,7 +92,7 @@ namespace net.vieapps.Services.Files
 				// comuting noise texts for the image
 				var texts = noises != null && noises.Count > 0
 					? noises
-					: new List<string> { "VIEApps", "vieapps.net", "VIEApps API Gateway", "VIEApps REST API" };
+					: new List<string> { "vieapps.net", "VIEApps NGX", "VIEApps API Gateway" };
 
 				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Where do you want to go today?", "Make business easier", "Simplify business process", "VIEApps", "vieapps.net" };
 				noiseTexts.Append(texts);

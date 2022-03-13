@@ -60,7 +60,18 @@ namespace net.vieapps.Services.Files
 				else
 					try
 					{
-						data = (await UtilityService.DownloadAsync($"https://chart.apis.google.com/chart?cht=qr&chs={size}x{size}&chl={value.UrlEncode()}", null, null, cancellationToken).ConfigureAwait(false)).ToArraySegment();
+						await UtilityService.DownloadAsync(
+							$"https://chart.apis.google.com/chart?cht=qr&chs={size}x{size}&chl={value.UrlEncode()}",
+							null,
+							90,
+							cancellationToken,
+							async (_, stream, __) =>
+							{
+								var buffer = new byte[stream.Length];
+								await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+								data = buffer.ToArraySegment();
+							}
+						).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{

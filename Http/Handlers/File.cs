@@ -104,7 +104,7 @@ namespace net.vieapps.Services.Files
 					cacheKey != null
 						? Task.WhenAll
 						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false), cancellationToken),
+							Global.Cache.SetAsFragmentsAsync(cacheKey, await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false), cancellationToken),
 							Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
 							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
 						) : Task.CompletedTask,
@@ -241,12 +241,9 @@ namespace net.vieapps.Services.Files
 					var read = 0;
 					do
 					{
-						read = await uploadStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+						read = await uploadStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
 						if (read > 0)
-						{
-							await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-						}
+							await fileStream.WriteAsync(buffer, read, cancellationToken).ConfigureAwait(false);
 					}
 					while (read > 0);
 				}
@@ -316,12 +313,9 @@ namespace net.vieapps.Services.Files
 					var read = 0;
 					do
 					{
-						read = await section.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+						read = await section.Body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
 						if (read > 0)
-						{
-							await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-							await fileStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-						}
+							await fileStream.WriteAsync(buffer, read, cancellationToken).ConfigureAwait(false);
 					}
 					while (read > 0);
 					attachment.Size = fileStream.Length;
