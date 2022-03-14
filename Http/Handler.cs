@@ -2,13 +2,14 @@
 using System;
 using System.Net;
 using System.IO;
+using System.Xml;
 using System.Linq;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Xml;
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -251,27 +252,27 @@ namespace net.vieapps.Services.Files
 		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null, _NoSync = null, _NoThumbnailImageFilePath = null;
 
 		internal static string UserAvatarFilesPath
-			=> Handler._UserAvatarFilesPath ?? (Handler._UserAvatarFilesPath = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars")));
+			=> Handler._UserAvatarFilesPath ??= UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
 
 		internal static string DefaultUserAvatarFilePath
-			=> Handler._DefaultUserAvatarFilePath ?? (Handler._DefaultUserAvatarFilePath = UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png")));
+			=> Handler._DefaultUserAvatarFilePath ??= UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png"));
 
 		internal static string AttachmentFilesPath
-			=> Handler._AttachmentFilesPath ?? (Handler._AttachmentFilesPath = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments")));
+			=> Handler._AttachmentFilesPath ??= UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments"));
 
 		internal static string TempFilesPath
-			=> Handler._TempFilesPath ?? (Handler._TempFilesPath = UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp")));
+			=> Handler._TempFilesPath ??= UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp"));
 
 		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
 
 		internal static bool RedirectToPassportOnUnauthorized
-			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Files:RedirectToPassportOnUnauthorized", "true")));
+			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ??= UtilityService.GetAppSetting("Files:RedirectToPassportOnUnauthorized", "true"));
 
 		internal static bool NoSync
-			=> "true".IsEquals(Handler._NoSync ?? (Handler._NoSync = UtilityService.GetAppSetting("Files:NoSync", "false")));
+			=> "true".IsEquals(Handler._NoSync ??= UtilityService.GetAppSetting("Files:NoSync", "false"));
 
 		internal static string NoThumbnailImageFilePath
-			=> Handler._NoThumbnailImageFilePath ?? (Handler._NoThumbnailImageFilePath = UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png")));
+			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
 		#endregion
 
 		#region API Gateway Router

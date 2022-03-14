@@ -56,22 +56,12 @@ namespace net.vieapps.Services.Files
 				if ("QRCoder".IsEquals(UtilityService.GetAppSetting("Files:QRCodeProvider")))
 					data = this.Generate(value, size, level);
 
-				// generate QR code using Google APIs
+				// generate QR code using Google Chart APIs
 				else
 					try
 					{
-						await UtilityService.DownloadAsync(
-							$"https://chart.apis.google.com/chart?cht=qr&chs={size}x{size}&chl={value.UrlEncode()}",
-							null,
-							90,
-							cancellationToken,
-							async (_, stream, __) =>
-							{
-								var buffer = new byte[stream.Length];
-								await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-								data = buffer.ToArraySegment();
-							}
-						).ConfigureAwait(false);
+						using var googleChart = await new Uri($"https://chart.apis.google.com/chart?cht=qr&chs={size}x{size}&chl={value.UrlEncode()}").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
+						data = (await googleChart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false)).ToArraySegment();
 					}
 					catch (Exception ex)
 					{
@@ -81,7 +71,7 @@ namespace net.vieapps.Services.Files
 
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code by Google Chart APIs successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
