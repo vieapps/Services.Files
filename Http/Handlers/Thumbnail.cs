@@ -37,13 +37,15 @@ namespace net.vieapps.Services.Files
 			var cacheKey = $"{requestUri}".ToLower().GenerateUUID();
 
 			// check "If-Modified-Since" request to reduce traffict
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["X-Cache"] = "None" };
 			var lastModified = useCache ? await Global.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
 			var eTag = $"thumbnail#{cacheKey}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, new Dictionary<string, string> { ["X-Cache"] = "SVC-304" });
+				headers["X-Cache"] = "SVC-304";
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (Global.IsDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
@@ -65,9 +67,7 @@ namespace net.vieapps.Services.Files
 			var handlerName = pathSegments[0];
 			var format = handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
 				? "PNG"
-				: handlerName.IsEndsWith("webps")
-					? "WEBP"
-					: "JPG";
+				: handlerName.IsEndsWith("webps") ? "WEBP" : "JPG";
 			var isBig = handlerName.IsStartsWith("thumbnaibig");
 			var isThumbnail = isNoThumbnailImage || (pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0);
 			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width))
@@ -140,13 +140,8 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					using var stream = UtilityService.CreateMemoryStream();
-					using (var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition))
-					{
-						// add watermark
-
-						// get thumbnail image
-						image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
-					}
+					using var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition);
+					image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
 					thumbnail = stream.ToBytes();
 				}
 
@@ -181,13 +176,14 @@ namespace net.vieapps.Services.Files
 			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
 			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
 
-			if ("webp".IsEquals(format))
+			if ("webp".IsEquals(format) || ("png".IsEquals(format) && handlerName.IsEndsWith("webps")))
 			{
 				if (isCached)
 					try
 					{
-						using var stream = UtilityService.CreateMemoryStream(await generateTask.ConfigureAwait(false));
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "SVC-200" }, correlationID, cancellationToken).ConfigureAwait(false);
+						headers["X-Cache"] = "SVC-200";
+						using var stream = (await generateTask.ConfigureAwait(false)).ToMemoryStream();
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -197,12 +193,13 @@ namespace net.vieapps.Services.Files
 				else
 					try
 					{
+						headers["X-Cache"] = hasCached ? "SVC-200" : "None";
 						using var imageFactory = new ImageFactory();
 						using var stream = UtilityService.CreateMemoryStream();
 						imageFactory.Load(await generateTask.ConfigureAwait(false));
 						imageFactory.Quality = 100;
 						imageFactory.Save(stream);
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "None" }, correlationID, cancellationToken).ConfigureAwait(false);
+						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 						if (useCache)
 							await Task.WhenAll
 							(
@@ -219,8 +216,9 @@ namespace net.vieapps.Services.Files
 			else
 				try
 				{
+					headers["X-Cache"] = hasCached ? "SVC-200" : "None";
 					using var stream = UtilityService.CreateMemoryStream(await generateTask.ConfigureAwait(false));
-					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = hasCached ? "SVC-200" : "None" }, correlationID, cancellationToken).ConfigureAwait(false);
+					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{

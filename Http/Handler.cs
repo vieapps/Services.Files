@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Files
 
 			// process the request
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted);
-			var handler = type.CreateInstance() as Services.FileHandler;
+			var handler = type.CreateInstance<Services.FileHandler>();
 			try
 			{
 				await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
@@ -187,10 +187,10 @@ namespace net.vieapps.Services.Files
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails();
-						context.ShowError(statusCode: wampDetails.Item1, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: context.GetCorrelationID(), stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+						context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, context.GetCorrelationID(), wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
 					}
 					else
-						context.ShowError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+						context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 				}
 			}
 		}

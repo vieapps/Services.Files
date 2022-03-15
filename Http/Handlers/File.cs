@@ -46,12 +46,14 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["X-Cache"] = "None" };
 			var eTag = "file#" + attachment.ID.ToLower();
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, new Dictionary<string, string> { ["X-Cache"] = "SVC-304" });
+				headers["X-Cache"] = "SVC-304";
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				await Task.WhenAll
 				(
 					context.FlushAsync(cancellationToken),
@@ -87,25 +89,27 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			if (hasCached)
 			{
+				headers["X-Cache"] = "SVC-200";
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				var bytes = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
-				using var stream = UtilityService.CreateMemoryStream(bytes);
+				using var stream = (await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false)).ToMemoryStream();
 				await Task.WhenAll
 				(
-					context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Cache"] = "SVC-200" }, correlationID, cancellationToken),
+					context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.IsReadable() ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
+				var lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+				using var fileStream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true);
+				await context.WriteAsync(fileStream, fileInfo.GetMimeType(), attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					cacheKey != null
 						? Task.WhenAll
 						(
 							Global.Cache.SetAsFragmentsAsync(cacheKey, await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false), cancellationToken),
-							Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToUnixTimestamp(), cancellationToken),
+							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
 							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
 						) : Task.CompletedTask,
 					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
