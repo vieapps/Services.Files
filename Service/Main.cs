@@ -33,70 +33,70 @@ namespace net.vieapps.Services.Files
 		{
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
-				try
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+			try
+			{
+				// verify the request
+				if (!"captcha".IsEquals(requestInfo.ObjectName))
 				{
-					// verify the request
-					if (!"captcha".IsEquals(requestInfo.ObjectName))
+					if (requestInfo.Extra == null || !requestInfo.Extra.TryGetValue("SessionID", out var sessionID) || !sessionID.Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
+						throw new InvalidRequestException();
+
+					if (requestInfo.Verb.IsEquals("POST") || requestInfo.Verb.IsEquals("PUT"))
 					{
-						if (requestInfo.Extra == null || !requestInfo.Extra.TryGetValue("SessionID", out var sessionID) || !sessionID.Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
+						if (!requestInfo.Extra.TryGetValue("Signature", out var signature) || !signature.Equals(requestInfo.Body.GetHMACSHA256(this.ValidationKey)))
 							throw new InvalidRequestException();
-
-						if (requestInfo.Verb.IsEquals("POST") || requestInfo.Verb.IsEquals("PUT"))
-						{
-							if (!requestInfo.Extra.TryGetValue("Signature", out var signature) || !signature.Equals(requestInfo.Body.GetHMACSHA256(this.ValidationKey)))
-								throw new InvalidRequestException();
-						}
-						else if (requestInfo.Header.TryGetValue("x-app-token", out var appToken))
-						{
-							if (!requestInfo.Extra.TryGetValue("Signature", out var signature) || !signature.Equals(appToken.GetHMACSHA256(this.ValidationKey)))
-								throw new InvalidRequestException();
-						}
 					}
-
-					// process the request
-					JToken json = null;
-					switch (requestInfo.ObjectName.ToLower())
+					else if (requestInfo.Header.TryGetValue("x-app-token", out var appToken))
 					{
-						case "thumbnail":
-						case "thumbnails":
-							json = await this.ProcessThumbnailAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+						if (!requestInfo.Extra.TryGetValue("Signature", out var signature) || !signature.Equals(appToken.GetHMACSHA256(this.ValidationKey)))
+							throw new InvalidRequestException();
+					}
+				}
 
-						case "attachment":
-						case "attachments":
-							json = await this.ProcessAttachmentAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+				// process the request
+				JToken json = null;
+				switch (requestInfo.ObjectName.ToLower())
+				{
+					case "thumbnail":
+					case "thumbnails":
+						json = await this.ProcessThumbnailAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "captcha":
-						case "captchas":
-							if (requestInfo.Verb.IsEquals("GET"))
-							{
-								var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
-								json = new JObject
+					case "attachment":
+					case "attachments":
+						json = await this.ProcessAttachmentAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+
+					case "captcha":
+					case "captchas":
+						if (requestInfo.Verb.IsEquals("GET"))
+						{
+							var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
+							json = new JObject
 								{
 									{ "Code", code },
 									{ "Uri", $"{Utility.CaptchaURI}{code.Url64Encode()}/{UtilityService.GetUUID().Left(13).Url64Encode()}.jpg" }
 								};
-							}
-							else
-								throw new MethodAccessException(requestInfo.Verb);
-							break;
+						}
+						else
+							throw new MethodAccessException(requestInfo.Verb);
+						break;
 
-						default:
-							json = await this.ProcessFilesAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
-					}
-					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-					if (this.IsDebugResultsEnabled)
-						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
-					return json;
+					default:
+						json = await this.ProcessFilesAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 				}
-				catch (Exception ex)
-				{
-					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-				}
+				stopwatch.Stop();
+				await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+				return json;
+			}
+			catch (Exception ex)
+			{
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
 		}
 
 		Task<JToken> ProcessThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
@@ -273,28 +273,38 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
-				!thumbnail.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node) ? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = "Thumbnail#Sync",
-					Data = new JObject
+				!thumbnail.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node)
+					? this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 					{
-						{ "Node", node },
-						{ "ServiceName", thumbnail.ServiceName },
-						{ "SystemID", thumbnail.SystemID },
-						{ "Filename", thumbnail.Filename },
-						{ "IsTemporary", thumbnail.IsTemporary }
-					}
-				}, cancellationToken) : Task.CompletedTask
+						Type = "Thumbnail#Sync",
+						Data = new JObject
+						{
+							{ "Node", node },
+							{ "ServiceName", thumbnail.ServiceName },
+							{ "SystemID", thumbnail.SystemID },
+							{ "Filename", thumbnail.Filename },
+							{ "IsTemporary", thumbnail.IsTemporary }
+						}
+					}, cancellationToken)
+					: Task.CompletedTask
 			).ConfigureAwait(false);
 
 			// send update message and response
-			var response = thumbnail.ToJson(true, null, json => json["URIs"] = new JObject { { "Direct", thumbnail.GetURI(requestInfo.GetParameter("x-object-title")?.GetANSIUri() ?? UtilityService.NewUUID) } });
-			await this.SendUpdateMessageAsync(new UpdateMessage
+			var response = thumbnail.ToJson(true, null, json =>
+			{
+				json["URIs"] = new JObject { ["Direct"] = thumbnail.GetURI(requestInfo.GetParameter("x-object-title")?.GetANSIUri() ?? UtilityService.NewUUID) };
+				if (!string.IsNullOrWhiteSpace(thumbnail.ServiceName))
+				{
+					json["ServiceName"] = thumbnail.ServiceName.GetCapitalizedFirstLetter();
+					json["ObjectName"] = thumbnail.ObjectName.GetCapitalizedFirstLetter();
+				}
+			});
+			new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Thumbnail#{(isCreateNew ? "Create" : "Update")}",
-				DeviceID = requestInfo.Session.DeviceID,
+				DeviceID = "*",
 				Data = response
-			}, cancellationToken).ConfigureAwait(false);
+			}.Send();
 			return response;
 		}
 
@@ -308,28 +318,30 @@ namespace net.vieapps.Services.Files
 			else if (!await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.EntityInfo, thumbnail.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// delete
+			// delete & clear cache
 			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false);
 
-			// clear cache and send update message to other nodes to update and sync files
-			await Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = "Thumbnail#Delete",
-					Data = thumbnail.ToJson(false, null)
-				}, cancellationToken)
-			).ConfigureAwait(false);
+			// send update messages
+			var response = thumbnail.ToJson(false, null, json =>
+			{
+				json["ServiceName"] = thumbnail.ServiceName.GetCapitalizedFirstLetter();
+				json["ObjectName"] = thumbnail.ObjectName.GetCapitalizedFirstLetter();
+			});
 
-			// send update message and response
-			var response = thumbnail.ToJson(false, null);
-			await this.SendUpdateMessageAsync(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Thumbnail#Delete",
-				DeviceID = requestInfo.Session.DeviceID,
+				DeviceID = "*",
 				Data = response
-			}, cancellationToken).ConfigureAwait(false);
+			}.Send();
+
+			new CommunicateMessage(this.ServiceName)
+			{
+				Type = "Thumbnail#Delete",
+				Data = thumbnail.ToJson(false, null)
+			}.Send();
+
 			return response;
 		}
 

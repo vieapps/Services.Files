@@ -348,10 +348,10 @@ namespace net.vieapps.Services.Files
 			if (asBase64)
 			{
 				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson()["Data"];
-				if (base64Data is JArray)
-					(base64Data as JArray).Take(7).ForEach(data =>
+				if (base64Data is JArray base64Array)
+					base64Array.Take(7).Select(data => data as JValue).ForEach(data =>
 					{
-						var thumbnail = (data as JValue).Value.ToString().ToArray().Last().Base64ToBytes();
+						var thumbnail = data.Value.ToString().ToArray().Last().Base64ToBytes();
 						if (thumbnail != null && thumbnail.Length <= limitSize * 1024)
 						{
 							thumbnails.Add(thumbnail);
@@ -359,8 +359,8 @@ namespace net.vieapps.Services.Files
 						else
 							thumbnails.Add(null);
 					});
-				else
-					thumbnails.Add((base64Data as JValue).Value.ToString().ToArray().Last().Base64ToBytes());
+				else if (base64Data is JValue base64Value)
+					thumbnails.Add(base64Value.Value.ToString().ToArray().Last().Base64ToBytes());
 			}
 			else
 			{
