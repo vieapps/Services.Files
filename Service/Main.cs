@@ -33,7 +33,6 @@ namespace net.vieapps.Services.Files
 		{
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 			try
 			{
 				// verify the request
@@ -56,6 +55,7 @@ namespace net.vieapps.Services.Files
 
 				// process the request
 				JToken json = null;
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 				switch (requestInfo.ObjectName.ToLower())
 				{
 					case "thumbnail":
