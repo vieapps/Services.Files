@@ -41,7 +41,7 @@
 	<ItemGroup>
 		<PackageReference Include="ImageProcessorNet5.Plugins.WebP" Version="1.0.0" />
 		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.5.2207.1" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.5.2207.4" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.5.2207.25" />
 	</ItemGroup>
 
 </Project>
