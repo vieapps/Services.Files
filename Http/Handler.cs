@@ -101,7 +101,7 @@ namespace net.vieapps.Services.Files
 			var session = context.GetSession();
 
 			// get authenticate token
-			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
+			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token") ?? context.GetParameter("x-temp-token");
 
 			// normalize the Bearer token
 			if (string.IsNullOrWhiteSpace(authenticateToken))
@@ -111,29 +111,40 @@ namespace net.vieapps.Services.Files
 			}
 
 			// got authenticate token => update the session
+			var performSignIn = !string.IsNullOrWhiteSpace(authenticateToken) && context.GetParameter("x-temp-token") == null && (context.GetParameter("x-passport-token") != null || context.GetParameter("x-authenticate") != null);
+			var responseSignInAsJon = performSignIn && "json".IsEquals(context.GetParameter("x-response"));
 			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
 					// authenticate (token is expired after 15 minutes)
 					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 900, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
-					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
-					// perform sign-in (to create authenticate ticket cookie) when the authenticate token its came from passport service
-					if (context.GetParameter("x-passport-token") != null)
+					// perform sign-in (to create authenticate ticket cookie)
+					if (performSignIn)
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
 					}
 
 					// just assign user information
 					else
 						context.User = new UserPrincipal(session.User);
+
+					if (responseSignInAsJon)
+					{
+						await context.WriteAsync(new JObject { ["ID"] = session.User.ID }, Global.CancellationToken).ConfigureAwait(false);
+						return;
+					}
 				}
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					if (responseSignInAsJon)
+					{
+						context.WriteError(ex);
+						return;
+					}
 				}
 
 			// no authenticate token => update user of the session if already signed-in
@@ -162,7 +173,7 @@ namespace net.vieapps.Services.Files
 			context.SetItem("Session", session);
 
 			// process the request
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted);
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var handler = type.CreateInstance<Services.FileHandler>();
 			try
 			{

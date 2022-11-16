@@ -41,14 +41,14 @@ namespace net.vieapps.Services.Files
 				.AddResponseCompression(options => options.EnableForHttps = true)
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
-				.AddSession(options => Global.PrepareSessionOptions(options))
+				.AddSession(options => Global.PrepareSessionOptions(options, 45))
 				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
 				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
 
 			// authentication
 			services
 				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
-				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 45));
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			services.AddDataProtection().PrepareDataProtection("VIEApps-NGX-Files");
@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Files
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if ("true".IsEquals(UtilityService.GetAppSetting("Logs:WriteFiles", "true")) && !string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 			{
-				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.txt");
+				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.pid-{Environment.ProcessId}.txt");
 				loggerFactory.AddFile(logPath, this.LogLevel);
 			}
 			else
