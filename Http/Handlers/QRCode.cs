@@ -34,22 +34,22 @@ namespace net.vieapps.Services.Files
 			{
 				// prepare
 				var query = context.GetRequestUri().ParseQuery();
-				var value = query.ContainsKey("v") && !string.IsNullOrWhiteSpace(query["v"])
-					? query["v"].ToBase64(false, true).Decrypt(Global.EncryptionKey)
-					: query.ContainsKey("d") ? query["d"] : null;
+				var value = query.TryGetValue("v", out var cvalue) && !string.IsNullOrWhiteSpace(cvalue)
+					? cvalue.ToBase64(false, true).Decrypt(Global.EncryptionKey)
+					: query.TryGetValue("d", out var dvalue) ? dvalue : null;
 				if (string.IsNullOrWhiteSpace(value))
 					throw new InvalidRequestException();
 
-				if (query.ContainsKey("t"))
+				if (query.TryGetValue("t", out var tvalue))
 				{
-					var timestamp = query["t"].ToBase64(false, true).Decrypt(Global.EncryptionKey).CastAs<long>();
+					var timestamp = tvalue.ToBase64(false, true).Decrypt(Global.EncryptionKey).CastAs<long>();
 					if (DateTime.Now.ToUnixTimestamp() - timestamp > 90)
 						throw new InvalidRequestException();
 				}
 
-				size = (query.ContainsKey("s") ? query["s"] : "300").CastAs<int>();
+				size = (query.TryGetValue("s", out var svalue) ? svalue : "300").CastAs<int>();
 
-				if (!Enum.TryParse(query.ContainsKey("ecl") ? query["ecl"] : "M", out QRCodeGenerator.ECCLevel level))
+				if (!Enum.TryParse(query.TryGetValue("ecl", out string evalue) ? evalue : "M", out QRCodeGenerator.ECCLevel level))
 					level = QRCodeGenerator.ECCLevel.M;
 
 				// generate QR code using QRCoder
@@ -71,7 +71,7 @@ namespace net.vieapps.Services.Files
 
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code by Google Chart APIs successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - ECC Level: {level}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
