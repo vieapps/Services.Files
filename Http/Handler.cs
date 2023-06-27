@@ -219,6 +219,7 @@ namespace net.vieapps.Services.Files
 			{ "one.image", typeof(FileHandler) },
 			{ "webp.image", typeof(WebpImageHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
+			{ "vietqrs", typeof(VietQRHandler) },
 			{ "thumbnails", typeof(ThumbnailHandler) },
 			{ "thumbnailbigs", typeof(ThumbnailHandler) },
 			{ "thumbnailpngs", typeof(ThumbnailHandler) },
