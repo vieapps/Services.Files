@@ -225,8 +225,8 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		public Task ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-			=> Task.CompletedTask;
+		public Task<JToken> ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+			=> Task.FromResult<JToken>(null);
 
 		public Task<JToken> FetchTemporaryFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 			=> requestInfo.FetchTemporaryFileAsync(cancellationToken);
