@@ -4,9 +4,10 @@ using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
-using ImageProcessorCore;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 #endregion
@@ -61,10 +62,8 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// check exist
-			var cacheKey = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
-				? eTag
-				: null;
-			var hasCached = cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var cacheKey = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? eTag : null;
+			var hasCached = cacheKey != null && !context.Request.Query.ContainsKey("x-force-cache") && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 			FileInfo fileInfo = null;
 			if (!hasCached)
@@ -82,42 +81,60 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
-			// flush the file to output stream, update counter & logs
+			// prepare
+			byte[] data;
+			long lastModified;
+			headers["X-Cache"] = hasCached ? "SVC-200" : "None";
 			if (hasCached)
 			{
-				headers["X-Cache"] = "SVC-200";
-				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				using var stream = (await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false)).ToMemoryStream();
-				await Task.WhenAll
-				(
-					context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
-					Global.IsDebugLogEnabled ? context .WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cache of WebP Image file ({requestUri})") : Task.CompletedTask
-				).ConfigureAwait(false);
+				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
+				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
-				var lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-				using var fileStream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
-				using var imageFactory = new ImageFactory();
-				using var imageStream = UtilityService.CreateMemoryStream();
-				imageFactory.Load(fileStream);
-				imageFactory.Quality = 100;
-				imageFactory.Save(imageStream);
-				await context.WriteAsync(imageStream, "image/webp", attachment.IsReadable() ? null : $"{attachment.Filename}.webp", eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					cacheKey != null
-						? Task.WhenAll
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+				data = (await File.ReadAllBytesAsync(fileInfo.FullName, cancellationToken).ConfigureAwait(false)).Export(ImageFormat.Webp);
+				if (cacheKey != null)
+					await Task.WhenAll
 						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, imageStream.ToBytes(), 0, cancellationToken),
+							Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, cancellationToken),
 							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, cancellationToken),
 							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update a WebP Image file into cache successful ({requestUri})") : Task.CompletedTask
-						) : Task.CompletedTask,
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a WebP Image file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
-				).ConfigureAwait(false);
+						).ConfigureAwait(false);
 			}
 
+			// flush the file to output stream, update counter & logs
+			using var stream = data.ToMemoryStream();
+			await Task.WhenAll
+			(
+				context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename + (attachment.Filename.IsEndsWith(".webp") ? "" : ".webp"), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
+				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a WebP Image file ({requestUri})") : Task.CompletedTask
+			).ConfigureAwait(false);
 			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
+		}
+	}
+
+	internal static class ImageExtensions
+	{
+		public static byte[] Export(this MemoryStream inputStream, ImageFormat format)
+		{
+			using var outputStream = UtilityService.CreateMemoryStream();
+			using var image = SixLabors.ImageSharp.Image.Load(inputStream);
+			image.Save(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder());
+			return outputStream.ToBytes();
+		}
+
+		public static byte[] Export(this byte[] image, ImageFormat format)
+		{
+			using var stream = image.ToMemoryStream();
+			return stream.Export(format);
+		}
+
+		public static byte[] Export(this Image image, ImageFormat format)
+		{
+			using var stream = UtilityService.CreateMemoryStream();
+			image.Save(stream, ImageFormat.MemoryBmp);
+			return stream.Export(format);
 		}
 	}
 }

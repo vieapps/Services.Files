@@ -12,7 +12,6 @@ using System.Drawing.Drawing2D;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
-using ImageProcessorCore;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 #endregion
@@ -94,9 +93,7 @@ namespace net.vieapps.Services.Files
 				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
 			// check existed
-			var isCached = false;
-			var hasCached = useCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-
+			var hasCached = useCache && !context.Request.Query.ContainsKey("x-force-cache") && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			FileInfo fileInfo = null;
 			if (!hasCached)
 			{
@@ -123,33 +120,30 @@ namespace net.vieapps.Services.Files
 			async Task<byte[]> getAsync()
 			{
 				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
-				if (thumbnail != null)
-				{
-					isCached = true;
-					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Cached thumbnail was found ({requestUri})").ConfigureAwait(false);
-				}
+				if (thumbnail != null && Global.IsDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Cached thumbnail was found ({requestUri})").ConfigureAwait(false);
 				return thumbnail;
 			}
 
 			async Task<byte[]> generateAsync()
 			{
 				byte[] thumbnail;
+				var imageFormat = "webp".IsEquals(format) ? ImageFormat.Webp : "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg;
 
 				// generate
 				try
 				{
-					using var stream = UtilityService.CreateMemoryStream();
-					using var image = this.Generate(fileInfo.FullName, width, height, isBig, isCropped, croppedPosition);
-					image.Save(stream, "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg);
-					thumbnail = stream.ToBytes();
+					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+					using var stream = thumbnail.ToMemoryStream();
+					using var image = this.Generate(stream, width, height, isBig, isCropped, croppedPosition);
+					thumbnail = image.Export(imageFormat);
 				}
 
 				// read the whole file when got error
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail using Bitmap/Graphics => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+					thumbnail = (await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false)).Export(imageFormat);
 				}
 
 				// update cache
@@ -176,55 +170,17 @@ namespace net.vieapps.Services.Files
 			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
 			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
 
-			if ("webp".IsEquals(format) || ("png".IsEquals(format) && handlerName.IsEndsWith("webps")))
+			try
 			{
-				if (isCached)
-					try
-					{
-						headers["X-Cache"] = "SVC-200";
-						using var stream = (await generateTask.ConfigureAwait(false)).ToMemoryStream();
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing WebP thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
-						throw;
-					}
-				else
-					try
-					{
-						headers["X-Cache"] = hasCached ? "SVC-200" : "None";
-						using var imageFactory = new ImageFactory();
-						using var stream = UtilityService.CreateMemoryStream();
-						imageFactory.Load(await generateTask.ConfigureAwait(false));
-						imageFactory.Quality = 100;
-						imageFactory.Save(stream);
-						await context.WriteAsync(stream, "image/webp", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-						if (useCache)
-							await Task.WhenAll
-							(
-								Global.Cache.SetAsFragmentsAsync(cacheKey, stream.ToBytes(), cancellationToken),
-								Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Re-update a thumbnail image with WebP image format into cache successful ({requestUri})") : Task.CompletedTask
-							).ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing WebP thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
-						throw;
-					}
+				headers["X-Cache"] = hasCached ? "SVC-200" : "None";
+				using var stream = (await generateTask.ConfigureAwait(false)).ToMemoryStream();
+				await context.WriteAsync(stream, $"image/{(!"webp".IsEquals(format) && !"png".IsEquals(format) ? "jpeg" : format.ToLower())}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
-			else
-				try
-				{
-					headers["X-Cache"] = hasCached ? "SVC-200" : "None";
-					using var stream = UtilityService.CreateMemoryStream(await generateTask.ConfigureAwait(false));
-					await context.WriteAsync(stream, $"image/{("png".IsEquals(format) ? "png" : "jpeg")}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
-					throw;
-				}
+			catch (Exception ex)
+			{
+				await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+				throw;
+			}
 
 			await Task.WhenAll
 			(
@@ -233,9 +189,8 @@ namespace net.vieapps.Services.Files
 			).ConfigureAwait(false);
 		}
 
-		Bitmap Generate(string filePath, int width, int height, bool asBig, bool isCropped, string cropPosition)
+		Bitmap Generate(Stream stream, int width, int height, bool asBig, bool isCropped, string cropPosition)
 		{
-			using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize);
 			using var image = Image.FromStream(stream) as Bitmap;
 
 			// clone original image
@@ -305,16 +260,14 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		internal static ArraySegment<byte> Generate(string message, int width = 300, int height = 100, bool exportAsPng = false)
+		internal static ArraySegment<byte> Generate(string message, int width = 300, int height = 100, bool asTransparent = false, bool asWebP = false)
 		{
 			using var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
 			using var graphics = Graphics.FromImage(bitmap);
 			graphics.SmoothingMode = SmoothingMode.AntiAlias;
 			graphics.Clear(Color.White);
 			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-			using var stream = UtilityService.CreateMemoryStream();
-			bitmap.Save(stream, exportAsPng ? ImageFormat.Png : ImageFormat.Jpeg);
-			return stream.ToArraySegment();
+			return bitmap.Export(asTransparent ? asWebP ? ImageFormat.Webp : ImageFormat.Png : ImageFormat.Jpeg).ToArraySegment();
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -436,7 +389,7 @@ namespace net.vieapps.Services.Files
 					{
 						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:Thumbnails", cancellationToken).ConfigureAwait(false);
 						if (keys != null && keys.Count > 0)
-							cacheKeys = cacheKeys.Concat(new[] { $"{attachment.ObjectID}:Thumbnails" }).Concat(keys).ToList();
+							cacheKeys = [.. cacheKeys, $"{attachment.ObjectID}:Thumbnails", .. keys];
 					}
 				}, true, false).ConfigureAwait(false);
 
