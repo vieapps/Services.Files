@@ -29,7 +29,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.4" />
+		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
 		<PackageReference Include="System.Drawing.Common" Version="8.0.6" />
 		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.8.2407.1" />
 		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.8.2407.1" />
