@@ -14,6 +14,8 @@ using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using Microsoft.SqlServer.Server;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -34,6 +36,7 @@ namespace net.vieapps.Services.Files
 			var requestUri = context.GetRequestUri();
 			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
 			var cacheKey = $"{requestUri}".ToLower().GenerateUUID();
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 
 			// check "If-Modified-Since" request to reduce traffict
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["X-Cache"] = "None" };
@@ -45,7 +48,7 @@ namespace net.vieapps.Services.Files
 			{
 				headers["X-Cache"] = "SVC-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
@@ -120,7 +123,7 @@ namespace net.vieapps.Services.Files
 			async Task<byte[]> getAsync()
 			{
 				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
-				if (thumbnail != null && Global.IsDebugLogEnabled)
+				if (thumbnail != null && isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Cached thumbnail was found ({requestUri})").ConfigureAwait(false);
 				return thumbnail;
 			}
@@ -136,14 +139,15 @@ namespace net.vieapps.Services.Files
 					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 					using var stream = thumbnail.ToMemoryStream();
 					using var image = this.Generate(stream, width, height, isBig, isCropped, croppedPosition);
-					thumbnail = image.Export(imageFormat);
+					thumbnail = await image.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
 				}
 
 				// read the whole file when got error
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail using Bitmap/Graphics => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = (await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false)).Export(imageFormat);
+					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+					thumbnail = await thumbnail.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
 				}
 
 				// update cache
@@ -154,7 +158,7 @@ namespace net.vieapps.Services.Files
 						Global.Cache.AddSetMemberAsync($"{attachment.ObjectID}:Thumbnails", cacheKey, cancellationToken),
 						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, cancellationToken),
 						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToHttpString(), 0, cancellationToken),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Update a thumbnail image into cache successful [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
+						isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Update a thumbnail image into cache successful [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 					).ConfigureAwait(false);
 
 				return thumbnail;
@@ -185,7 +189,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
-				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image ({requestUri})") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image ({requestUri})") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -267,7 +271,12 @@ namespace net.vieapps.Services.Files
 			graphics.SmoothingMode = SmoothingMode.AntiAlias;
 			graphics.Clear(Color.White);
 			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-			return bitmap.Export(asTransparent ? asWebP ? ImageFormat.Webp : ImageFormat.Png : ImageFormat.Jpeg).ToArraySegment();
+			using var bitmapStream = UtilityService.CreateMemoryStream();
+			bitmap.Save(bitmapStream, ImageFormat.MemoryBmp);
+			using var outputStream = UtilityService.CreateMemoryStream();
+			using var image = SixLabors.ImageSharp.Image.Load(bitmapStream);
+			image.Save(outputStream, asTransparent ? asWebP ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder());
+			return outputStream.ToArraySegment();
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)

@@ -31,6 +31,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 
 			var attachment = new AttachmentInfo
 			{
@@ -57,7 +58,7 @@ namespace net.vieapps.Services.Files
 				await Task.WhenAll
 				(
 					context.FlushAsync(cancellationToken),
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})") : Task.CompletedTask
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})") : Task.CompletedTask
 				).ConfigureAwait(false);
 				return;
 			}
@@ -71,7 +72,7 @@ namespace net.vieapps.Services.Files
 			var cacheKey = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
 				? eTag
 				: null;
-			var hasCached = cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = cacheKey != null && !context.Request.Query.ContainsKey("x-force-cache") && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 			FileInfo fileInfo = null;
 			if (!hasCached)
@@ -79,7 +80,7 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: [{requestUri}] => [{fileInfo.FullName}]").ConfigureAwait(false);
 					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
@@ -95,7 +96,7 @@ namespace net.vieapps.Services.Files
 				await Task.WhenAll
 				(
 					context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})") : Task.CompletedTask
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 			else
@@ -110,9 +111,9 @@ namespace net.vieapps.Services.Files
 						(
 							Global.Cache.SetAsFragmentsAsync(cacheKey, await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false), cancellationToken),
 							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
+							isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
 						) : Task.CompletedTask,
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 

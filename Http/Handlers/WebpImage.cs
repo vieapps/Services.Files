@@ -27,6 +27,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 
 			var attachment = new AttachmentInfo
 			{
@@ -51,7 +52,7 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = "SVC-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
@@ -74,7 +75,7 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: {requestUri} => {fileInfo.FullName}").ConfigureAwait(false);
 					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
@@ -89,18 +90,23 @@ namespace net.vieapps.Services.Files
 			{
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Got a WebP Image cache ({requestUri}) - {data.Length:###,###,###,###,###,##0} bytes").ConfigureAwait(false);
 			}
 			else
 			{
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-				data = (await File.ReadAllBytesAsync(fileInfo.FullName, cancellationToken).ConfigureAwait(false)).Export(ImageFormat.Webp);
+				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Load raw-image successful ({requestUri} => {fileInfo.Name}) - {data.Length:###,###,###,###,###,##0} bytes").ConfigureAwait(false);
+				data = await data.ExportAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				if (cacheKey != null)
 					await Task.WhenAll
-						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, cancellationToken),
-							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, cancellationToken),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update a WebP Image file into cache successful ({requestUri})") : Task.CompletedTask
-						).ConfigureAwait(false);
+					(
+						Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, cancellationToken),
+						Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, cancellationToken),
+						isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update a WebP Image file into cache successful ({requestUri}) - {data.Length:###,###,###,###,###,##0} bytes") : Task.CompletedTask
+					).ConfigureAwait(false);
 			}
 
 			// flush the file to output stream, update counter & logs
@@ -108,7 +114,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.WriteAsync(stream, "image/webp", attachment.IsReadable() ? null : attachment.Filename + (attachment.Filename.IsEndsWith(".webp") ? "" : ".webp"), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
-				Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a WebP Image file ({requestUri})") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a WebP Image file ({requestUri}) - {data.Length:###,###,###,###,###,##0} bytes") : Task.CompletedTask
 			).ConfigureAwait(false);
 			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
 		}
@@ -116,25 +122,25 @@ namespace net.vieapps.Services.Files
 
 	internal static class ImageExtensions
 	{
-		public static byte[] Export(this MemoryStream inputStream, ImageFormat format)
+		public static async Task<byte[]> ExportAsync(this MemoryStream inputStream, ImageFormat format, CancellationToken cancellationToken)
 		{
 			using var outputStream = UtilityService.CreateMemoryStream();
-			using var image = SixLabors.ImageSharp.Image.Load(inputStream);
-			image.Save(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder());
+			using var image = await SixLabors.ImageSharp.Image.LoadAsync(inputStream, cancellationToken).ConfigureAwait(false);
+			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder(), cancellationToken).ConfigureAwait(false);
 			return outputStream.ToBytes();
 		}
 
-		public static byte[] Export(this byte[] image, ImageFormat format)
+		public static async Task<byte[]> ExportAsync(this byte[] image, ImageFormat format, CancellationToken cancellationToken)
 		{
 			using var stream = image.ToMemoryStream();
-			return stream.Export(format);
+			return await stream.ExportAsync(format, cancellationToken).ConfigureAwait(false);
 		}
 
-		public static byte[] Export(this Image image, ImageFormat format)
+		public static async Task<byte[]> ExportAsync(this Image image, ImageFormat format, CancellationToken cancellationToken)
 		{
 			using var stream = UtilityService.CreateMemoryStream();
 			image.Save(stream, ImageFormat.MemoryBmp);
-			return stream.Export(format);
+			return await stream.ExportAsync(format, cancellationToken).ConfigureAwait(false);
 		}
 	}
 }
