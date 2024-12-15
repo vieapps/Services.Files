@@ -1,6 +1,5 @@
 ﻿#region Related components
 using System;
-using System.Linq;
 using System.Xml.Serialization;
 using System.Collections.Generic;
 using Newtonsoft.Json;
@@ -15,7 +14,7 @@ namespace net.vieapps.Services.Files
 {
 	[BsonIgnoreExtraElements]
 	[Entity(CollectionName = "Thumbnails", TableName = "T_Files_Thumbnails", CacheClass = typeof(Utility), CacheName = "Cache")]
-	public class Thumbnail : Repository<Thumbnail>
+	public class Thumbnail : Repository<Thumbnail>, IAttachment
 	{
 		public Thumbnail() : base()
 		{
@@ -67,7 +66,7 @@ namespace net.vieapps.Services.Files
 		/// <summary>
 		/// Gets or sets the size (in bytes) of the attachment file
 		/// </summary>
-		public int Size { get; set; }
+		public long Size { get; set; }
 
 		/// <summary>
 		/// Gets or sets the MIME content-type of the attachment file

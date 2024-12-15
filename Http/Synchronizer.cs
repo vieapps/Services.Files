@@ -21,10 +21,32 @@ namespace net.vieapps.Services.Files
 
 		public string ServiceUniqueURI => $"services.{Handler.NodeName}";
 
-		public string SyncKey => UtilityService.GetAppSetting("Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
+		public string SyncKey => UtilityService.GetAppSetting("Keys:Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
+
+		public bool SyncNewOnly => !"false".IsEquals(UtilityService.GetAppSetting("Files:Sync:NewOnly", "true"));
 
 		public async Task SendRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary)
 		{
+			if (this.SyncNewOnly)
+			{
+	 			var filePath = isTemporary
+					? Path.Combine(Handler.TempFilesPath, filename)
+					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName?.ToLower() ?? "" : systemID.ToLower(), filename);
+				if (File.Exists(filePath))
+				{
+					if (filename.IsEndsWith(".jpg") && filename.Length == 36 && filename.Left(32).IsValidUUID())
+						try
+						{
+							File.Delete(filePath);
+						}
+						catch
+						{
+							return;
+						}
+					else
+						return;
+				}
+			}
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
@@ -42,7 +64,7 @@ namespace net.vieapps.Services.Files
 						["x-temporary"] = isTemporary.ToString().ToLower()
 					},
 					CorrelationID = correlationID
-				}, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				}, Global.CancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
 					await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Send a request to sync successful" + "\r\n" +
 						$"- From: {Handler.NodeName}" + "\r\n" +
@@ -65,9 +87,6 @@ namespace net.vieapps.Services.Files
 				, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
 		}
-
-		public void SendRequest(string node, string serviceName, string systemID, string filename, bool isTemporary)
-			=> Task.Run(() => this.SendRequestAsync(node, serviceName, systemID, filename, isTemporary)).ConfigureAwait(false);
 
 		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -116,37 +135,35 @@ namespace net.vieapps.Services.Files
 							["x-temporary"] = isTemporary.ToString().ToLower()
 						};
 						var service = Router.GetUniqueService(node);
-						using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
+						using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
+						var buffer = new byte[AspNetCoreUtilityService.BufferSize * 10];
+						var read = 0;
+						do
 						{
-							var buffer = new byte[AspNetCoreUtilityService.BufferSize * 10];
-							var read = 0;
-							do
+							read = await stream.ReadAsync(buffer, 0, buffer.Length, Global.CancellationToken).ConfigureAwait(false);
+							var data = read > 0 ? buffer.Take(0, read) : [];
+							await service.ProcessRequestAsync(new RequestInfo
 							{
-								read = await stream.ReadAsync(buffer, 0, buffer.Length, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-								var data = read > 0 ? buffer.Take(0, read) : new byte[0];
-								await service.ProcessRequestAsync(new RequestInfo
+								ServiceName = "Files.Http",
+								Verb = "POST",
+								Header = header,
+								Body = data.Length > 0 ? data.ToBase64() : "",
+								Extra = new Dictionary<string, string>
 								{
-									ServiceName = "Files.Http",
-									Verb = "POST",
-									Header = header,
-									Body = data.Length > 0 ? data.ToBase64() : "",
-									Extra = new Dictionary<string, string>
-									{
-										["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{Handler.NodeName}".GetHMACSHA256(this.SyncKey)
-									},
-									CorrelationID = requestInfo.CorrelationID
-								}, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-							} while (read > 0);
-							stopwatch.Stop();
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
-									$"- From: {Handler.NodeName}" + "\r\n" +
-									$"- To: {node}" + "\r\n" +
-									$"- Service: {serviceName}" + "\r\n" +
-									$"- System ID: {systemID}" + "\r\n" +
-									$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
-								, null, Global.ServiceName, LogLevel.Debug, requestInfo.CorrelationID).ConfigureAwait(false);
-						}
+									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{Handler.NodeName}".GetHMACSHA256(this.SyncKey)
+								},
+								CorrelationID = requestInfo.CorrelationID
+							}, Global.CancellationToken).ConfigureAwait(false);
+						} while (read > 0);
+						stopwatch.Stop();
+						if (Global.IsDebugLogEnabled)
+							await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
+								$"- From: {Handler.NodeName}" + "\r\n" +
+								$"- To: {node}" + "\r\n" +
+								$"- Service: {serviceName}" + "\r\n" +
+								$"- System ID: {systemID}" + "\r\n" +
+								$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
+							, null, Global.ServiceName, LogLevel.Debug, requestInfo.CorrelationID).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -232,12 +249,12 @@ namespace net.vieapps.Services.Files
 			=> requestInfo.FetchTemporaryFileAsync(cancellationToken);
 
 		public ValueTask DisposeAsync()
-			=> new(Task.CompletedTask);
-
-		public void Dispose()
 		{
 			GC.SuppressFinalize(this);
-			this.DisposeAsync().Run(true);
+			return new(Task.CompletedTask);
 		}
+
+		public void Dispose()
+			=> this.DisposeAsync().Run(true);
 	}
 }

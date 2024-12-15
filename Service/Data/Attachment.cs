@@ -1,6 +1,5 @@
 ﻿#region Related components
 using System;
-using System.Xml.Serialization;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
@@ -13,7 +12,7 @@ namespace net.vieapps.Services.Files
 {
 	[BsonIgnoreExtraElements]
 	[Entity(CollectionName = "Attachments", TableName = "T_Files_Attachments", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public class Attachment : Repository<Attachment>
+	public class Attachment : Repository<Attachment>, IAttachment
 	{
 		public Attachment() : base()
 		{

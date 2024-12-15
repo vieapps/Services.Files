@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -198,7 +197,7 @@ namespace net.vieapps.Services.Files
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails();
-						context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, context.GetCorrelationID(), wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+						context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, context.GetCorrelationID(), wampDetails.Stack + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
 					}
 					else
 						context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
@@ -370,7 +369,7 @@ namespace net.vieapps.Services.Files
 							Global.Logger.LogError($"Error occurred while calling on-outgoing action => {ex.Message}", ex);
 						}
 					});
-					await Global.RegisterServiceAsync($"Http.{Global.ServiceName}").ConfigureAwait(false);
+					await Global.RegisterServiceAsync().ConfigureAwait(false);
 				},
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in a period of times => {exception.Message}", exception),
@@ -378,14 +377,14 @@ namespace net.vieapps.Services.Files
 			);
 		}
 
-		internal static void Disconnect(int waitingTimes = 1234)
+		internal static void Disconnect()
 			=> Task.Run(async () => await Handler.UnregisterSynchronizerAsync().ConfigureAwait(false))
 				.ContinueWith(async task =>
 				{
 					var ex = task.Exception?.InnerException ?? task.Exception;
 					if (ex != null)
 						Global.Logger.LogError($"Error occurred while unregistering the synchronizer => {ex.Message}", ex);
-					await Global.UnregisterServiceAsync($"Http.{Global.ServiceName}").ConfigureAwait(false);
+					await Global.UnregisterServiceAsync().ConfigureAwait(false);
 				}, TaskContinuationOptions.OnlyOnRanToCompletion)
 				.ContinueWith(task =>
 				{
@@ -394,7 +393,7 @@ namespace net.vieapps.Services.Files
 						Global.Logger.LogError($"Error occurred while unregistering the service => {ex.Message}", ex);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.Disconnect(waitingTimes);
+					Global.Disconnect();
 				}, TaskContinuationOptions.OnlyOnRanToCompletion)
 				.ContinueWith(task =>
 				{
@@ -510,7 +509,7 @@ namespace net.vieapps.Services.Files
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Handler.NodeName.IsEquals(node))
-					Handler.Synchronizer.SendRequest(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")));
+					Handler.Synchronizer.SendRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary"))).Run();
 			}
 
 			// copy files from a legacy system
@@ -801,7 +800,7 @@ namespace net.vieapps.Services.Files
 					extra["Signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey);
 				}
 			}
-			return new RequestInfo(session, "Files", objectName, verb, query, header, body, extra, context.GetCorrelationID());
+			return new RequestInfo(session, Global.ServiceName, objectName, verb, query, header, body, extra, context.GetCorrelationID());
 		}
 	}
 	#endregion

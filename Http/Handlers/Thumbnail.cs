@@ -14,8 +14,6 @@ using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using Microsoft.SqlServer.Server;
-
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -134,19 +132,23 @@ namespace net.vieapps.Services.Files
 				var imageFormat = "webp".IsEquals(format) ? ImageFormat.Webp : "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg;
 
 				// generate
+				thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				try
 				{
-					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
-					using var stream = thumbnail.ToMemoryStream();
-					using var image = this.Generate(stream, width, height, isBig, isCropped, croppedPosition);
-					thumbnail = await image.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
+					if (width > 0 || height > 0)
+					{
+						using var stream = thumbnail.ToMemoryStream();
+						using var image = this.Generate(stream, width, height, isBig, isCropped, croppedPosition);
+						thumbnail = await image.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
+					}
+					else
+						thumbnail = await thumbnail.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
 				}
 
 				// read the whole file when got error
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail using Bitmap/Graphics => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail => {ex.Message}", ex).ConfigureAwait(false);
 					thumbnail = await thumbnail.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
 				}
 
