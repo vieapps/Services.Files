@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -22,7 +23,7 @@ namespace net.vieapps.Services.Files
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// generate
-			var data = new ArraySegment<byte>([]);
+			var data = Array.Empty<byte>();
 			var size = 300;
 			var stopwatch = Stopwatch.StartNew();
 
@@ -53,21 +54,21 @@ namespace net.vieapps.Services.Files
 
 				// generate QR code
 				using var chart = await new Uri($"https://quickchart.io/qr?text={value.UrlEncode()}&size={size}&ecLevel={ecLevel}{(string.IsNullOrWhiteSpace(image) ? "" : $"&centerImageUrl={image.UrlEncode()}")}&margin=1").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
-				data = (await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false)).ToArraySegment();
+				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync(this.Logger, "Http.QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = ThumbnailHandler.Generate(ex.Message, size, size, true);
+				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
+				data = ex.Message.Generate(size, size, true);
 			}
 
 			// display
-			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/png", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-			await context.WriteAsync(data, cancellationToken).ConfigureAwait(false);
+			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
+			await context.WriteAsync(await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

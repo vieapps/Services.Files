@@ -18,6 +18,8 @@ namespace net.vieapps.Services.Files
 {
 	public class ServiceComponent : ServiceBase
 	{
+
+		#region Properties
 		public override string ServiceName => "Files";
 
 		int SyncThreads => UtilityService.GetAppSetting("Files:Sync:Threads", "100").As<int>();
@@ -27,8 +29,7 @@ namespace net.vieapps.Services.Files
 		string SyncDirectory => UtilityService.GetAppSetting("Files:Sync:Directory", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "attachments"));
 
 		bool SyncNewOnly => !"false".IsEquals(UtilityService.GetAppSetting("Files:Sync:NewOnly", "true"));
-
-		bool SyncByHttp => "true".IsEquals(UtilityService.GetAppSetting("Files:Sync:ByHttp", "false"));
+		#endregion
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 			=> base.Start(args, initializeRepository, _ =>
@@ -47,7 +48,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// verify the request
-				if (!"captcha".IsEquals(requestInfo.ObjectName) && !"sync".IsEquals(requestInfo.ObjectName))
+				if (!"sync".IsEquals(requestInfo.ObjectName))
 				{
 					if (requestInfo.Extra == null || !requestInfo.Extra.TryGetValue("SessionID", out var sessionID) || !sessionID.Equals(requestInfo.Session.SessionID.GetHMACBLAKE256(this.ValidationKey)))
 						throw new InvalidRequestException();
@@ -79,35 +80,20 @@ namespace net.vieapps.Services.Files
 						json = await this.ProcessAttachmentAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
-					case "captcha":
-					case "captchas":
-						if (requestInfo.Verb.IsEquals("GET"))
-						{
-							var code = CaptchaService.GenerateCode(requestInfo.Extra != null && requestInfo.Extra.ContainsKey("Salt") ? requestInfo.Extra["Salt"] : null);
-							json = new JObject
-								{
-									{ "Code", code },
-									{ "Uri", $"{Utility.CaptchaURI}{code.Url64Encode()}/{UtilityService.GetUUID().Left(13).Url64Encode()}.jpg" }
-								};
-						}
-						else
-							throw new MethodAccessException(requestInfo.Verb);
-						break;
-
 					case "sync":
 						json = new JObject();
 						switch (requestInfo.Verb)
 						{
 							case "GET":
-								this.SyncFile(requestInfo);
+								this.ProcessSyncRequest(requestInfo);
 								break;
 
 							case "POST":
-								await this.SyncFileAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+								await this.ProcessSyncRequestAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 								break;
 
 							default:
-								throw new InvalidRequestException();
+								throw new MethodNotAllowedException(requestInfo.Verb);
 						}
 						break;
 
@@ -213,13 +199,11 @@ namespace net.vieapps.Services.Files
 						{
 							title = title.GetANSIUri();
 						}
-					else
-						title = UtilityService.NewUUID;
 
-					json = thumbnails.Select(thumbnail => thumbnail.ToJson(true, title, thumbnailJSON =>
+					json = thumbnails.Select(thumbnail => thumbnail.ToJson(true, title ?? thumbnail.ID, thumbnailJSON =>
 					{
 						if (asAttachments)
-							thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title) } };
+							thumbnailJSON["URIs"] = new JObject { { "Direct", thumbnail.GetURI(title ?? thumbnail.ID) } };
 					})).ToJArray();
 
 					await Utility.Cache.SetAsync($"{objectID}:thumbnails", json.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
@@ -299,8 +283,6 @@ namespace net.vieapps.Services.Files
 			// update into repository
 			await (isCreateNew ? Thumbnail.CreateAsync(thumbnail, cancellationToken) : Thumbnail.UpdateAsync(thumbnail, false, cancellationToken)).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false);
-			if (!thumbnail.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node))
-				this.SendSyncRequest(thumbnail, node, true);
 
 			// send update message and response
 			var response = thumbnail.ToJson(true, null, json =>
@@ -536,8 +518,6 @@ namespace net.vieapps.Services.Files
 			attachment.Created = attachment.LastModified = DateTime.Now;
 			await Attachment.CreateAsync(attachment, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken).ConfigureAwait(false);
-			if (!attachment.IsTemporary && requestInfo.Extra.TryGetValue("Node", out var node))
-				this.SendSyncRequest(attachment, node);
 
 			// send update message and response
 			var response = attachment.ToJson();
@@ -553,10 +533,7 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> UpdateAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
-			if (attachment == null)
-				throw new InformationNotFoundException();
-
+			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			var request = requestInfo.GetBodyExpando();
 			attachment.CopyFrom(requestInfo.GetBodyExpando(), "ID,ServiceName,ObjectName,SystemID,EntityInfo,ObjectID,Filename,Size,ContentType,DownloadTimes,IsTemporary,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
@@ -914,39 +891,16 @@ namespace net.vieapps.Services.Files
 				}
 			}.Send();
 
-		void SendSyncRequest(IAttachment attachment, string node, bool isThumbnail = false)
+		async Task SendSyncRequestAsync(string node, string serviceName, string systemID, string filename, string correlationID = null)
 		{
-			var type = !attachment.IsTemporary && !this.SyncByHttp
-				? null
-				: isThumbnail ? "Thumbnail" : "Attachment";
-			var filename = (isThumbnail ? "" : $"{attachment.ID}-") + attachment.Filename;
-			this.SendSyncRequest(type, node, attachment.ServiceName, attachment.SystemID, filename, attachment.IsTemporary);
-		}
+			correlationID ??= UtilityService.NewUUID;
+			var filePath = Path.Combine(this.SyncDirectory, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName?.ToLower() ?? "" : systemID.ToLower(), filename);
+			if (this.SyncNewOnly && File.Exists(filePath))
+				return;
 
-		async Task SendSyncFileAsync(string node, string serviceName, string systemID, string filename)
-		{
-			if (this.SyncNewOnly)
-			{
-				var filePath = Path.Combine(this.SyncDirectory, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName?.ToLower() ?? "" : systemID.ToLower(), filename);
-				if (File.Exists(filePath))
-				{
-					if (filename.IsEndsWith(".jpg") && filename.Length == 36 && filename.Left(32).IsValidUUID())
-						try
-						{
-							File.Delete(filePath);
-						}
-						catch
-						{
-							return;
-						}
-					else
-						return;
-				}
-			}
-			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				await Router.GetUniqueService(node).ProcessRequestAsync(new RequestInfo
+				await Router.GetUniqueService(Extensions.GetUniqueName(this.ServiceName, node)).ProcessRequestAsync(new RequestInfo
 				{
 					ServiceName = this.ServiceName,
 					ObjectName = "Sync",
@@ -954,35 +908,34 @@ namespace net.vieapps.Services.Files
 					Header = new Dictionary<string, string>
 					{
 						["x-signature"] = this.SyncKey.GetHMACBLAKE512(this.ValidationKey),
-						["x-node"] = this.ServiceUniqueName,
+						["x-node"] = this.NodeID,
 						["x-service-name"] = serviceName,
 						["x-system-id"] = systemID,
 						["x-filename"] = filename
 					},
 					CorrelationID = correlationID
 				}, this.CancellationToken).ConfigureAwait(false);
-				if (this.IsDebugLogEnabled)
-					await this.WriteLogsAsync(correlationID, this.Logger, "Send a request to sync successful" + "\r\n" +
-						$"- From: {this.ServiceUniqueName}" + "\r\n" +
-						$"- To: {node}" + "\r\n" +
-						$"- Service: {serviceName}" + "\r\n" +
-						$"- System ID: {systemID}" + "\r\n" +
-						$"- File: {filename}"
-					, null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await this.WriteLogsAsync(correlationID, this.Logger, "Send a request to sync failed" + "\r\n" +
-					$"- From: {this.ServiceUniqueName}" + "\r\n" +
+				await this.WriteLogsAsync(correlationID, this.Logger, $"Send a request to sync a file" + "\r\n" +
+					$"- From: {this.NodeID}" + "\r\n" +
 					$"- To: {node}" + "\r\n" +
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
-					$"- File: {filename}"
+					$"- File: {filename} ({filePath})"
+				, null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogsAsync(correlationID, this.Logger, "Cannot send a request to sync a file" + "\r\n" +
+					$"- From: {this.NodeID}" + "\r\n" +
+					$"- To: {node}" + "\r\n" +
+					$"- Service: {serviceName}" + "\r\n" +
+					$"- System ID: {systemID}" + "\r\n" +
+					$"- File: {filename} ({filePath})"
 				, ex, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 			}
 		}
 
-		void SyncFile(RequestInfo requestInfo)
+		void ProcessSyncRequest(RequestInfo requestInfo)
 		{
 			var node = requestInfo.Header["x-node"];
 			var serviceName = requestInfo.Header["x-service-name"];
@@ -998,12 +951,12 @@ namespace net.vieapps.Services.Files
 						var header = new Dictionary<string, string>
 						{
 							["x-signature"] = this.SyncKey.GetHMACBLAKE512(this.ValidationKey),
-							["x-node"] = this.ServiceUniqueName,
+							["x-node"] = this.NodeID,
 							["x-service-name"] = serviceName,
 							["x-system-id"] = systemID,
 							["x-filename"] = filename
 						};
-						var service = Router.GetUniqueService(node);
+						var service = Router.GetUniqueService(Extensions.GetUniqueName(this.ServiceName, node));
 						using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1024 * 64, true);
 						var buffer = new byte[1024 * 64 * 10];
 						var read = 0;
@@ -1011,6 +964,11 @@ namespace net.vieapps.Services.Files
 						{
 							read = await stream.ReadAsync(buffer, 0, buffer.Length, this.CancellationToken).ConfigureAwait(false);
 							var data = read > 0 ? buffer.Take(0, read) : [];
+							if (read < 1)
+							{
+								header["x-creation-time"] = File.GetCreationTime(filePath).ToDTString();
+								header["x-last-write-time"] = File.GetLastWriteTime(filePath).ToDTString();
+							}
 							await service.ProcessRequestAsync(new RequestInfo
 							{
 								ServiceName = this.ServiceName,
@@ -1020,25 +978,24 @@ namespace net.vieapps.Services.Files
 								Body = data.Length > 0 ? data.ToBase64() : "",
 								Extra = new Dictionary<string, string>
 								{
-									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{this.ServiceUniqueName}".GetHMACSHA256(this.SyncKey)
+									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{this.NodeID}".GetHMACSHA256(this.SyncKey)
 								},
 								CorrelationID = requestInfo.CorrelationID
 							}, this.CancellationToken).ConfigureAwait(false);
 						} while (read > 0);
 						stopwatch.Stop();
-						if (this.IsDebugLogEnabled)
-							await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
-								$"- From: {this.ServiceUniqueName}" + "\r\n" +
-								$"- To: {node}" + "\r\n" +
-								$"- Service: {serviceName}" + "\r\n" +
-								$"- System ID: {systemID}" + "\r\n" +
-								$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
-							, null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
+						await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
+							$"- From: {this.NodeID}" + "\r\n" +
+							$"- To: {node}" + "\r\n" +
+							$"- Service: {serviceName}" + "\r\n" +
+							$"- System ID: {systemID}" + "\r\n" +
+							$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
+						, null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
 						await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, "Sync a file failed" + "\r\n" +
-							$"- From: {this.ServiceUniqueName}" + "\r\n" +
+							$"- From: {this.NodeID}" + "\r\n" +
 							$"- To: {node}" + "\r\n" +
 							$"- Service: {serviceName}" + "\r\n" +
 							$"- System ID: {systemID}" + "\r\n" +
@@ -1050,7 +1007,7 @@ namespace net.vieapps.Services.Files
 				throw new FileNotFoundException();
 		}
 
-		async Task SyncFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task ProcessSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var node = requestInfo.Header["x-node"];
 			var serviceName = requestInfo.Header["x-service-name"];
@@ -1058,13 +1015,13 @@ namespace net.vieapps.Services.Files
 			var fileName = requestInfo.Header["x-filename"];
 
 			var path = Path.Combine(this.SyncDirectory, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
+			var filePath = Path.Combine(path, fileName);
 			if (!Directory.Exists(path))
 				Directory.CreateDirectory(path);
 
-			var filePath = Path.Combine(path, fileName);
 			try
 			{
-				var data = new byte[0];
+				var data = Array.Empty<byte>();
 				var checksum = "";
 				if (!string.IsNullOrWhiteSpace(requestInfo.Body))
 				{
@@ -1082,14 +1039,21 @@ namespace net.vieapps.Services.Files
 					{
 						await stream.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
 					}
-				else if (this.IsDebugLogEnabled)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, "Sync a file successful" + "\r\n" +
-						$"- From: {node}" + "\r\n" +
-						$"- To: {this.ServiceUniqueName}" + "\r\n" +
-						$"- Service: {serviceName}" + "\r\n" +
-						$"- System ID: {systemID}" + "\r\n" +
-						$"- File: {fileName} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
-					, null, this.ServiceName).ConfigureAwait(false);
+				else
+				{
+					if (requestInfo.Header.TryGetValue("x-creation-time", out var time) && DateTime.TryParse(time, out var creationTime))
+						try
+						{
+							File.SetCreationTime(filePath, creationTime);
+						}
+						catch { }
+					if (requestInfo.Header.TryGetValue("x-last-write-time", out time) && DateTime.TryParse(time, out var lastwriteTime))
+						try
+						{
+							File.SetLastWriteTime(filePath, lastwriteTime);
+						}
+						catch { }
+				}
 			}
 			catch (Exception ex)
 			{
@@ -1098,13 +1062,13 @@ namespace net.vieapps.Services.Files
 					File.Delete(filePath);
 				}
 				catch { }
-				await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, "Sync a file failed" + "\r\n" +
+				await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, "Failed to process a request to sync a file" + "\r\n" +
 					$"- From: {node}" + "\r\n" +
-					$"- To: {this.ServiceUniqueName}" + "\r\n" +
+					$"- To: {this.NodeID}" + "\r\n" +
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
 					$"- File: {fileName} ({filePath})"
-				, ex, this.ServiceName).ConfigureAwait(false);
+				, ex, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 				throw;
 			}
 		}
@@ -1229,7 +1193,7 @@ namespace net.vieapps.Services.Files
 					if (children != null && children.Count > 0 && !string.IsNullOrWhiteSpace(objectID))
 						json[objectID] = children;
 					objectID = objID;
-					children = new JArray();
+					children = [];
 				}
 				children.Add(child);
 			});
@@ -1305,8 +1269,8 @@ namespace net.vieapps.Services.Files
 			else if (message.Type.IsEquals("Sync"))
 			{
 				var node = message.Data.Get<string>("Node");
-				if (!this.ServiceUniqueName.IsEquals(node) && Directory.Exists(this.SyncDirectory))
-					this.SendSyncFileAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename")).Run();
+				if (!this.NodeID.IsEquals(node) && Directory.Exists(this.SyncDirectory))
+					this.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename")).Run();
 			}
 		}
 
@@ -1324,18 +1288,14 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
-			var directories = (isRefineDirectories || isSyncFiles) && systemID.IsEquals("all")
-				? Directory.GetDirectories(dir).Where(dirPath => dirPath != null && dirPath.Right(32).IsValidUUID()).ToList()
+			var directories = (isRefineDirectories || isSyncFiles)
+				? systemID.IsEquals("all")
+					? Directory.GetDirectories(dir).Where(dirPath => dirPath.Right(32).IsValidUUID()).ToList()
+					: [Path.Combine(dir, systemID)]
 				: [];
 
 			if (isRefineDirectories || isSyncFiles)
 			{
-				if (directories.Count < 1)
-				{
-					while (dir.EndsWith('/') || dir.EndsWith('\\'))
-						dir = dir.Left(dir.Length - 1);
-					directories.Add($"{dir}{Path.DirectorySeparatorChar}{systemID}");
-				}
 				directories = directories.Where(dirPath => Directory.Exists(dirPath)).ToList();
 				directories = args?.FirstOrDefault(arg => arg.IsStartsWith("/reverse")) != null
 					? [.. directories.OrderDescending()]
@@ -1349,15 +1309,15 @@ namespace net.vieapps.Services.Files
 					{
 						try
 						{
-							Directory.Delete(Path.Combine(dirPath, Path.DirectorySeparatorChar.ToString(), name), true);
+							Directory.Delete(Path.Combine(dirPath, name), true);
 						}
-						catch {}
+						catch { }
 					});
 					try
 					{
 						Directory.Move(dirPath, dirPath.ToLower());
 					}
-					catch {}
+					catch { }
 				});
 
 			if (isSyncFiles)
@@ -1370,7 +1330,6 @@ namespace net.vieapps.Services.Files
 				}
 
 				var syncByHttp = args?.FirstOrDefault(arg => arg.IsEquals("/sync-http")) != null;
-				node = (node.IsContains(this.ServiceName + ".") ? "" : $"{this.ServiceName.ToLower()}." + (syncByHttp ? "http." : "")) + node.ToLower();
 				var serviceName = args?.FirstOrDefault(arg => arg.IsStartsWith("/service:"))?[9..].Trim().ToLower() ?? "portals";
 				var lastWriteTime = args?.FirstOrDefault(arg => arg.IsStartsWith("/month:")) != null
 					? Int32.TryParse(args.First(arg => arg.IsStartsWith("/month:"))[7..].Trim(), out var month)

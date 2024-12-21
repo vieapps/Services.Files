@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -22,7 +23,7 @@ namespace net.vieapps.Services.Files
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			var data = new ArraySegment<byte>([]);
+			var data = Array.Empty<byte>();
 			var stopwatch = Stopwatch.StartNew();
 			try
 			{
@@ -35,18 +36,18 @@ namespace net.vieapps.Services.Files
 				var description = isBase64Url ? base64Url.Get<string>("description") : segments[3].Replace("--", " ");
 				var accountName = isBase64Url ? base64Url.Get<string>("accountName") : segments[4].Replace("--", " ");
 				using var vietqr = await new Uri($"https://img.vietqr.io/image/{id}-{accountNumber}-print.png?amount={amount}&addInfo={description}&accountName={accountName}").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
-				data = (await vietqr.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false)).ToArraySegment();
+				data = await vietqr.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.VietQRs", $"Generate VietQR Code successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate VietQR Code successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync(this.Logger, "Http.VietQRs", $"Error occurred while generating the VietQR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = ThumbnailHandler.Generate(ex.Message, 540, 540, true);
+				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the VietQR Code: {ex.Message}", ex).ConfigureAwait(false);
+				data = ex.Message.Generate(540, 540, true);
 			}
-			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/png", null, 0, null, TimeSpan.Zero, context.GetCorrelationID());
-			await context.WriteAsync(data, cancellationToken).ConfigureAwait(false);
+			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
+			await context.WriteAsync(await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

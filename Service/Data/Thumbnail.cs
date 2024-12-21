@@ -125,14 +125,14 @@ namespace net.vieapps.Services.Files
 		public override Privileges OriginalPrivileges { get; set; }
 		#endregion
 
-		#region To JSON
-		static IEnumerable<string> BeRemoved { get; } = new[] { "ServiceName", "ObjectName", "SystemID", "EntityInfo", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID" };
+		static IEnumerable<string> BeRemoved { get; } = ["ServiceName", "ObjectName", "SystemID", "EntityInfo", "Size", "ContentType", "IsTemporary", "Created", "CreatedID", "LastModified", "LastModifiedID"];
 
-		public string GetURI(string title = null)
+		public string GetURI(string title = null, int width = 0, int height = 0)
 		{
-			var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/0/0";
-			var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
-			return $"{uri}/{this.ObjectID}/{index}/{this.LastModified:HHmmss}/{title ?? UtilityService.NewUUID}";
+			var uri = $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID).ToLower()}/0/{width}/{height}";
+			var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.PositionOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
+			var time = this.LastModified.ToString(UtilityService.GetRandomNumber() % 2 == 1 ? "HH/mm/ss/fff" : UtilityService.GetRandomNumber() % 3 == 1 ? "HHmm/ssfff" : "HHmmssfff");
+			return $"{uri}/{this.ObjectID}/{index}/{time}/{title ?? UtilityService.NewUUID}";
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted)
@@ -144,13 +144,11 @@ namespace net.vieapps.Services.Files
 				json["Filename"] = string.IsNullOrWhiteSpace(this.Filename) ? $"{this.ObjectID}.jpg" : this.Filename;
 				if (asNormalized)
 				{
-					json["Index"] = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.IndexOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
+					json["Index"] = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.PositionOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
 					json["URI"] = this.GetURI(title);
 					Thumbnail.BeRemoved.ForEach(name => json.Remove(name));
 				};
 				onCompleted?.Invoke(json);
 			});
-		#endregion
-
 	}
 }

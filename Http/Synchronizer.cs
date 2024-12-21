@@ -17,76 +17,11 @@ namespace net.vieapps.Services.Files
 	{
 		public ILogger Logger { get; } = Components.Utility.Logger.CreateLogger<Synchronizer>();
 
-		public string ServiceUniqueName => Handler.NodeName;
+		public string ServiceUniqueName => Extensions.GetUniqueName($"{Global.ServiceName}.http");
 
-		public string ServiceUniqueURI => $"services.{Handler.NodeName}";
+		public string ServiceUniqueURI => Extensions.GetUniqueName($"services.{Global.ServiceName}.http");
 
-		public string SyncKey => UtilityService.GetAppSetting("Keys:Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
-
-		public bool SyncNewOnly => !"false".IsEquals(UtilityService.GetAppSetting("Files:Sync:NewOnly", "true"));
-
-		public async Task SendRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary)
-		{
-			if (this.SyncNewOnly)
-			{
-	 			var filePath = isTemporary
-					? Path.Combine(Handler.TempFilesPath, filename)
-					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName?.ToLower() ?? "" : systemID.ToLower(), filename);
-				if (File.Exists(filePath))
-				{
-					if (filename.IsEndsWith(".jpg") && filename.Length == 36 && filename.Left(32).IsValidUUID())
-						try
-						{
-							File.Delete(filePath);
-						}
-						catch
-						{
-							return;
-						}
-					else
-						return;
-				}
-			}
-			var correlationID = UtilityService.NewUUID;
-			try
-			{
-				await Router.GetUniqueService(node).ProcessRequestAsync(new RequestInfo
-				{
-					ServiceName = "Files.Http",
-					Verb = "GET",
-					Header = new Dictionary<string, string>
-					{
-						["x-signature"] = this.SyncKey.GetHMACBLAKE512(Global.ValidationKey),
-						["x-node"] = Handler.NodeName,
-						["x-service-name"] = serviceName,
-						["x-system-id"] = systemID,
-						["x-filename"] = filename,
-						["x-temporary"] = isTemporary.ToString().ToLower()
-					},
-					CorrelationID = correlationID
-				}, Global.CancellationToken).ConfigureAwait(false);
-				if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Send a request to sync successful" + "\r\n" +
-						$"- From: {Handler.NodeName}" + "\r\n" +
-						$"- To: {node}" + "\r\n" +
-						$"- Service: {serviceName}" + "\r\n" +
-						$"- System ID: {systemID}" + "\r\n" +
-						$"- File: {filename}" + "\r\n" +
-						$"- Temporary: {isTemporary}"
-					, null, Global.ServiceName, LogLevel.Debug, correlationID).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Send a request to sync failed" + "\r\n" +
-					$"- From: {Handler.NodeName}" + "\r\n" +
-					$"- To: {node}" + "\r\n" +
-					$"- Service: {serviceName}" + "\r\n" +
-					$"- System ID: {systemID}" + "\r\n" +
-					$"- File: {filename}" + "\r\n" +
-					$"- Temporary: {isTemporary}"
-				, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-			}
-		}
+		internal string SyncKey => UtilityService.GetAppSetting("Keys:Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
 
 		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -94,11 +29,11 @@ namespace net.vieapps.Services.Files
 				switch (requestInfo.Verb)
 				{
 					case "GET":
-						this.Send(requestInfo);
+						this.ProcessSyncRequest(requestInfo);
 						break;
 
 					case "POST":
-						await this.ReceiveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						await this.ProcessSyncRequestAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
 					default:
@@ -109,7 +44,50 @@ namespace net.vieapps.Services.Files
 			return new JObject();
 		}
 
-		void Send(RequestInfo requestInfo)
+		internal async Task SendSyncRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary, string correlationID = null)
+		{
+			correlationID ??= UtilityService.NewUUID;
+			try
+			{
+				await Router.GetUniqueService(Extensions.GetUniqueName($"{Global.ServiceName}.http", node)).ProcessRequestAsync(new RequestInfo
+				{
+					ServiceName = Global.ServiceName,
+					ObjectName = "Synchronizer",
+					Verb = "GET",
+					Header = new Dictionary<string, string>
+					{
+						["x-signature"] = this.SyncKey.GetHMACBLAKE512(Global.ValidationKey),
+						["x-node"] = Global.NodeID,
+						["x-service-name"] = serviceName,
+						["x-system-id"] = systemID,
+						["x-filename"] = filename,
+						["x-temporary"] = isTemporary.ToString().ToLower()
+					},
+					CorrelationID = correlationID
+				}, Global.CancellationToken).ConfigureAwait(false);
+				await Global.WriteLogsAsync(this.Logger, "Synchronizers", $"Send a request to sync a file (via HTTP)" + "\r\n" +
+					$"- From: {Global.NodeID}" + "\r\n" +
+					$"- To: {node}" + "\r\n" +
+					$"- Service: {serviceName}" + "\r\n" +
+					$"- System ID: {systemID}" + "\r\n" +
+					$"- File: {filename}" + "\r\n" +
+					$"- Temporary: {isTemporary}"
+				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await Global.WriteLogsAsync(this.Logger, "Synchronizers", "Cannot send a request to sync a file (via HTTP)" + "\r\n" +
+					$"- From: {Global.NodeID}" + "\r\n" +
+					$"- To: {node}" + "\r\n" +
+					$"- Service: {serviceName}" + "\r\n" +
+					$"- System ID: {systemID}" + "\r\n" +
+					$"- File: {filename}" + "\r\n" +
+					$"- Temporary: {isTemporary}"
+				, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+			}
+		}
+
+		void ProcessSyncRequest(RequestInfo requestInfo)
 		{
 			var node = requestInfo.Header["x-node"];
 			var serviceName = requestInfo.Header["x-service-name"];
@@ -128,13 +106,13 @@ namespace net.vieapps.Services.Files
 						var header = new Dictionary<string, string>
 						{
 							["x-signature"] = this.SyncKey.GetHMACBLAKE512(Global.ValidationKey),
-							["x-node"] = Handler.NodeName,
+							["x-node"] = Global.NodeID,
 							["x-service-name"] = serviceName,
 							["x-system-id"] = systemID,
 							["x-filename"] = filename,
 							["x-temporary"] = isTemporary.ToString().ToLower()
 						};
-						var service = Router.GetUniqueService(node);
+						var service = Router.GetUniqueService(Extensions.GetUniqueName($"{Global.ServiceName}.http", node));
 						using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
 						var buffer = new byte[AspNetCoreUtilityService.BufferSize * 10];
 						var read = 0;
@@ -142,33 +120,38 @@ namespace net.vieapps.Services.Files
 						{
 							read = await stream.ReadAsync(buffer, 0, buffer.Length, Global.CancellationToken).ConfigureAwait(false);
 							var data = read > 0 ? buffer.Take(0, read) : [];
+							if (read < 1)
+							{
+								header["x-creation-time"] = File.GetCreationTime(filePath).ToDTString();
+								header["x-last-write-time"] = File.GetLastWriteTime(filePath).ToDTString();
+							}
 							await service.ProcessRequestAsync(new RequestInfo
 							{
-								ServiceName = "Files.Http",
+								ServiceName = Global.ServiceName,
+								ObjectName = "Synchronizer",
 								Verb = "POST",
 								Header = header,
 								Body = data.Length > 0 ? data.ToBase64() : "",
 								Extra = new Dictionary<string, string>
 								{
-									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{Handler.NodeName}".GetHMACSHA256(this.SyncKey)
+									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{Global.NodeID}".GetHMACSHA256(this.SyncKey)
 								},
 								CorrelationID = requestInfo.CorrelationID
 							}, Global.CancellationToken).ConfigureAwait(false);
 						} while (read > 0);
 						stopwatch.Stop();
-						if (Global.IsDebugLogEnabled)
-							await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
-								$"- From: {Handler.NodeName}" + "\r\n" +
-								$"- To: {node}" + "\r\n" +
-								$"- Service: {serviceName}" + "\r\n" +
-								$"- System ID: {systemID}" + "\r\n" +
-								$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
-							, null, Global.ServiceName, LogLevel.Debug, requestInfo.CorrelationID).ConfigureAwait(false);
+						await Global.WriteLogsAsync(this.Logger, "Synchronizers", $"Sync a file (via HTTP) successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
+							$"- From: {Global.NodeID}" + "\r\n" +
+							$"- To: {node}" + "\r\n" +
+							$"- Service: {serviceName}" + "\r\n" +
+							$"- System ID: {systemID}" + "\r\n" +
+							$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,###,##0} bytes)"
+						, null, Global.ServiceName, LogLevel.Information, requestInfo.CorrelationID).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
-						await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Sync a file failed" + "\r\n" +
-							$"- From: {Handler.NodeName}" + "\r\n" +
+						await Global.WriteLogsAsync(this.Logger, "Synchronizers", "Sync a file (via HTTP) failed" + "\r\n" +
+							$"- From: {Global.NodeID}" + "\r\n" +
 							$"- To: {node}" + "\r\n" +
 							$"- Service: {serviceName}" + "\r\n" +
 							$"- System ID: {systemID}" + "\r\n" +
@@ -180,7 +163,7 @@ namespace net.vieapps.Services.Files
 				throw new FileNotFoundException();
 		}
 
-		async Task ReceiveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task ProcessSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var node = requestInfo.Header["x-node"];
 			var serviceName = requestInfo.Header["x-service-name"];
@@ -191,13 +174,14 @@ namespace net.vieapps.Services.Files
 			var path = isTemporary
 				? Handler.TempFilesPath
 				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
+
+			var filePath = Path.Combine(path, fileName);
 			if (!isTemporary && !Directory.Exists(path))
 				Directory.CreateDirectory(path);
 
-			var filePath = Path.Combine(path, fileName);
 			try
 			{
-				var data = new byte[0];
+				var data = Array.Empty<byte>();
 				var checksum = "";
 				if (!string.IsNullOrWhiteSpace(requestInfo.Body))
 				{
@@ -208,21 +192,28 @@ namespace net.vieapps.Services.Files
 					checksum = $"{fileName}@{node}".GetHMACSHA256(this.SyncKey);
 
 				if (!requestInfo.Extra.TryGetValue("x-checksum", out var xchecksum) || !xchecksum.Equals(checksum))
-					throw new InvalidDataException();
+					throw new InvalidDataException("Invalid checksum");
 
 				if (data.Length > 0)
 					using (var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 					{
 						await stream.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
 					}
-				else if (Global.IsDebugLogEnabled)
-					await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Sync a file successful" + "\r\n" +
-						$"- From: {node}" + "\r\n" +
-						$"- To: {Handler.NodeName}" + "\r\n" +
-						$"- Service: {serviceName}" + "\r\n" +
-						$"- System ID: {systemID}" + "\r\n" +
-						$"- File: {fileName} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,##0} bytes)"
-					, null, Global.ServiceName, LogLevel.Debug, requestInfo.CorrelationID).ConfigureAwait(false);
+				else
+				{
+					if (requestInfo.Header.TryGetValue("x-creation-time", out var time) && DateTime.TryParse(time, out var creationTime))
+						try
+						{
+							File.SetCreationTime(filePath, creationTime);
+						}
+						catch { }
+					if (requestInfo.Header.TryGetValue("x-last-write-time", out time) && DateTime.TryParse(time, out var lastwriteTime))
+						try
+						{
+							File.SetLastWriteTime(filePath, lastwriteTime);
+						}
+						catch { }
+				}
 			}
 			catch (Exception ex)
 			{
@@ -231,9 +222,9 @@ namespace net.vieapps.Services.Files
 					File.Delete(filePath);
 				}
 				catch { }
-				await Global.WriteLogsAsync(this.Logger, "Http.Synchronizers", "Sync a file failed" + "\r\n" +
+				await Global.WriteLogsAsync(this.Logger, "Synchronizers", "Failed to process a sync request (via HTTP)" + "\r\n" +
 					$"- From: {node}" + "\r\n" +
-					$"- To: {Handler.NodeName}" + "\r\n" +
+					$"- To: {Global.NodeID}" + "\r\n" +
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
 					$"- File: {fileName} ({filePath})"

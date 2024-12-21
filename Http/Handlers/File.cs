@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Drawing.Imaging;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
@@ -28,9 +29,10 @@ namespace net.vieapps.Services.Files
 		async Task FlushAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
-			var requestUri = context.GetRequestUri();
-			var pathSegments = requestUri.GetRequestPathSegments();
+			var requestURI = context.GetRequestUri();
+			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 
 			var attachment = new AttachmentInfo
@@ -47,18 +49,24 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
-			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["X-Cache"] = "None" };
-			var eTag = "file#" + attachment.ID.ToLower();
-			var noneMatch = context.GetHeaderParameter("If-None-Match");
-			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["X-Cache"] = "None",
+				["X-Node"] = Global.NodeID
+			};
+			var eTag = $"file#{attachment.ID.ToLower()}";
+			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
+			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
+
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				headers["X-Cache"] = "SVC-304";
+				headers["X-Cache"] = $"HTTP-304/{typeof(FileHandler).Assembly.GetVersion(false)}";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				await Task.WhenAll
 				(
 					context.FlushAsync(cancellationToken),
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})") : Task.CompletedTask
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 				return;
 			}
@@ -69,55 +77,67 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// check existed
+			FileInfo fileInfo = null;
 			var cacheKey = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
 				? eTag
 				: null;
-			var hasCached = cacheKey != null && !context.Request.Query.ContainsKey("x-force-cache") && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = processCache && cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
-			FileInfo fileInfo = null;
 			if (!hasCached)
 			{
 				fileInfo = new FileInfo(attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Not found: [{requestUri}] => [{fileInfo.FullName}]").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Downloads", $"Not found: [{requestURI}] => [{fileInfo.FullName}]").ConfigureAwait(false);
 					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
 			}
 
-			// flush the file to output stream, update counter & logs
+			// flush the file to output stream
 			if (hasCached)
 			{
-				headers["X-Cache"] = "SVC-200";
+				headers["X-Cache"] = $"HTTP-200/{typeof(FileHandler).Assembly.GetVersion(false)}";
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				using var stream = (await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false)).ToMemoryStream();
-				await Task.WhenAll
-				(
-					context.WriteAsync(stream, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken),
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a cached image ({requestUri})") : Task.CompletedTask
-				).ConfigureAwait(false);
+				var data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(data, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
-				var lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-				using var fileStream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, true);
-				await context.WriteAsync(fileStream, fileInfo.GetMimeType(), attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					cacheKey != null
-						? Task.WhenAll
-						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false), cancellationToken),
-							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Update an image file into cache successful ({requestUri})") : Task.CompletedTask
-						) : Task.CompletedTask,
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
-				).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.IsReadable() ? null : attachment.Filename, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				if (cacheKey != null)
+					this.PrepareCacheAsync(fileInfo, cacheKey, !attachment.ContentType.IsEndsWith("/webp")).Run();
 			}
 
-			await context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken).ConfigureAwait(false);
+			// update counter & logs
+			stopwatch.Stop();
+			await Task.WhenAll
+			(
+				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+			).ConfigureAwait(false);
+		}
+
+		async Task PrepareCacheAsync(FileInfo fileInfo, string cacheKey, bool isNotWebP)
+		{
+			var data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
+			var lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+			await Task.WhenAll
+			(
+				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
+			).ConfigureAwait(false);
+			if (isNotWebP)
+			{
+				data = await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
+				cacheKey = cacheKey.Replace("file#", "webp#");
+				await Task.WhenAll
+				(
+					Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+				).ConfigureAwait(false);
+			}
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -179,35 +199,70 @@ namespace net.vieapps.Services.Files
 					throw exception;
 
 				// move files from temporary directory to official directory
-				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads"));
+				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Uploads"));
+
+				// update cache
+				Task.WhenAll
+				(
+					Handler.Cache.RemoveAsync(attachments.Select(attachment => $"{attachment.ObjectID}:attachments").ToList(), Global.CancellationToken),
+					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => this.PrepareCacheAsync(new FileInfo(attachment.GetFilePath()), $"file#{attachment.ID.ToLower()}", !attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
+				).Run();
+
+				// sync
+				await attachments.Where(attachment => !attachment.IsTemporary).ForEachAsync(async attachment =>
+				{
+					new CommunicateMessage(Global.ServiceName)
+					{
+						Type = "Attachment#Sync",
+						ExcludedNodeID = Global.NodeID,
+						Data = new JObject
+						{
+							{ "Node", Global.NodeID },
+							{ "ServiceName", attachment.ServiceName },
+							{ "SystemID", attachment.SystemID },
+							{ "Filename", attachment.ID + "-" + attachment.Filename },
+							{ "IsTemporary", false },
+							{ "CorrelationID", context.GetCorrelationID() }
+						}
+					}.Send();
+					if (Global.IsDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({(string.IsNullOrWhiteSpace(attachment.SystemID) || !attachment.SystemID.IsValidUUID() ? attachment.ServiceName : attachment.SystemID)}/{attachment.Filename})").ConfigureAwait(false);
+				}).ConfigureAwait(false);
 
 				// response as a single image/file
 				if (segment.IsEquals("one.image") || segment.IsEquals("one.file") || segment.IsEquals("temp.file"))
 				{
 					var info = (response as JArray).First as JObject;
 					response = segment.IsEquals("temp.file")
-						? new JObject
-						{
-							{ "x-url", info["URIs"].Get<string>("Direct") },
-							{ "x-filename", $"{info.Get<string>("ID")}-{info.Get<string>("Filename")}" },
-							{ "x-node", Handler.NodeName }
-						}
-						: new JObject
-						{
-							{ context.GetParameter("x-response-name") ?? "url", info["URIs"].Get<string>("Direct") }
-						};
+					? new JObject
+					{
+						{ "x-url", info["URIs"].Get<string>("Direct") },
+						{ "x-filename", $"{info.Get<string>("ID")}-{info.Get<string>("Filename")}" },
+						{ "x-node", Extensions.GetUniqueName($"{Global.ServiceName}.http") }
+					}
+					: new JObject
+					{
+						{ context.GetParameter("x-response-name") ?? "url", info["URIs"].Get<string>("Direct") }
+					};
 				}
 
 				// response
-				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{attachments.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					context.WriteAsync(response, Newtonsoft.Json.Formatting.None, new Dictionary<string, string>
+					{
+						["X-Node"] = Global.NodeID,
+						["X-Execution-Times"] = stopwatch.GetElapsedTimes(),
+						["X-Correlation-ID"] = context.GetCorrelationID()
+					}, cancellationToken),
+					context.WriteLogsAsync(this.Logger, "Uploads", $"{attachments.Count} attachment file(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}")
+				).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"Error occurred while receiving attachment file(s)", ex).ConfigureAwait(false);
-				//attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
+				await context.WriteLogsAsync(this.Logger, "Uploads", $"Error occurred while receiving attachment file(s)", ex).ConfigureAwait(false);
+				//attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Uploads"));
 				throw;
 			}
 		}

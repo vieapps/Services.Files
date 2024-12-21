@@ -6,9 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Drawing;
 using System.Drawing.Imaging;
-using System.Drawing.Drawing2D;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
@@ -30,73 +28,82 @@ namespace net.vieapps.Services.Files
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
-			var requestUri = context.GetRequestUri();
-			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
-			var cacheKey = $"{requestUri}".ToLower().GenerateUUID();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
+			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
 
-			// check "If-Modified-Since" request to reduce traffict
-			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["X-Cache"] = "None" };
-			var lastModified = useCache ? await Global.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
-			var eTag = $"thumbnail#{cacheKey}";
-			var noneMatch = context.GetHeaderParameter("If-None-Match");
-			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
-			{
-				headers["X-Cache"] = "SVC-304";
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
-				return;
-			}
+			var requestURI = context.GetRequestUri();
+			var requestURL = $"{requestURI}";
+			var pathSegments = requestURI.GetRequestPathSegments();
 
-			// prepare
-			var requestUrl = $"{requestUri}";
-			var queryString = requestUri.ParseQuery();
-
-			var isNoThumbnailImage = requestUri.PathAndQuery.IsStartsWith("/thumbnail") && (requestUri.PathAndQuery.IsEndsWith("/no-image.png") || requestUri.PathAndQuery.IsEndsWith("/no-image.jpg"));
-			var pathSegments = requestUri.GetRequestPathSegments();
-
+			var handlerName = pathSegments[0];
 			var serviceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
 			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "";
+			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width) || width < 0)
+				width = 0;
+			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var height) || height < 0)
+				height = 0;
 			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5].ToLower() : "";
+			if (!Int32.TryParse(pathSegments.Length > 6 ? pathSegments[6] : "", out var index) || index < 0 || index > 6)
+				index = 0;
+
+			var isNoThumbnailImage = requestURI.AbsolutePath.IsEndsWith("/no-image.png") || requestURI.AbsolutePath.IsEndsWith("/no-image.jpg") || requestURI.AbsolutePath.IsEndsWith("/no-image.webp");
+			var isThumbnail = isNoThumbnailImage || (Int32.TryParse(pathSegments[2], out var mode) && mode == 0);
+			var asBig = !handlerName.IsStartsWith("thumbnailsmall");
+			var format = handlerName.IsEndsWith("webps")
+				? ImageFormat.Webp
+				: handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
+					? ImageFormat.Png
+					: ImageFormat.Jpeg;
+
+			// validate the request
 			if (!isNoThumbnailImage && (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID))))
 				throw new InvalidRequestException();
 
-			var handlerName = pathSegments[0];
-			var format = handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
-				? "PNG"
-				: handlerName.IsEndsWith("webps") ? "WEBP" : "JPG";
-			var isBig = handlerName.IsStartsWith("thumbnaibig");
-			var isThumbnail = isNoThumbnailImage || (pathSegments.Length > 2 && Int32.TryParse(pathSegments[2], out var isAttachment) && isAttachment == 0);
-			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width))
-				width = 0;
-			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var height))
-				height = 0;
-			var isCropped = requestUrl.IsContains("--crop") || queryString.ContainsKey("crop");
-			var croppedPosition = requestUrl.IsContains("--crop-top") || "top".IsEquals(context.GetQueryParameter("cropPos")) ? "top" : requestUrl.IsContains("--crop-bottom") || "bottom".IsEquals(context.GetQueryParameter("cropPos")) ? "bottom" : "auto";
-			//var isUseAdditionalWatermark = queryString.ContainsKey("nw") ? false : requestUrl.IsContains("--btwm");
+			// prepare entity tag and headers
+			var eTag = (identifier, index, format, width, height, asBig).GetKey();
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["X-Cache"] = "None",
+				["X-Node"] = Global.NodeID
+			};
 
+			// check "If-Modified-Since" request to reduce traffict
+			var noneMatch = context.GetHeaderParameter("If-None-Match");
+			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+			var lastModified = useCache && processCache && await Global.Cache.ExistsAsync($"{eTag}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : 0;
+			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
+			{
+				headers["X-Cache"] = $"HTTP-304/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURL}]").ConfigureAwait(false);
+				return;
+			}
+
+			// check existed
 			var attachment = new AttachmentInfo
 			{
 				ID = identifier,
 				ServiceName = serviceName,
 				SystemID = systemID,
-				IsThumbnail = isThumbnail,
-				Filename = isThumbnail
-					? identifier + (pathSegments.Length > 6 && Int32.TryParse(pathSegments[6], out var index) && index > 0 ? $"-{index}" : "") + ".jpg"
-					: pathSegments.Length > 6 ? pathSegments[6].UrlDecode() : "",
+				ObjectID = identifier,
+				Filename = isThumbnail ? $"{identifier}{(index > 0 ? $"-{index}" : "")}.jpg" : pathSegments.Length > 6 ? pathSegments[6].UrlDecode() : "",
 				IsTemporary = false,
-				IsTracked = false
+				IsTracked = false,
+				IsThumbnail = isThumbnail
 			};
-			if ("webp".IsEquals(format) && !pathSegments[2].Equals("0") && attachment.Filename.IsEndsWith(".webp"))
+			if (format == ImageFormat.Webp && !isThumbnail && attachment.Filename.IsEndsWith(".webp"))
 				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
-			// check existed
-			var hasCached = useCache && !context.Request.Query.ContainsKey("x-force-cache") && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			FileInfo fileInfo = null;
-			if (!hasCached)
+			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
+
+			if (hasCached)
+				headers["X-Cache"] = $"HTTP-200/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
+			else
 			{
 				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 				if (!fileInfo.Exists)
@@ -120,49 +127,41 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> getAsync()
 			{
-				var thumbnail = useCache ? await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
-				if (thumbnail != null && isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Cached thumbnail was found ({requestUri})").ConfigureAwait(false);
+				var thumbnail = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
+				if (thumbnail != null)
+				{
+					if (lastModified < 1)
+					{
+						fileInfo ??= new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
+						lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+						await Global.Cache.SetAsync($"{eTag}:time", lastModified, 0, cancellationToken).ConfigureAwait(false);
+					}
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Cached thumbnail was found [{eTag} => {requestURL}]").ConfigureAwait(false);
+				}
 				return thumbnail;
 			}
 
 			async Task<byte[]> generateAsync()
 			{
+				var stepwatch = Stopwatch.StartNew();
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+				var original = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				byte[] thumbnail;
-				var imageFormat = "webp".IsEquals(format) ? ImageFormat.Webp : "png".IsEquals(format) ? ImageFormat.Png : ImageFormat.Jpeg;
-
-				// generate
-				thumbnail = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				try
 				{
-					if (width > 0 || height > 0)
-					{
-						using var stream = thumbnail.ToMemoryStream();
-						using var image = this.Generate(stream, width, height, isBig, isCropped, croppedPosition);
-						thumbnail = await image.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
-					}
-					else
-						thumbnail = await thumbnail.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
+					thumbnail = await original.GenerateAsync(format, width, height, asBig, cancellationToken).ConfigureAwait(false);
+					stepwatch.Stop();
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,###,###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,###,###,###,##0} bytes");
 				}
-
-				// read the whole file when got error
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Error occurred while generating thumbnail => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = await thumbnail.ExportAsync(imageFormat, cancellationToken).ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+					thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 				}
-
-				// update cache
 				if (useCache)
-					await Task.WhenAll
-					(
-						Global.Cache.AddSetMemberAsync($"{(attachment.SystemID.IsValidUUID() ? attachment.SystemID : attachment.ServiceName)}:Thumbnails", $"{attachment.ObjectID}:Thumbnails", cancellationToken),
-						Global.Cache.AddSetMemberAsync($"{attachment.ObjectID}:Thumbnails", cacheKey, cancellationToken),
-						Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, cancellationToken),
-						Global.Cache.SetAsync($"{cacheKey}:time", fileInfo.LastWriteTime.ToHttpString(), 0, cancellationToken),
-						isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Update a thumbnail image into cache successful [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
-					).ConfigureAwait(false);
-
+					this.PrepareCacheAsync(attachment, index, format, original, lastModified, width, height, asBig).Run();
 				return thumbnail;
 			}
 
@@ -171,114 +170,72 @@ namespace net.vieapps.Services.Files
 			if (!await gotRightsAsync().ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// flush the thumbnail image to output stream, update counter & logs
-			fileInfo = fileInfo ?? new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
-			lastModified = lastModified ?? fileInfo.LastWriteTime.ToHttpString();
-			var lastModifiedTime = lastModified.FromHttpDateTime().ToUnixTimestamp();
-
+			// flush the thumbnail image to output stream
 			try
 			{
-				headers["X-Cache"] = hasCached ? "SVC-200" : "None";
-				using var stream = (await generateTask.ConfigureAwait(false)).ToMemoryStream();
-				await context.WriteAsync(stream, $"image/{(!"webp".IsEquals(format) && !"png".IsEquals(format) ? "jpeg" : format.ToLower())}", null, eTag, lastModifiedTime, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(await generateTask.ConfigureAwait(false), $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Http.Thumbnails", $"Error occurred while flushing thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while flushing a thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
 				throw;
 			}
 
+			// update counter & logs
+			stopwatch.Stop();
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Thumbnails", $"Successfully show a thumbnail image ({requestUri})") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful ({requestURL}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
-		Bitmap Generate(Stream stream, int width, int height, bool asBig, bool isCropped, string cropPosition)
+		async Task PrepareCacheAsync(AttachmentInfo attachment, int index, ImageFormat format, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
 		{
-			using var image = Image.FromStream(stream) as Bitmap;
-
-			// clone original image
-			if ((width < 1 && height < 1) || (width.Equals(image.Width) && height.Equals(image.Height)))
-				return image.Clone() as Bitmap;
-
-			// calculate size depend on width
-			if (height < 1)
+			if (original == null || lastModified < 1)
 			{
-				height = image.Height * width / image.Width;
-				if (height < 1)
-					height = image.Height;
+				var fileInfo = new FileInfo(attachment.GetFilePath());
+				original = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 			}
 
-			// calculate size depend on height
-			else if (width < 1)
+			byte[] thumbnail;
+			try
 			{
-				width = image.Width * height / image.Height;
-				if (width < 1)
-					width = image.Width;
+				thumbnail = await original.GenerateAsync(format, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+			}
+			catch
+			{
+				thumbnail = await original.ConvertAsync(format, Global.CancellationToken).ConfigureAwait(false);
 			}
 
-			// generate thumbnail
-			return isCropped
-				? this.Generate(image, width, height, asBig, cropPosition)
-				: this.Generate(image, width, height, asBig);
-		}
+			var cacheKey = (attachment.ObjectID, index, format, width, height, asBig).GetKey();
+			await Task.WhenAll
+			(
+				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+			).ConfigureAwait(false);
 
-		Bitmap Generate(Bitmap image, int width, int height, bool asBig, string cropPosition)
-		{
-			using var thumbnail = this.Generate(image, width, (image.Height * width) / image.Width, asBig);
-
-			// if height is less than thumbnail image's height, then return thumbnail image
-			if (thumbnail.Height <= height)
-				return thumbnail.Clone() as Bitmap;
-
-			// crop image
-			var top = cropPosition.IsEquals("auto")
-				? (thumbnail.Height - height) / 2
-				: cropPosition.IsEquals("bottom")
-					? thumbnail.Height - height
-					: 0;
-
-			using var cropped = new Bitmap(width, height);
-			using var graphics = Graphics.FromImage(cropped);
-			graphics.DrawImage(thumbnail, new Rectangle(0, 0, width, height), new Rectangle(0, top, width, height), GraphicsUnit.Pixel);
-
-			return cropped.Clone() as Bitmap;
-		}
-
-		Bitmap Generate(Bitmap image, int width, int height, bool asBig)
-		{
-			// get and return normal thumbnail
-			if (!asBig)
-				return image.GetThumbnailImage(width, height, null, IntPtr.Zero) as Bitmap;
-
-			// get and return big thumbnail (set resolution of original thumbnail)
-			else
+			if (format != ImageFormat.Webp)
 			{
-				using var thumbnail = new Bitmap(width, height);
-				using var graphics = Graphics.FromImage(thumbnail);
-				graphics.SmoothingMode = SmoothingMode.HighQuality;
-				graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-				graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-				graphics.DrawImage(image, new Rectangle(0, 0, width, height));
-				return thumbnail.Clone() as Bitmap;
-			}
-		}
+				try
+				{
+					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+				}
+				catch
+				{
+					thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
+				}
 
-		internal static ArraySegment<byte> Generate(string message, int width = 300, int height = 100, bool asTransparent = false, bool asWebP = false)
-		{
-			using var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
-			using var graphics = Graphics.FromImage(bitmap);
-			graphics.SmoothingMode = SmoothingMode.AntiAlias;
-			graphics.Clear(Color.White);
-			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-			using var bitmapStream = UtilityService.CreateMemoryStream();
-			bitmap.Save(bitmapStream, ImageFormat.MemoryBmp);
-			using var outputStream = UtilityService.CreateMemoryStream();
-			using var image = SixLabors.ImageSharp.Image.Load(bitmapStream);
-			image.Save(outputStream, asTransparent ? asWebP ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder());
-			return outputStream.ToArraySegment();
+				cacheKey = (attachment.ObjectID, index, ImageFormat.Webp, width, height, asBig).GetKey();
+				await Task.WhenAll
+				(
+					Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+				).ConfigureAwait(false);
+			}
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -398,58 +355,67 @@ namespace net.vieapps.Services.Files
 					response.Add(await context.CreateAsync(attachment, cancellationToken).ConfigureAwait(false));
 					if (useCache)
 					{
-						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:Thumbnails", cancellationToken).ConfigureAwait(false);
-						if (keys != null && keys.Count > 0)
-							cacheKeys = [.. cacheKeys, $"{attachment.ObjectID}:Thumbnails", .. keys];
+						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false) ?? [];
+						cacheKeys = cacheKeys.Concat(keys).Concat([$"{attachment.ObjectID}:thumbnails"]).Concat(new[] { ImageFormat.Jpeg, ImageFormat.Webp, ImageFormat.Png }.Select(format => (attachment.ObjectID, 0, format, 0, 0, true).GetKey())).ToList();
 					}
 				}, true, false).ConfigureAwait(false);
 
-				// clear cache
-				if (useCache && cacheKeys.Count > 0)
-					await Global.Cache.RemoveAsync(cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
-
 				// move files from temporary directory to official directory
-				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Http.Uploads", true));
+				attachments.ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Uploads", context.GetCorrelationID(), true));
+
+				// update cache
+				if (useCache)
+				{
+					await Global.Cache.RemoveAsync(cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+					await attachments.ForEachAsync((attachment, index) => this.PrepareCacheAsync(attachment, index, ImageFormat.Jpeg)).ConfigureAwait(false);
+				}
+
+				// sync
+				await attachments.ForEachAsync(async attachment =>
+				{
+					new CommunicateMessage(Global.ServiceName)
+					{
+						Type = "Thumbnail#Delete",
+						ExcludedNodeID = Global.NodeID,
+						Data = attachment.ToJson(json => json["CorrelationID"] = context.GetCorrelationID())
+					}.Send();
+					await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
+					new CommunicateMessage(Global.ServiceName)
+					{
+						Type = "Thumbnail#Sync",
+						ExcludedNodeID = Global.NodeID,
+						Data = new JObject
+						{
+						{ "Node", Global.NodeID },
+						{ "ServiceName", attachment.ServiceName },
+						{ "SystemID", attachment.SystemID },
+						{ "Filename", attachment.Filename },
+						{ "IsTemporary", false },
+						{ "CorrelationID", context.GetCorrelationID() }
+						}
+					}.Send();
+					if (Global.IsDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync a thumbnail image ({attachment.GetFilePath()})").ConfigureAwait(false);
+				}).ConfigureAwait(false);
 
 				// response
-				await context.WriteAsync(response, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Uploads", $"{thumbnails.Count(thumbnail => thumbnail != null)} thumbnail image(s) has been uploaded - Mode:  {(asBase64 ? "base64" : "file")} - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					context.WriteAsync(response, Newtonsoft.Json.Formatting.None, new Dictionary<string, string>
+					{
+						["X-Node"] = Global.NodeID,
+						["X-Execution-Times"] = stopwatch.GetElapsedTimes(),
+						["X-Correlation-ID"] = context.GetCorrelationID()
+					}, cancellationToken),
+					context.WriteLogsAsync(this.Logger, "Uploads", $"{thumbnails.Count(thumbnail => thumbnail != null)} thumbnail image(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}")
+				).ConfigureAwait(false);
 			}
 			catch (Exception)
 			{
-				attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Http.Uploads"));
+				attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Uploads"));
 				throw;
 			}
 		}
 	}
-
-	#region Watermark
-	public struct WatermarkInfo
-	{
-		public WatermarkInfo(string data, string position, Point offset)
-		{
-			this.Data = data;
-			this.Position = position;
-			this.Offset = offset;
-		}
-
-		/// <summary>
-		/// Gets or sets data of the watermark
-		/// </summary>
-		public string Data { get; set; }
-
-		/// <summary>
-		/// Gets or sets position of the watermark (possible values: auto, top, bottom)
-		/// </summary>
-		public string Position { get; set; }
-
-		/// <summary>
-		/// Gets or sets offset of the watermark
-		/// </summary>
-		public Point Offset { get; set; }
-	}
-	#endregion
-
 }

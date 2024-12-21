@@ -22,7 +22,6 @@ namespace net.vieapps.Services.Files
 		{
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
 			{
-				// prepare
 				var pathSegments = context.GetRequestPathSegments().Skip(1).ToArray();
 				var useSmallImage = true;
 				if (pathSegments.Length > 1)
@@ -31,17 +30,15 @@ namespace net.vieapps.Services.Files
 						useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
 					}
 					catch { }
-
-				// response
-				var image = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
-				context.SetResponseHeaders((int)HttpStatusCode.OK, "image/jpeg", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-				await context.WriteAsync(image, cancellationToken).ConfigureAwait(false);
+				using var stream = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
+				context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
+				await context.WriteAsync(await stream.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 			}
 			else
 				throw new MethodNotAllowedException(context.Request.Method);
 		}
 
-		ArraySegment<byte> Generate(string code, bool useSmallImage = true, List<string> noises = null)
+		MemoryStream Generate(string code, bool useSmallImage = true, List<string> noises = null)
 		{
 			// check code
 			if (!code.Equals(""))
@@ -80,10 +77,10 @@ namespace net.vieapps.Services.Files
 			// create new graphic from the bitmap with random background color
 			var backgroundColors = useSmallImage
 				? new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.White }
-				: new[] { Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Violet, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.LightGray, Color.Tomato, Color.LightGreen, Color.White };
+				: [Color.Orange, Color.Thistle, Color.LightSeaGreen, Color.Violet, Color.Yellow, Color.YellowGreen, Color.NavajoWhite, Color.LightGray, Color.Tomato, Color.LightGreen, Color.White];
 
-			var securityBitmap = this.CreateBackround(width, height, new[] { backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)] });
-			var securityGraph = Graphics.FromImage(securityBitmap);
+			using var securityBitmap = this.CreateBackround(width, height, [backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)], backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)]]);
+			using var securityGraph = Graphics.FromImage(securityBitmap);
 			securityGraph.SmoothingMode = SmoothingMode.AntiAlias;
 
 			// add noise texts (for big image)
@@ -92,9 +89,9 @@ namespace net.vieapps.Services.Files
 				// comuting noise texts for the image
 				var texts = noises != null && noises.Count > 0
 					? noises
-					: new List<string> { "VIEAppsnet", "VIEApps NGX", "VIEApps NGX API Gateway" };
+					: ["VIEApps.net", "VIEApps NGX", "VIEApps NGX API Gateway"];
 
-				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No paint no gain", "Where do you want to go today?", "Make business easier", "Simplify business process" };
+				var noiseTexts = new List<string> { "Winners never quit", "Quitters never win", "Don't be evil", "Keep moving", "Connecting People", "Information at your fingertips", "No sacrifice no victory", "No pain no gain", "Where do you want to go today?", "Make business easier", "Simplify business process" };
 				noiseTexts.Append(texts);
 
 				var noiseText = noiseTexts[UtilityService.GetRandomNumber(0, noiseTexts.Count)];
@@ -260,7 +257,7 @@ namespace net.vieapps.Services.Files
 			if (useSmallImage)
 				distortion = UtilityService.GetRandomNumber(1, 5);
 
-			var noisedBitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
+			using var noisedBitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
 			for (int y = 0; y < height; y++)
 				for (int x = 0; x < width; x++)
 				{
@@ -275,13 +272,8 @@ namespace net.vieapps.Services.Files
 					noisedBitmap.SetPixel(x, y, securityBitmap.GetPixel(newX, newY));
 				}
 
-			// export as JPEG image
-			using var stream = UtilityService.CreateMemoryStream();
-			noisedBitmap.Save(stream, ImageFormat.Jpeg);
-			securityGraph.Dispose();
-			securityBitmap.Dispose();
-			noisedBitmap.Dispose();
-			return stream.ToArraySegment();
+			// export the image
+			return noisedBitmap.ToStream();
 		}
 
 		Bitmap CreateBackround(int width, int height, Color[] backgroundColors)
