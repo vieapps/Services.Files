@@ -63,11 +63,8 @@ namespace net.vieapps.Services.Files
 			{
 				headers["X-Cache"] = $"HTTP-304/{typeof(FileHandler).Assembly.GetVersion(false)}";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
-				await Task.WhenAll
-				(
-					context.FlushAsync(cancellationToken),
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]") : Task.CompletedTask
-				).ConfigureAwait(false);
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
 				return;
 			}
 
@@ -107,7 +104,7 @@ namespace net.vieapps.Services.Files
 			{
 				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.IsReadable() ? null : attachment.Filename, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (cacheKey != null)
-					this.PrepareCacheAsync(fileInfo, cacheKey, !attachment.ContentType.IsEndsWith("/webp")).Run();
+					attachment.PrepareCacheAsync(!attachment.ContentType.IsEndsWith("/webp")).Run();
 			}
 
 			// update counter & logs
@@ -117,27 +114,6 @@ namespace net.vieapps.Services.Files
 				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
-		}
-
-		async Task PrepareCacheAsync(FileInfo fileInfo, string cacheKey, bool isNotWebP)
-		{
-			var data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
-			var lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-			await Task.WhenAll
-			(
-				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
-				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
-			).ConfigureAwait(false);
-			if (isNotWebP)
-			{
-				data = await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
-				cacheKey = cacheKey.Replace("file#", "webp#");
-				await Task.WhenAll
-				(
-					Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
-				).ConfigureAwait(false);
-			}
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -204,8 +180,8 @@ namespace net.vieapps.Services.Files
 				// update cache
 				Task.WhenAll
 				(
-					Handler.Cache.RemoveAsync(attachments.Select(attachment => $"{attachment.ObjectID}:attachments").ToList(), Global.CancellationToken),
-					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => this.PrepareCacheAsync(new FileInfo(attachment.GetFilePath()), $"file#{attachment.ID.ToLower()}", !attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
+					Handler.Cache.RemoveAsync($"{objectID}:attachments", Global.CancellationToken),
+					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(!attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
 				).Run();
 
 				// sync

@@ -275,7 +275,7 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with images
-		public static MemoryStream ToStream(this Image image, ImageFormat format = null)
+		public static MemoryStream ToMemoryStream(this Image image, ImageFormat format = null)
 		{
 			var stream = UtilityService.CreateMemoryStream();
 			image.Save(stream, format ?? ImageFormat.Bmp);
@@ -316,7 +316,7 @@ namespace net.vieapps.Services.Files
 			graphics.SmoothingMode = SmoothingMode.AntiAlias;
 			graphics.Clear(Color.White);
 			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-			using var stream = bitmap.ToStream();
+			using var stream = bitmap.ToMemoryStream();
 			return stream.Convert(asTransparent ? asWebP ? ImageFormat.Webp : ImageFormat.Png : ImageFormat.Jpeg);
 		}
 
@@ -342,10 +342,10 @@ namespace net.vieapps.Services.Files
 				graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
 				graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 				graphics.DrawImage(image, new Rectangle(0, 0, width, height));
-				return bitmap.ToStream();
+				return bitmap.ToMemoryStream();
 			}
 			using var thumbnail = image.GetThumbnailImage(width, height, null, IntPtr.Zero);
-			return thumbnail.ToStream();
+			return thumbnail.ToMemoryStream();
 		}
 
 		public static async Task<byte[]> GenerateAsync(this byte[] bytes, ImageFormat format, int width = 0, int height = 0, bool asBig = true, CancellationToken cancellationToken = default)
@@ -361,8 +361,86 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		public static string GetKey(this (string identifier, int index, ImageFormat format, int width, int height, bool asBig) info)
-			=> "thumbnail#" + $"{info.identifier}@{info.index}:{info.format}:{info.width}:{info.height}:{info.asBig}".ToLower().GenerateUUID();
+		#region Working with image cache
+		public static string GetCacheKey(this (string id, int index, ImageFormat format, int width, int height, bool asBig) info)
+			=> "thumbnail#" + $"{info.id}@{info.index}:{info.format}:{info.width}:{info.height}:{info.asBig}".ToLower().GenerateUUID();
+
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, int index, ImageFormat format, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
+		{
+			if (original == null || lastModified < 1)
+			{
+				var fileInfo = new FileInfo(attachment.GetFilePath());
+				original = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+			}
+
+			byte[] thumbnail;
+			try
+			{
+				thumbnail = await original.GenerateAsync(format, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+			}
+			catch
+			{
+				thumbnail = await original.ConvertAsync(format, Global.CancellationToken).ConfigureAwait(false);
+			}
+
+			var cacheKey = (attachment.ObjectID, index, format, width, height, asBig).GetCacheKey();
+			await Task.WhenAll
+			(
+				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+			).ConfigureAwait(false);
+
+			if (format != ImageFormat.Webp)
+			{
+				try
+				{
+					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+				}
+				catch
+				{
+					thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
+				}
+
+				cacheKey = (attachment.ObjectID, index, ImageFormat.Webp, width, height, asBig).GetCacheKey();
+				await Task.WhenAll
+				(
+					Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+				).ConfigureAwait(false);
+			}
+		}
+
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, byte[] data = null, long lastModified = 0)
+		{
+			if (data == null || lastModified < 1)
+			{
+				var fileInfo = new FileInfo(attachment.GetFilePath());
+				data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
+				data = isWebP ? await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false) : data;
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+			}
+			var cacheKey = $"{(isWebP ? "webp" : "file")}#{attachment.ID.ToLower()}";
+			await Task.WhenAll
+			(
+				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
+			).ConfigureAwait(false);
+			if (!isWebP)
+			{
+				data = await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
+				cacheKey = cacheKey.Replace("file#", "webp#");
+				await Task.WhenAll
+				(
+					Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+				).ConfigureAwait(false);
+			}
+		}
+		#endregion
+
 	}
 
 	public struct AttachmentInfo

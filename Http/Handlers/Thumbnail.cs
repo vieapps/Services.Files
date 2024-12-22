@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Files
 			var isNoThumbnailImage = requestURI.AbsolutePath.IsEndsWith("/no-image.png") || requestURI.AbsolutePath.IsEndsWith("/no-image.jpg") || requestURI.AbsolutePath.IsEndsWith("/no-image.webp");
 			var isThumbnail = isNoThumbnailImage || (Int32.TryParse(pathSegments[2], out var mode) && mode == 0);
 			var asBig = !handlerName.IsStartsWith("thumbnailsmall");
-			var format = handlerName.IsEndsWith("webps")
+			var format = handlerName.IsEndsWith("webps") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".webp"))
 				? ImageFormat.Webp
 				: handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
 					? ImageFormat.Png
@@ -63,7 +63,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// prepare entity tag and headers
-			var eTag = (identifier, index, format, width, height, asBig).GetKey();
+			var eTag = (identifier, index, format, width, height, asBig).GetCacheKey();
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
@@ -100,10 +100,7 @@ namespace net.vieapps.Services.Files
 
 			FileInfo fileInfo = null;
 			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
-
-			if (hasCached)
-				headers["X-Cache"] = $"HTTP-200/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
-			else
+			if (!hasCached)
 			{
 				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 				if (!fileInfo.Exists)
@@ -127,18 +124,16 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> getAsync()
 			{
+				headers["X-Cache"] = $"HTTP-200/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
 				var thumbnail = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
-				if (thumbnail != null)
+				if (lastModified < 1)
 				{
-					if (lastModified < 1)
-					{
-						fileInfo ??= new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
-						lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-						await Global.Cache.SetAsync($"{eTag}:time", lastModified, 0, cancellationToken).ConfigureAwait(false);
-					}
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Cached thumbnail was found [{eTag} => {requestURL}]").ConfigureAwait(false);
+					fileInfo ??= new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
+					lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+					await Global.Cache.SetAsync($"{eTag}:time", lastModified, 0, cancellationToken).ConfigureAwait(false);
 				}
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Cached thumbnail was found [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return thumbnail;
 			}
 
@@ -161,7 +156,7 @@ namespace net.vieapps.Services.Files
 					thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 				}
 				if (useCache)
-					this.PrepareCacheAsync(attachment, index, format, original, lastModified, width, height, asBig).Run();
+					attachment.PrepareCacheAsync(index, format, original, lastModified, width, height, asBig).Run();
 				return thumbnail;
 			}
 
@@ -188,54 +183,6 @@ namespace net.vieapps.Services.Files
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful ({requestURL}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
-		}
-
-		async Task PrepareCacheAsync(AttachmentInfo attachment, int index, ImageFormat format, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
-		{
-			if (original == null || lastModified < 1)
-			{
-				var fileInfo = new FileInfo(attachment.GetFilePath());
-				original = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-			}
-
-			byte[] thumbnail;
-			try
-			{
-				thumbnail = await original.GenerateAsync(format, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
-			}
-			catch
-			{
-				thumbnail = await original.ConvertAsync(format, Global.CancellationToken).ConfigureAwait(false);
-			}
-
-			var cacheKey = (attachment.ObjectID, index, format, width, height, asBig).GetKey();
-			await Task.WhenAll
-			(
-				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
-				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
-				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
-			).ConfigureAwait(false);
-
-			if (format != ImageFormat.Webp)
-			{
-				try
-				{
-					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
-				}
-				catch
-				{
-					thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
-				}
-
-				cacheKey = (attachment.ObjectID, index, ImageFormat.Webp, width, height, asBig).GetKey();
-				await Task.WhenAll
-				(
-					Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
-					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
-				).ConfigureAwait(false);
-			}
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -314,12 +261,10 @@ namespace net.vieapps.Services.Files
 				{
 					title = UtilityService.NewUUID;
 				}
-
 				await thumbnails.ForEachAsync(async (thumbnail, index) =>
 				{
 					if (thumbnail != null)
 					{
-						// prepare
 						var attachment = new AttachmentInfo
 						{
 							ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
@@ -338,11 +283,7 @@ namespace net.vieapps.Services.Files
 							Description = "",
 							IsThumbnail = true
 						};
-
-						// save file into temporary directory
 						await thumbnail.SaveAsBinaryAsync(attachment.GetFilePath(true), cancellationToken).ConfigureAwait(false);
-
-						// update attachment info
 						attachments.Add(attachment);
 					}
 				}, true, false).ConfigureAwait(false);
@@ -353,11 +294,7 @@ namespace net.vieapps.Services.Files
 				await attachments.ForEachAsync(async attachment =>
 				{
 					response.Add(await context.CreateAsync(attachment, cancellationToken).ConfigureAwait(false));
-					if (useCache)
-					{
-						var keys = await Global.Cache.GetSetMembersAsync($"{attachment.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false) ?? [];
-						cacheKeys = cacheKeys.Concat(keys).Concat([$"{attachment.ObjectID}:thumbnails"]).Concat(new[] { ImageFormat.Jpeg, ImageFormat.Webp, ImageFormat.Png }.Select(format => (attachment.ObjectID, 0, format, 0, 0, true).GetKey())).ToList();
-					}
+					cacheKeys = useCache ? new[] { ImageFormat.Jpeg, ImageFormat.Webp, ImageFormat.Png }.Select(format => (objectID, 0, format, 0, 0, true).GetCacheKey()).Concat(cacheKeys).ToList() : cacheKeys;
 				}, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
@@ -366,8 +303,13 @@ namespace net.vieapps.Services.Files
 				// update cache
 				if (useCache)
 				{
-					await Global.Cache.RemoveAsync(cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
-					await attachments.ForEachAsync((attachment, index) => this.PrepareCacheAsync(attachment, index, ImageFormat.Jpeg)).ConfigureAwait(false);
+					cacheKeys = cacheKeys.Concat(await Global.Cache.GetSetMembersAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{objectID}:thumbnails"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+					await Task.WhenAll
+					(
+						Handler.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
+						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
+					).ConfigureAwait(false);
+					await attachments.ForEachAsync((attachment, index) => attachment.PrepareCacheAsync(index, ImageFormat.Jpeg)).ConfigureAwait(false);
 				}
 
 				// sync

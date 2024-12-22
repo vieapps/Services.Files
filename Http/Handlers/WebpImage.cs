@@ -60,7 +60,6 @@ namespace net.vieapps.Services.Files
 			{
 				headers["X-Cache"] = $"HTTP-304/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
-				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
 				return;
@@ -80,7 +79,7 @@ namespace net.vieapps.Services.Files
 
 			if (!hasCached)
 			{
-				attachment.Filename = attachment.Filename.IsEndsWith(".webp") && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp"))
+				attachment.Filename = attachment.Filename.IsEndsWith(".webp") && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff"))
 					? attachment.Filename.Left(attachment.Filename.Length - 5)
 					: attachment.Filename;
 				fileInfo = new FileInfo(attachment.GetFilePath());
@@ -111,26 +110,19 @@ namespace net.vieapps.Services.Files
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,###,###,##0} bytes").ConfigureAwait(false);
 				if (cacheKey != null)
-					this.PrepareCacheAsync(data, lastModified, cacheKey).Run();
+					attachment.PrepareCacheAsync(true, data, lastModified).Run();
 			}
 
 			// flush the file to output stream
-			await context.WriteAsync(data, "image/webp", attachment.IsReadable() ? null : attachment.Filename + (attachment.Filename.IsEndsWith(".webp") ? "" : ".webp"), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// update counter & logs
 			stopwatch.Stop();
 			await Task.WhenAll
 			(
-				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
+				context.UpdateAsync(attachment, "Direct", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a WebP Image file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
-
-		Task<bool[]> PrepareCacheAsync(byte[] data, long lastModified, string cacheKey)
-			=> Task.WhenAll
-			(
-				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
-				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
-			);
 	}
 }

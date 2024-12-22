@@ -273,7 +273,7 @@ namespace net.vieapps.Services.Files
 				}
 
 			// export the image
-			return noisedBitmap.ToStream();
+			return noisedBitmap.ToMemoryStream();
 		}
 
 		Bitmap CreateBackround(int width, int height, Color[] backgroundColors)
