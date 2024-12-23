@@ -20,13 +20,15 @@ namespace net.vieapps.Services.Files
 {
 	internal static class ServiceExtensions
 	{
+		public static bool IsReadable(this string mimeContentType)
+			=> !string.IsNullOrWhiteSpace(mimeContentType)
+				&& (mimeContentType.IsStartsWith("image/") || mimeContentType.IsStartsWith("text/")
+					|| mimeContentType.IsStartsWith("audio/") || mimeContentType.IsStartsWith("video/")
+					|| mimeContentType.IsEquals("application/pdf") || mimeContentType.IsEquals("application/x-pdf")
+					|| mimeContentType.IsEquals("application/json") || mimeContentType.IsEquals("application/javascript"));
+
 		public static bool IsReadable(this AttachmentInfo attachment)
-			=> !string.IsNullOrWhiteSpace(attachment.ContentType)
-				&& (attachment.ContentType.IsStartsWith("image/") || attachment.ContentType.IsStartsWith("text/")
-					|| attachment.ContentType.IsStartsWith("audio/") || attachment.ContentType.IsStartsWith("video/")
-					|| attachment.ContentType.IsEquals("application/pdf") || attachment.ContentType.IsEquals("application/x-pdf")
-					|| attachment.ContentType.IsEquals("application/json") || attachment.ContentType.IsEquals("application/javascript")
-					|| attachment.ContentType.IsStartsWith("application/x-shockwave-flash"));
+			=> attachment.ContentType.IsReadable();
 
 		#region Working with files & directories
 		public static string GetFileName(this AttachmentInfo attachment)
@@ -283,7 +285,7 @@ namespace net.vieapps.Services.Files
 		}
 
 		public static SixLabors.ImageSharp.Formats.IImageEncoder GetEncoder(this ImageFormat format)
-			=> format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
+			=> format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : format == ImageFormat.Bmp ? new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
 
 		public static byte[] Convert(this MemoryStream imageStream, ImageFormat format)
 		{
@@ -348,12 +350,13 @@ namespace net.vieapps.Services.Files
 			return thumbnail.ToMemoryStream();
 		}
 
-		public static async Task<byte[]> GenerateAsync(this byte[] bytes, ImageFormat format, int width = 0, int height = 0, bool asBig = true, CancellationToken cancellationToken = default)
+		public static async Task<byte[]> GenerateAsync(this byte[] bytes, ImageFormat format, int width, int height, bool asBig, bool isWebP, CancellationToken cancellationToken)
 		{
 			if (width > 0 || height > 0)
 			{
 				using var stream = bytes.ToMemoryStream();
-				using var image = Image.FromStream(stream);
+				using var bmp = isWebP ? (await stream.ConvertAsync(ImageFormat.Bmp, cancellationToken).ConfigureAwait(false)).ToMemoryStream() : null;
+				using var image = isWebP ? Image.FromStream(bmp) : Image.FromStream(stream);
 				using var thumbnail = image.Generate(width, height, asBig);
 				return await thumbnail.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 			}
@@ -383,7 +386,7 @@ namespace net.vieapps.Services.Files
 			byte[] thumbnail;
 			try
 			{
-				thumbnail = await original.GenerateAsync(format, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+				thumbnail = await original.GenerateAsync(format, width, height, asBig, attachment.ContentType.IsEndsWith("/webp"), Global.CancellationToken).ConfigureAwait(false);
 			}
 			catch
 			{
@@ -393,7 +396,7 @@ namespace net.vieapps.Services.Files
 			var cacheKey = attachment.GetCacheKey(index, format, width, height, asBig);
 			await Task.WhenAll
 			(
-				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+				attachment.IsThumbnail ? Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken) : Task.CompletedTask,
 				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
 				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
 			).ConfigureAwait(false);
@@ -402,7 +405,7 @@ namespace net.vieapps.Services.Files
 			{
 				try
 				{
-					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, Global.CancellationToken).ConfigureAwait(false);
+					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, false, Global.CancellationToken).ConfigureAwait(false);
 				}
 				catch
 				{
@@ -412,7 +415,7 @@ namespace net.vieapps.Services.Files
 				cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, width, height, asBig);
 				await Task.WhenAll
 				(
-					Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
+					attachment.IsThumbnail ? Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken) : Task.CompletedTask,
 					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
 					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
 				).ConfigureAwait(false);

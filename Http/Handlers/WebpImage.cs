@@ -96,19 +96,19 @@ namespace net.vieapps.Services.Files
 			if (hasCached)
 			{
 				headers["X-Cache"] = $"HTTP-200/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
-				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
 				data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
+				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
 				var stepwatch = Stopwatch.StartNew();
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				var length = data.Length;
 				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				stepwatch.Stop();
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,###,###,##0} bytes").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (useCache)
 					attachment.PrepareCacheAsync(true, "webp", data, lastModified).Run();
 			}

@@ -101,7 +101,7 @@ namespace net.vieapps.Services.Files
 			}
 			else
 			{
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (useCache)
 					attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp")).Run();
 			}
@@ -110,7 +110,7 @@ namespace net.vieapps.Services.Files
 			stopwatch.Stop();
 			await Task.WhenAll
 			(
-				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
+				context.UpdateAsync(attachment, hasCached || attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}

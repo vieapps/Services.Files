@@ -39,19 +39,20 @@ namespace net.vieapps.Services.Files
 			var pathSegments = requestURI.GetRequestPathSegments();
 
 			var handlerName = pathSegments[0];
-			var serviceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
-			var systemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "";
-			if (!Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var width) || width < 0)
-				width = 0;
-			if (!Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var height) || height < 0)
-				height = 0;
-			var identifier = pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5].ToLower() : "";
-			if (!Int32.TryParse(pathSegments.Length > 6 ? pathSegments[6] : "", out var index) || index < 0 || index > 6)
-				index = 0;
-
 			var isNoThumbnailImage = requestURI.AbsolutePath.IsEndsWith("/no-image.png") || requestURI.AbsolutePath.IsEndsWith("/no-image.jpg") || requestURI.AbsolutePath.IsEndsWith("/no-image.webp");
-			var isThumbnail = isNoThumbnailImage || (Int32.TryParse(pathSegments[2], out var mode) && mode == 0);
-			var asBig = !handlerName.IsStartsWith("thumbnailsmall");
+
+			var serviceName = !isNoThumbnailImage && pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "";
+			var systemID = !isNoThumbnailImage && pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "";
+			var isThumbnail = isNoThumbnailImage || (Int32.TryParse(pathSegments.Length > 2 ? pathSegments[2] : "", out var mode) && mode == 0);
+			int width = 0, height = 0, index = 0;
+			if (!isNoThumbnailImage && Int32.TryParse(pathSegments.Length > 3 ? pathSegments[3] : "", out var twidth) && twidth > 0)
+				width = twidth;
+			if (!isNoThumbnailImage && !Int32.TryParse(pathSegments.Length > 4 ? pathSegments[4] : "", out var theight) && theight > 0)
+				height = theight;
+			var identifier = !isNoThumbnailImage && pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5].ToLower() : "";
+			if (!isNoThumbnailImage && !Int32.TryParse(pathSegments.Length > 6 ? pathSegments[6] : "", out var tindex) && tindex > 0 && tindex < 7)
+				index = tindex;
+			var asBig = isNoThumbnailImage || !handlerName.IsStartsWith("thumbnailsmall");
 			var format = handlerName.IsEndsWith("webps") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".webp"))
 				? ImageFormat.Webp
 				: handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
@@ -91,15 +92,14 @@ namespace net.vieapps.Services.Files
 				SystemID = systemID,
 				ObjectID = identifier,
 				Filename = isThumbnail ? $"{identifier}{(index > 0 ? $"-{index}" : "")}.jpg" : pathSegments.Length > 6 ? pathSegments[6].UrlDecode() : "",
-				IsTemporary = false,
-				IsTracked = false,
-				IsThumbnail = isThumbnail
+				IsThumbnail = isThumbnail,
+				IsTemporary = false
 			};
-			if (format == ImageFormat.Webp && !isThumbnail && attachment.Filename.IsEndsWith(".webp"))
+			if (!isThumbnail && format == ImageFormat.Webp && attachment.Filename.IsEndsWith(".webp") && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff")))
 				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
 
 			FileInfo fileInfo = null;
-			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
+			var hasCached = !isNoThumbnailImage && useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 			if (!hasCached)
 			{
 				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
@@ -140,22 +140,25 @@ namespace net.vieapps.Services.Files
 			async Task<byte[]> generateAsync()
 			{
 				var stepwatch = Stopwatch.StartNew();
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				var original = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				byte[] thumbnail;
-				try
-				{
-					thumbnail = await original.GenerateAsync(format, width, height, asBig, cancellationToken).ConfigureAwait(false);
-					stepwatch.Stop();
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,###,###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,###,###,###,##0} bytes");
-				}
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
-					thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
-				}
-				if (useCache)
+				if (isNoThumbnailImage)
+					thumbnail = original;
+				else
+					try
+					{
+						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken).ConfigureAwait(false);
+						stepwatch.Stop();
+						if (isDebugLogEnabled)
+							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,###,###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,###,###,###,##0} bytes");
+					}
+					catch (Exception ex)
+					{
+						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+						thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+					}
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+				if (!isNoThumbnailImage && useCache)
 					attachment.PrepareCacheAsync(index, format, original, lastModified, width, height, asBig).Run();
 				return thumbnail;
 			}
@@ -168,7 +171,7 @@ namespace net.vieapps.Services.Files
 			// flush the thumbnail image to output stream
 			try
 			{
-				await context.WriteAsync(await generateTask.ConfigureAwait(false), $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -180,7 +183,7 @@ namespace net.vieapps.Services.Files
 			stopwatch.Stop();
 			await Task.WhenAll
 			(
-				context.UpdateAsync(attachment, "Direct", cancellationToken),
+				isNoThumbnailImage ? Task.CompletedTask : context.UpdateAsync(attachment, "Direct", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful ({requestURL}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
