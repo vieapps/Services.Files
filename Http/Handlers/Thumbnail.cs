@@ -291,10 +291,10 @@ namespace net.vieapps.Services.Files
 				// create meta info
 				var response = new JArray();
 				var cacheKeys = new List<string>();
-				await attachments.ForEachAsync(async attachment =>
+				await attachments.ForEachAsync(async (attachment, index) =>
 				{
 					response.Add(await context.CreateAsync(attachment, cancellationToken).ConfigureAwait(false));
-					cacheKeys = useCache ? new[] { ImageFormat.Jpeg, ImageFormat.Webp, ImageFormat.Png }.Select(format => (objectID, 0, format, 0, 0, true).GetCacheKey()).Concat(cacheKeys).ToList() : cacheKeys;
+					cacheKeys = useCache ? new[] { ImageFormat.Jpeg, ImageFormat.Webp, ImageFormat.Png }.Select(format => attachment.GetCacheKey(index, format)).Concat(cacheKeys).ToList() : cacheKeys;
 				}, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
@@ -309,7 +309,7 @@ namespace net.vieapps.Services.Files
 						Handler.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
 						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
 					).ConfigureAwait(false);
-					await attachments.ForEachAsync((attachment, index) => attachment.PrepareCacheAsync(index, ImageFormat.Jpeg)).ConfigureAwait(false);
+					await attachments.ForEachAsync((attachment, index) => attachment.PrepareCacheAsync(index)).ConfigureAwait(false);
 				}
 
 				// sync
@@ -344,7 +344,7 @@ namespace net.vieapps.Services.Files
 				stopwatch.Stop();
 				await Task.WhenAll
 				(
-					context.WriteAsync(response, Newtonsoft.Json.Formatting.None, new Dictionary<string, string>
+					context.WriteAsync(response, new Dictionary<string, string>
 					{
 						["X-Node"] = Global.NodeID,
 						["X-Execution-Times"] = stopwatch.GetElapsedTimes(),

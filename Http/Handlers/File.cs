@@ -48,14 +48,16 @@ namespace net.vieapps.Services.Files
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
 				throw new InvalidRequestException();
 
+			var useCache = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
+			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+
 			// check "If-Modified-Since" request to reduce traffict
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID
 			};
-			var eTag = $"file#{attachment.ID.ToLower()}";
-			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+			var eTag = attachment.GetCacheKey("file");
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 
@@ -75,10 +77,7 @@ namespace net.vieapps.Services.Files
 
 			// check existed
 			FileInfo fileInfo = null;
-			var cacheKey = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null
-				? eTag
-				: null;
-			var hasCached = processCache && cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 
 			if (!hasCached)
 			{
@@ -96,15 +95,15 @@ namespace net.vieapps.Services.Files
 			if (hasCached)
 			{
 				headers["X-Cache"] = $"HTTP-200/{typeof(FileHandler).Assembly.GetVersion(false)}";
-				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				var data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				var data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
+				var lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(data, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.IsReadable() ? null : attachment.Filename, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				if (cacheKey != null)
-					attachment.PrepareCacheAsync(!attachment.ContentType.IsEndsWith("/webp")).Run();
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				if (useCache)
+					attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp")).Run();
 			}
 
 			// update counter & logs
@@ -181,7 +180,7 @@ namespace net.vieapps.Services.Files
 				Task.WhenAll
 				(
 					Handler.Cache.RemoveAsync($"{objectID}:attachments", Global.CancellationToken),
-					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(!attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
+					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
 				).Run();
 
 				// sync
@@ -202,7 +201,7 @@ namespace net.vieapps.Services.Files
 						}
 					}.Send();
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({(string.IsNullOrWhiteSpace(attachment.SystemID) || !attachment.SystemID.IsValidUUID() ? attachment.ServiceName : attachment.SystemID)}/{attachment.Filename})").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({attachment.GetFilePath()})").ConfigureAwait(false);
 				}).ConfigureAwait(false);
 
 				// response as a single image/file
@@ -226,7 +225,7 @@ namespace net.vieapps.Services.Files
 				stopwatch.Stop();
 				await Task.WhenAll
 				(
-					context.WriteAsync(response, Newtonsoft.Json.Formatting.None, new Dictionary<string, string>
+					context.WriteAsync(response, new Dictionary<string, string>
 					{
 						["X-Node"] = Global.NodeID,
 						["X-Execution-Times"] = stopwatch.GetElapsedTimes(),

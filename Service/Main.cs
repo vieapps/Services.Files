@@ -183,7 +183,21 @@ namespace net.vieapps.Services.Files
 				var sort = objectIDs == null
 					? Sorts<Thumbnail>.Ascending("Filename")
 					: Sorts<Thumbnail>.Ascending("ObjectID").ThenByAscending("Filename");
+
 				var thumbnails = await Thumbnail.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				thumbnails.ForEach((thumbnail, index) =>
+				{
+					var request = new JObject
+					{
+						{ "Type", "Thumbnail" },
+						{ "ServiceName", thumbnail.ServiceName },
+						{ "SystemID", thumbnail.SystemID },
+						{ "ObjectID", thumbnail.ObjectID },
+						{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
+						{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
+					}.ToString(Formatting.None);
+					new Uri($"{Utility.FilesHttpURI}/preload?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+				});
 
 				// build JSON
 				var asAttachments = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-attachments") ?? requestInfo.GetParameter("x-as-attachments"));
@@ -444,7 +458,22 @@ namespace net.vieapps.Services.Files
 				var sort = objectIDs == null
 					? Sorts<Attachment>.Ascending("Title").ThenByAscending("Filename")
 					: Sorts<Attachment>.Ascending("ObjectID").ThenByAscending("Title").ThenByAscending("Filename");
+
 				var attachments = await Attachment.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				attachments.Where(attachment => attachment.ContentType.IsStartsWith("image/")).ForEach((attachment, index) =>
+				{
+					var request = new JObject
+					{
+						{ "Type", "Attachment" },
+						{ "ID", attachment.ID },
+						{ "ServiceName", attachment.ServiceName },
+						{ "SystemID", attachment.SystemID },
+						{ "ObjectID", attachment.ObjectID },
+						{ "Filename", attachment.Filename },
+						{ "ContentType", attachment.ContentType }
+					}.ToString(Formatting.None);
+					new Uri($"{Utility.FilesHttpURI}/preload?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+				});
 
 				// build JSON
 				if (objectIDs == null)

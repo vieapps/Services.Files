@@ -29,6 +29,7 @@ namespace net.vieapps.Services.Files
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
 			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
 
 			var attachment = new AttachmentInfo
@@ -46,7 +47,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			// prepare entity tag and headers
-			var eTag = $"webp#{attachment.ID.ToLower()}";
+			var eTag = attachment.GetCacheKey("webp");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
@@ -72,8 +73,7 @@ namespace net.vieapps.Services.Files
 
 			// check exist
 			FileInfo fileInfo = null;
-			var cacheKey = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? eTag : null;
-			var hasCached = processCache && cacheKey != null && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 			byte[] data;
 			long lastModified;
 
@@ -96,8 +96,8 @@ namespace net.vieapps.Services.Files
 			if (hasCached)
 			{
 				headers["X-Cache"] = $"HTTP-200/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
-				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
+				data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
@@ -109,8 +109,8 @@ namespace net.vieapps.Services.Files
 				stepwatch.Stop();
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,###,###,##0} bytes").ConfigureAwait(false);
-				if (cacheKey != null)
-					attachment.PrepareCacheAsync(true, data, lastModified).Run();
+				if (useCache)
+					attachment.PrepareCacheAsync(true, "webp", data, lastModified).Run();
 			}
 
 			// flush the file to output stream
@@ -121,7 +121,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a WebP Image file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a WebP image file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 	}

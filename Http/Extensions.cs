@@ -20,37 +20,37 @@ namespace net.vieapps.Services.Files
 {
 	internal static class ServiceExtensions
 	{
-		public static bool IsReadable(this AttachmentInfo attachmentInfo)
-			=> !string.IsNullOrWhiteSpace(attachmentInfo.ContentType)
-				&& (attachmentInfo.ContentType.IsStartsWith("image/") || attachmentInfo.ContentType.IsStartsWith("text/")
-					|| attachmentInfo.ContentType.IsStartsWith("audio/") || attachmentInfo.ContentType.IsStartsWith("video/")
-					|| attachmentInfo.ContentType.IsEquals("application/pdf") || attachmentInfo.ContentType.IsEquals("application/x-pdf")
-					|| attachmentInfo.ContentType.IsEquals("application/json") || attachmentInfo.ContentType.IsEquals("application/javascript")
-					|| attachmentInfo.ContentType.IsStartsWith("application/x-shockwave-flash"));
+		public static bool IsReadable(this AttachmentInfo attachment)
+			=> !string.IsNullOrWhiteSpace(attachment.ContentType)
+				&& (attachment.ContentType.IsStartsWith("image/") || attachment.ContentType.IsStartsWith("text/")
+					|| attachment.ContentType.IsStartsWith("audio/") || attachment.ContentType.IsStartsWith("video/")
+					|| attachment.ContentType.IsEquals("application/pdf") || attachment.ContentType.IsEquals("application/x-pdf")
+					|| attachment.ContentType.IsEquals("application/json") || attachment.ContentType.IsEquals("application/javascript")
+					|| attachment.ContentType.IsStartsWith("application/x-shockwave-flash"));
 
 		#region Working with files & directories
-		public static string GetFileName(this AttachmentInfo attachmentInfo)
-			=> (attachmentInfo.IsThumbnail ? "" : $"{attachmentInfo.ID}-") + attachmentInfo.Filename.Replace("+", " ").Replace("%20", " ");
+		public static string GetFileName(this AttachmentInfo attachment)
+			=> $"{(attachment.IsThumbnail ? "" : $"{attachment.ID}-")}{attachment.Filename.Replace("+", " ").Replace("%20", " ")}";
 
-		public static string GetDirectoryPath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
-			=> isTemporary || attachmentInfo.IsTemporary
+		public static string GetDirectoryPath(this AttachmentInfo attachment, bool isTemporary = false, string tempFilesPath = null)
+			=> isTemporary || attachment.IsTemporary
 				? tempFilesPath ?? Handler.TempFilesPath
-				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachmentInfo.SystemID) || !attachmentInfo.SystemID.IsValidUUID() ? attachmentInfo.ServiceName.ToLower() : attachmentInfo.SystemID.ToLower());
+				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(attachment.SystemID) || !attachment.SystemID.IsValidUUID() ? attachment.ServiceName.ToLower() : attachment.SystemID.ToLower());
 
-		public static string GetFilePath(this AttachmentInfo attachmentInfo, bool isTemporary = false, string tempFilesPath = null)
-			=> Path.Combine(attachmentInfo.GetDirectoryPath(isTemporary, tempFilesPath), attachmentInfo.GetFileName());
+		public static string GetFilePath(this AttachmentInfo attachment, bool isTemporary = false, string tempFilesPath = null)
+			=> Path.Combine(attachment.GetDirectoryPath(isTemporary, tempFilesPath), attachment.GetFileName());
 
 		public static string GetTrashFilePath(this AttachmentInfo attachmentInfo)
 			=> Path.Combine(attachmentInfo.GetDirectoryPath(), "trash", attachmentInfo.GetFileName());
 
-		public static AttachmentInfo CopyFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, string tempFilesPath = null)
+		public static AttachmentInfo CopyFile(this AttachmentInfo attachment, ILogger logger = null, string objectName = null, string tempFilesPath = null)
 		{
-			var source = attachmentInfo.GetFilePath(true, tempFilesPath);
+			var source = attachment.GetFilePath(true, tempFilesPath);
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachmentInfo.PrepareDirectories().GetFilePath();
+					var destination = attachment.PrepareDirectories().GetFilePath();
 					fileInfo.CopyTo(destination, true);
 					if (Global.IsDebugLogEnabled)
 						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Successfully copy a file [{source} => {destination}]");
@@ -61,12 +61,12 @@ namespace net.vieapps.Services.Files
 				}
 			else if (Global.IsDebugLogEnabled)
 				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Cannot copy a doesn't existing file of a legacy system [{source}]");
-			return attachmentInfo;
+			return attachment;
 		}
 
-		public static AttachmentInfo DeleteFile(this AttachmentInfo attachmentInfo, bool isTemporary, ILogger logger = null, string objectName = null)
+		public static AttachmentInfo DeleteFile(this AttachmentInfo attachment, bool isTemporary, ILogger logger = null, string objectName = null)
 		{
-			var fileInfo = new FileInfo(attachmentInfo.GetFilePath(isTemporary));
+			var fileInfo = new FileInfo(attachment.GetFilePath(isTemporary));
 			if (fileInfo.Exists)
 				try
 				{
@@ -78,19 +78,19 @@ namespace net.vieapps.Services.Files
 				{
 					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while deleting a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
 				}
-			return attachmentInfo;
+			return attachment;
 		}
 
-		public static AttachmentInfo MoveFile(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, string correlationID = null, bool moveDestinationIntoTrashIfExists = false)
+		public static AttachmentInfo MoveFile(this AttachmentInfo attachment, ILogger logger = null, string objectName = null, string correlationID = null, bool moveDestinationIntoTrashIfExists = false)
 		{
-			var source = attachmentInfo.GetFilePath(true);
+			var source = attachment.GetFilePath(true);
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachmentInfo.GetFilePath();
+					var destination = attachment.GetFilePath();
 					if (moveDestinationIntoTrashIfExists && File.Exists(destination))
-						attachmentInfo.MoveFileIntoTrash(logger, objectName);
+						attachment.MoveFileIntoTrash(logger, objectName);
 					fileInfo.MoveTo(destination);
 					if (Global.IsDebugLogEnabled)
 						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Successfully move a file [{source} => {destination}]", null, Global.ServiceName, LogLevel.Debug, correlationID);
@@ -99,20 +99,20 @@ namespace net.vieapps.Services.Files
 				{
 					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
 				}
-			return attachmentInfo;
+			return attachment;
 		}
 
-		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachmentInfo, ILogger logger = null, string objectName = null, string correlationID = null, bool deleteOnUnsucces = true)
+		public static AttachmentInfo MoveFileIntoTrash(this AttachmentInfo attachment, ILogger logger = null, string objectName = null, string correlationID = null, bool deleteOnUnsucces = true)
 		{
-			if (attachmentInfo.IsTemporary)
-				return attachmentInfo;
+			if (attachment.IsTemporary)
+				return attachment;
 
-			var source = attachmentInfo.GetFilePath();
+			var source = attachment.GetFilePath();
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachmentInfo.GetTrashFilePath();
+					var destination = attachment.GetTrashFilePath();
 					if (File.Exists(destination))
 						File.Delete(destination);
 					fileInfo.MoveTo(destination);
@@ -124,77 +124,77 @@ namespace net.vieapps.Services.Files
 				{
 					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
 					if (deleteOnUnsucces)
-						return attachmentInfo.DeleteFile(false, logger, objectName);
+						return attachment.DeleteFile(false, logger, objectName);
 				}
-			return attachmentInfo;
+			return attachment;
 		}
 
-		public static AttachmentInfo PrepareDirectories(this AttachmentInfo attachmentInfo)
+		public static AttachmentInfo PrepareDirectories(this AttachmentInfo attachment)
 		{
-			var path = attachmentInfo.GetDirectoryPath();
+			var path = attachment.GetDirectoryPath();
 			new[] { path, Path.Combine(path, "trash") }.Where(directory => !Directory.Exists(directory)).ForEach(directory => Directory.CreateDirectory(directory));
-			return attachmentInfo;
+			return attachment;
 		}
 		#endregion
 
-		public static AttachmentInfo Fill(this AttachmentInfo attachmentInfo, JToken json)
+		public static AttachmentInfo Fill(this AttachmentInfo attachment, JToken json)
 		{
 			if (json != null)
 			{
-				attachmentInfo.ID = json.Get<string>("ID");
-				attachmentInfo.ServiceName = json.Get<string>("ServiceName");
-				attachmentInfo.ObjectName = json.Get<string>("ObjectName");
-				attachmentInfo.SystemID = json.Get<string>("SystemID");
-				attachmentInfo.EntityInfo = json.Get<string>("EntityInfo");
-				attachmentInfo.ObjectID = json.Get<string>("ObjectID");
-				attachmentInfo.Filename = json.Get<string>("Filename");
-				attachmentInfo.Size = json.Get<long>("Size");
-				attachmentInfo.ContentType = json.Get<string>("ContentType");
-				attachmentInfo.IsTemporary = json.Get<bool>("IsTemporary");
-				if (!attachmentInfo.IsThumbnail)
+				attachment.ID = json.Get<string>("ID");
+				attachment.ServiceName = json.Get<string>("ServiceName");
+				attachment.ObjectName = json.Get<string>("ObjectName");
+				attachment.SystemID = json.Get<string>("SystemID");
+				attachment.EntityInfo = json.Get<string>("EntityInfo");
+				attachment.ObjectID = json.Get<string>("ObjectID");
+				attachment.Filename = json.Get<string>("Filename");
+				attachment.Size = json.Get<long>("Size");
+				attachment.ContentType = json.Get<string>("ContentType");
+				attachment.IsTemporary = json.Get<bool>("IsTemporary");
+				if (!attachment.IsThumbnail)
 				{
-					attachmentInfo.IsShared = json.Get<bool>("IsShared");
-					attachmentInfo.IsTracked = json.Get<bool>("IsTracked");
-					attachmentInfo.Title = json.Get<string>("Title");
-					attachmentInfo.Description = json.Get<string>("Description");
+					attachment.IsShared = json.Get<bool>("IsShared");
+					attachment.IsTracked = json.Get<bool>("IsTracked");
+					attachment.Title = json.Get<string>("Title");
+					attachment.Description = json.Get<string>("Description");
 				}
 			}
-			return attachmentInfo;
+			return attachment;
 		}
 
-		public static JObject ToJson(this AttachmentInfo attachmentInfo, Action<JObject> onCompleted = null)
+		public static JObject ToJson(this AttachmentInfo attachment, Action<JObject> onCompleted = null)
 		{
 			var json = new JObject
 			{
-				{ "ID", attachmentInfo.ID },
-				{ "ServiceName", attachmentInfo.ServiceName?.ToLower() },
-				{ "ObjectName", attachmentInfo.ObjectName?.ToLower() },
-				{ "SystemID", attachmentInfo.SystemID?.ToLower() },
-				{ "EntityInfo", attachmentInfo.EntityInfo },
-				{ "ObjectID", attachmentInfo.ObjectID?.ToLower() },
-				{ "Size", attachmentInfo.Size },
-				{ "Filename", attachmentInfo.Filename },
-				{ "ContentType", attachmentInfo.ContentType },
-				{ "IsTemporary", attachmentInfo.IsTemporary },
-				{ "IsShared", attachmentInfo.IsShared },
-				{ "IsTracked", attachmentInfo.IsTracked },
-				{ "Title", attachmentInfo.Title },
-				{ "Description", attachmentInfo.Description }
+				{ "ID", attachment.ID },
+				{ "ServiceName", attachment.ServiceName?.ToLower() },
+				{ "ObjectName", attachment.ObjectName?.ToLower() },
+				{ "SystemID", attachment.SystemID?.ToLower() },
+				{ "EntityInfo", attachment.EntityInfo },
+				{ "ObjectID", attachment.ObjectID?.ToLower() },
+				{ "Size", attachment.Size },
+				{ "Filename", attachment.Filename },
+				{ "ContentType", attachment.ContentType },
+				{ "IsTemporary", attachment.IsTemporary },
+				{ "IsShared", attachment.IsShared },
+				{ "IsTracked", attachment.IsTracked },
+				{ "Title", attachment.Title },
+				{ "Description", attachment.Description }
 			};
 			onCompleted?.Invoke(json);
 			return json;
 		}
 
-		public static string ToString(this AttachmentInfo attachmentInfo, Action<JObject> onCompleted)
-			=> attachmentInfo.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
+		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
+			=> attachment.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
 
 		#region Working with meta info
-		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default)
-			=> context.CallServiceAsync(context.GetRequestInfo(attachmentInfo.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
+		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
+			=> context.CallServiceAsync(context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
 			{
-				{ "object-identity", attachmentInfo.ID },
-				{ "x-object-title", attachmentInfo.Title }
-			}, attachmentInfo.ToString(null)), cancellationToken, Global.Logger, "Uploads");
+				{ "object-identity", attachment.ID },
+				{ "x-object-title", attachment.Title }
+			}, attachment.ToString(null)), cancellationToken, Global.Logger, "Uploads");
 
 		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default)
 			=> new AttachmentInfo
@@ -205,33 +205,33 @@ namespace net.vieapps.Services.Files
 				{ "object-identity", id }
 			}), cancellationToken, Global.Logger, "Downloads").ConfigureAwait(false));
 
-		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachmentInfo, string type, CancellationToken cancellationToken = default)
-			=> attachmentInfo.IsThumbnail || attachmentInfo.IsTemporary || string.IsNullOrWhiteSpace(attachmentInfo.ID)
+		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachment, string type, CancellationToken cancellationToken = default)
+			=> attachment.IsThumbnail || attachment.IsTemporary || string.IsNullOrWhiteSpace(attachment.ID)
 				? Task.CompletedTask
 				: Task.WhenAll
 				(
 					context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 					{
 						{ "object-identity", "counters" },
-						{ "x-object-id", attachmentInfo.ID },
+						{ "x-object-id", attachment.ID },
 						{ "x-user-id", context.User.Identity.Name }
 					}), cancellationToken, Global.Logger, "Downloads"),
-					attachmentInfo.IsTracked
+					attachment.IsTracked
 						? context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
 							{
 								{ "object-identity", "trackers" },
-								{ "x-object-id", attachmentInfo.ID },
+								{ "x-object-id", attachment.ID },
 								{ "x-user-id", context.User.Identity.Name },
 								{ "x-refer", context.GetReferUrl() },
 								{ "x-origin", context.GetOriginUri()?.ToString() }
 							}), cancellationToken, Global.Logger, "Downloads")
 						: Task.CompletedTask,
-					new CommunicateMessage(attachmentInfo.ServiceName)
+					new CommunicateMessage(attachment.ServiceName)
 					{
 						Type = $"File#{type}",
 						Data = new JObject
 						{
-							{ "x-object-id", attachmentInfo.ID },
+							{ "x-object-id", attachment.ID },
 							{ "x-user-id", context.User.Identity.Name },
 							{ "x-refer", context.GetReferUrl() },
 							{ "x-origin", context.GetOriginUri()?.ToString() }
@@ -239,8 +239,8 @@ namespace net.vieapps.Services.Files
 					}.PublishAsync(Global.Logger, "Downloads")
 				);
 
-		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachmentInfo, CancellationToken cancellationToken = default)
-			=> context.CanDownloadAsync(attachmentInfo.ServiceName, attachmentInfo.ObjectName, attachmentInfo.SystemID, attachmentInfo.EntityInfo, attachmentInfo.ObjectID, cancellationToken);
+		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
+			=> context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.EntityInfo, attachment.ObjectID, cancellationToken);
 
 		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
 		{
@@ -365,7 +365,13 @@ namespace net.vieapps.Services.Files
 		public static string GetCacheKey(this (string id, int index, ImageFormat format, int width, int height, bool asBig) info)
 			=> "thumbnail#" + $"{info.id}@{info.index}:{info.format}:{info.width}:{info.height}:{info.asBig}".ToLower().GenerateUUID();
 
-		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, int index, ImageFormat format, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
+		public static string GetCacheKey(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, int width = 0, int height = 0, bool asBig = true)
+			=> (attachment.IsThumbnail ? attachment.ObjectID : attachment.ID, attachment.IsThumbnail ? index < 0 ? attachment.Filename.Length == 36 ? 0 : attachment.Filename.Right(5).Replace(".jpg", "").As<int>() : index : 0, format ?? ImageFormat.Jpeg, width, height, asBig).GetCacheKey();
+
+		public static string GetCacheKey(this AttachmentInfo attachment, string preKey)
+			=> $"{preKey ?? "file"}#{attachment.ID}".ToLower();
+
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
 		{
 			if (original == null || lastModified < 1)
 			{
@@ -384,7 +390,7 @@ namespace net.vieapps.Services.Files
 				thumbnail = await original.ConvertAsync(format, Global.CancellationToken).ConfigureAwait(false);
 			}
 
-			var cacheKey = (attachment.ObjectID, index, format, width, height, asBig).GetCacheKey();
+			var cacheKey = attachment.GetCacheKey(index, format, width, height, asBig);
 			await Task.WhenAll
 			(
 				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
@@ -403,7 +409,7 @@ namespace net.vieapps.Services.Files
 					thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
 				}
 
-				cacheKey = (attachment.ObjectID, index, ImageFormat.Webp, width, height, asBig).GetCacheKey();
+				cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, width, height, asBig);
 				await Task.WhenAll
 				(
 					Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken),
@@ -413,25 +419,24 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, byte[] data = null, long lastModified = 0)
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string preKey = "file", byte[] data = null, long lastModified = 0)
 		{
 			if (data == null || lastModified < 1)
 			{
 				var fileInfo = new FileInfo(attachment.GetFilePath());
 				data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
-				data = isWebP ? await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false) : data;
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 			}
-			var cacheKey = $"{(isWebP ? "webp" : "file")}#{attachment.ID.ToLower()}";
+			var cacheKey = attachment.GetCacheKey(preKey ?? (isWebP ? "webp" : "file"));
 			await Task.WhenAll
 			(
 				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
 				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
 			).ConfigureAwait(false);
-			if (!isWebP)
+			if (!isWebP && cacheKey.IsStartsWith("file#"))
 			{
 				data = await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
-				cacheKey = cacheKey.Replace("file#", "webp#");
+				cacheKey = attachment.GetCacheKey("webp");
 				await Task.WhenAll
 				(
 					Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, Global.CancellationToken),

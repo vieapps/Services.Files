@@ -130,7 +130,7 @@ namespace net.vieapps.Services.Files
 		public string GetURI(string title = null, int width = 0, int height = 0)
 		{
 			var index = string.IsNullOrWhiteSpace(this.Filename) || this.Filename.PositionOf("-") < 0 ? 0 : this.Filename.Replace(".jpg", "").Right(2).Replace("-", "").CastAs<int>();
-			var time = this.LastModified.ToString(this.LastModified.ToUnixTimestamp() % 2 == 1 ? "HHmm/ssfff" : "HHmmss/fff");
+			var time = this.LastModified.ToString(this.LastModified.ToUnixTimestamp() % 2 == 1 ? "HHmmss/fffdd" : "ddHHmm/ssfff");
 			return $"{Utility.ThumbnailURI}{(string.IsNullOrWhiteSpace(this.SystemID) || !this.SystemID.IsValidUUID() ? this.ServiceName : this.SystemID)}/0/{width}/{height}/{this.ObjectID}/{index}/{time}".ToLower() + (string.IsNullOrWhiteSpace(title) ? "" : $"/{title.GetANSIUri()}");
 		}
 

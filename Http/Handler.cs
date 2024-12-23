@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -19,6 +20,8 @@ using WampSharp.V2.Realm;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using MongoDB.Driver;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -91,6 +94,12 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var requestPath = context.GetRequestPathSegments(true).First();
+			if (requestPath.IsStartsWith("preload"))
+			{
+				await this.ProcessPreloadRequestAsync(context).ConfigureAwait(false);
+				return;
+			}
+
 			if (!Handler.Handlers.TryGetValue(requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s"), out var type))
 			{
 				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -190,7 +199,7 @@ namespace net.vieapps.Services.Files
 						: requestPath.IsStartsWith("file") || requestPath.IsStartsWith("download")
 							? "Downloads"
 							: requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s");
-				await context.WriteLogsAsync(handler?.Logger, $"Http.{logName}", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync(handler?.Logger, logName, $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 
 				if (context.Request.Method.IsEquals("POST"))
 					context.WriteError(handler?.Logger, ex, null, null, false);
@@ -446,6 +455,51 @@ namespace net.vieapps.Services.Files
 				}
 		}
 		#endregion
+
+		async Task ProcessPreloadRequestAsync(HttpContext context)
+		{
+			try
+			{
+				if (!context.Request.Method.IsEquals("GET"))
+					throw new MethodNotAllowedException();
+
+				var request = context.GetQueryParameter("x-request").Url64Decode();
+				if (!request.GetHMACSHA256(Global.ValidationKey).IsEquals(context.GetQueryParameter("x-signature")))
+					throw new InvalidRequestException();
+
+				var data = request.ToJson();
+				var attachment = new AttachmentInfo
+				{
+					ID = data.Get("ID", UtilityService.NewUUID),
+					ServiceName = data.Get<string>("ServiceName"),
+					SystemID = data.Get<string>("SystemID"),
+					ObjectID = data.Get<string>("ObjectID"),
+					Filename = data.Get<string>("Filename"),
+					ContentType = data.Get<string>("ContentType"),
+					IsThumbnail = "Thumbnail".IsEquals(data.Get<string>("Type")),
+					IsTemporary = false
+				};
+
+				var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+				if (attachment.IsThumbnail && (context.Request.Query.ContainsKey("x-force-cache") || !await Global.Cache.ExistsAsync(attachment.GetCacheKey(), Global.CancellationToken).ConfigureAwait(false)))
+					await Task.WhenAll
+					(
+						attachment.PrepareCacheAsync(),
+						isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Preloads", $"Preload a thumbnail [{attachment.GetCacheKey()} => {attachment.GetFilePath()}]") : Task.CompletedTask
+					).ConfigureAwait(false);
+				else if (!attachment.IsThumbnail && (context.Request.Query.ContainsKey("x-force-cache") || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
+					await Task.WhenAll
+					(
+						attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp")),
+						isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Preloads", $"Preload an attachment [{attachment.GetCacheKey("file")} => {attachment.GetFilePath()}]") : Task.CompletedTask
+					).ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await context.WriteLogsAsync(Global.Logger, $"Preloads", $"Error occurred while preloading => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+			}
+			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
+		}
 
 		static async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
