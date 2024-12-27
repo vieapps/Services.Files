@@ -19,7 +19,6 @@ using WampSharp.V2.Realm;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using System.Security.Cryptography;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -108,7 +107,7 @@ namespace net.vieapps.Services.Files
 
 			// request to robots.txt file
 			else if (requestPath.Equals("robots.txt"))
-				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))

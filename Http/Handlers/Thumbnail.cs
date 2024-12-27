@@ -12,8 +12,6 @@ using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using System.Net.Mail;
-
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -53,7 +51,7 @@ namespace net.vieapps.Services.Files
 			var identifier = !isNoThumbnailImage && pathSegments.Length > 5 && pathSegments[5].IsValidUUID() ? pathSegments[5].ToLower() : "";
 			if (!isNoThumbnailImage && !Int32.TryParse(pathSegments.Length > 6 ? pathSegments[6] : "", out var tindex) && tindex > 0 && tindex < 7)
 				index = tindex;
-			var asBig = isNoThumbnailImage || !handlerName.IsStartsWith("thumbnailsmall");
+			var asBig = !handlerName.IsStartsWith("thumbnailsmall");
 			var format = handlerName.IsEndsWith("webps") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".webp"))
 				? ImageFormat.Webp
 				: handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
@@ -151,7 +149,7 @@ namespace net.vieapps.Services.Files
 						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken).ConfigureAwait(false);
 						stepwatch.Stop();
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,###,###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,###,###,###,##0} bytes");
+							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes");
 					}
 					catch (Exception ex)
 					{
@@ -176,7 +174,7 @@ namespace net.vieapps.Services.Files
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while flushing a thumbnail image => {ex.Message}", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while showing a thumbnail image [{eTag} => {requestURL}] => {ex.Message}", ex).ConfigureAwait(false);
 				throw;
 			}
 
@@ -185,7 +183,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				isNoThumbnailImage ? Task.CompletedTask : context.UpdateAsync(attachment, "Direct", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful ({requestURL}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -225,7 +223,7 @@ namespace net.vieapps.Services.Files
 						var thumbnailInfo = data.Value.ToString().ToArray();
 						var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 						var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-						thumbnailData = !thumbnailContentType.IsEndsWith("/jpeg") || !thumbnailContentType.IsEndsWith("/png") ? await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false) : thumbnailData;
+						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
 						thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 					}, true, false).ConfigureAwait(false);
 				else if (base64Data is JValue data)
@@ -233,7 +231,7 @@ namespace net.vieapps.Services.Files
 					var thumbnailInfo = data.Value.ToString().ToArray();
 					var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 					var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-					thumbnailData = !thumbnailContentType.IsEndsWith("/jpeg") || !thumbnailContentType.IsEndsWith("/png") ? await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false) : thumbnailData;
+					thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
 					thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 				}
 			}
@@ -246,10 +244,10 @@ namespace net.vieapps.Services.Files
 					.Where(file => file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 					.ForEachAsync(async (file, index) =>
 					{
-						using var stream = file.OpenReadStream();
+						using var thumbnailStream = file.OpenReadStream();
 						var thumbnailData = new byte[file.Length];
-						await stream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
-						thumbnails[index] = (!file.ContentType.IsEndsWith("/jpeg") || !file.ContentType.IsEndsWith("/png") ? await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false) : thumbnailData, new AttachmentInfo());
+						await thumbnailStream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
+						thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false), new AttachmentInfo());
 					}, true, false).ConfigureAwait(false);
 			}
 
@@ -316,7 +314,7 @@ namespace net.vieapps.Services.Files
 						Handler.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
 						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
 					).ConfigureAwait(false);
-					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data == null ? Task.CompletedTask : thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp())).ConfigureAwait(false);
+					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data == null ? Task.CompletedTask : thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()), true, false).ConfigureAwait(false);
 				}
 
 				// sync

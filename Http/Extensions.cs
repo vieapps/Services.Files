@@ -29,6 +29,9 @@ namespace net.vieapps.Services.Files
 		public static bool IsReadable(this AttachmentInfo attachment)
 			=> (attachment.ContentType ?? "").IsReadable();
 
+		public static bool IsThumbnail(this string mimeType)
+			=> mimeType.IsEndsWith("/jpeg") || mimeType.IsEndsWith("/png") || mimeType.IsEndsWith("/webp");
+
 		public static bool IsWebP(this AttachmentInfo attachment)
 			=> (attachment.Filename ?? "").IsEndsWith(".webp") || (attachment.ContentType ?? "").IsEndsWith("/webp");
 
@@ -447,8 +450,8 @@ namespace net.vieapps.Services.Files
 
 		static List<int> Widths => [720, 1024, 1280];
 
-		public static Task PrepareCacheAsync(this AttachmentInfo attachment, ImageFormat format = null)
-			=> attachment.PrepareCacheAsync(-1, format, null, 0, 0, 0, true);
+		public static Task PrepareCacheAsync(this AttachmentInfo attachment)
+			=> attachment.PrepareCacheAsync(-1, null, null, 0, 0, 0, true);
 
 		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string prefix = "file", byte[] data = null, long lastModified = 0)
 		{

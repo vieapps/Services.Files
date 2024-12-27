@@ -72,7 +72,8 @@ namespace net.vieapps.Services.Files
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
 					$"- File: {filename}" + "\r\n" +
-					$"- Temporary: {isTemporary}"
+					$"- Temporary: {isTemporary}" + "\r\n" +
+					$"- Avatar: {isAvatar}"
 				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
@@ -83,7 +84,8 @@ namespace net.vieapps.Services.Files
 					$"- Service: {serviceName}" + "\r\n" +
 					$"- System ID: {systemID}" + "\r\n" +
 					$"- File: {filename}" + "\r\n" +
-					$"- Temporary: {isTemporary}"
+					$"- Temporary: {isTemporary}" + "\r\n" +
+					$"- Avatar: {isAvatar}"
 				, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
 		}
