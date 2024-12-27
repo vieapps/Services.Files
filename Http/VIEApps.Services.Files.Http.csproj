@@ -10,7 +10,7 @@
 		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
 		<StartupObject>net.vieapps.Services.Files.Startup</StartupObject>
 		<AssemblyName>VIEApps.Services.Files.Http</AssemblyName>
-		<AssemblyTitle>VIEApps NGX Files HTTP</AssemblyTitle>
+		<AssemblyTitle>VIEApps NGX Files</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>

@@ -44,7 +44,7 @@ namespace net.vieapps.Services.Files
 			return new JObject();
 		}
 
-		internal async Task SendSyncRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary, string correlationID = null)
+		internal async Task SendSyncRequestAsync(string node, string serviceName, string systemID, string filename, bool isTemporary, bool isAvatar, string correlationID)
 		{
 			correlationID ??= UtilityService.NewUUID;
 			try
@@ -61,7 +61,8 @@ namespace net.vieapps.Services.Files
 						["x-service-name"] = serviceName,
 						["x-system-id"] = systemID,
 						["x-filename"] = filename,
-						["x-temporary"] = isTemporary.ToString().ToLower()
+						["x-temporary"] = isTemporary.ToString().ToLower(),
+						["x-avatar"] = isAvatar.ToString().ToLower()
 					},
 					CorrelationID = correlationID
 				}, Global.CancellationToken).ConfigureAwait(false);
@@ -94,9 +95,12 @@ namespace net.vieapps.Services.Files
 			var systemID = requestInfo.Header["x-system-id"];
 			var filename = requestInfo.Header["x-filename"];
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
-			var filePath = isTemporary
-				? Path.Combine(Handler.TempFilesPath, filename)
-				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower(), filename);
+			var isAvatar = "true".IsEquals(requestInfo.Header["x-avatar"]);
+			var filePath = isAvatar
+				? Path.Combine(Handler.UserAvatarFilesPath, filename)
+				:	isTemporary
+					? Path.Combine(Handler.TempFilesPath, filename)
+					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower(), filename);
 			if (File.Exists(filePath))
 				Task.Run(async () =>
 				{
@@ -110,7 +114,8 @@ namespace net.vieapps.Services.Files
 							["x-service-name"] = serviceName,
 							["x-system-id"] = systemID,
 							["x-filename"] = filename,
-							["x-temporary"] = isTemporary.ToString().ToLower()
+							["x-temporary"] = isTemporary.ToString().ToLower(),
+							["x-avatar"] = isAvatar.ToString().ToLower()
 						};
 						var service = Router.GetUniqueService(Extensions.GetUniqueName($"{Global.ServiceName}.http", node));
 						using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
@@ -118,7 +123,7 @@ namespace net.vieapps.Services.Files
 						var read = 0;
 						do
 						{
-							read = await stream.ReadAsync(buffer, 0, buffer.Length, Global.CancellationToken).ConfigureAwait(false);
+							read = await stream.ReadAsync(buffer, Global.CancellationToken).ConfigureAwait(false);
 							var data = read > 0 ? buffer.Take(0, read) : [];
 							if (read < 1)
 							{
@@ -170,10 +175,13 @@ namespace net.vieapps.Services.Files
 			var systemID = requestInfo.Header["x-system-id"];
 			var fileName = requestInfo.Header["x-filename"];
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
+			var isAvatar = "true".IsEquals(requestInfo.Header["x-avatar"]);
 
-			var path = isTemporary
-				? Handler.TempFilesPath
-				: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
+			var path = isAvatar
+				? Handler.UserAvatarFilesPath
+				: isTemporary
+					? Handler.TempFilesPath
+					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
 
 			var filePath = Path.Combine(path, fileName);
 			if (!isTemporary && !Directory.Exists(path))
@@ -197,7 +205,7 @@ namespace net.vieapps.Services.Files
 				if (data.Length > 0)
 					using (var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
 					{
-						await stream.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
+						await stream.WriteAsync(data, cancellationToken).ConfigureAwait(false);
 					}
 				else
 				{

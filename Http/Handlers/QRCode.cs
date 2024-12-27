@@ -9,6 +9,8 @@ using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
+using System.Collections.Generic;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -29,33 +31,26 @@ namespace net.vieapps.Services.Files
 
 			try
 			{
-				// prepare
 				var query = context.GetRequestUri().ParseQuery();
 				var value = query.TryGetValue("v", out var cvalue) && !string.IsNullOrWhiteSpace(cvalue)
 					? cvalue.ToBase64(false, true).Decrypt(Global.EncryptionKey)
 					: query.TryGetValue("d", out var dvalue) ? dvalue : null;
 				if (string.IsNullOrWhiteSpace(value))
 					throw new InvalidRequestException();
-
 				if (query.TryGetValue("t", out var tvalue))
 				{
 					var timestamp = tvalue.ToBase64(false, true).Decrypt(Global.EncryptionKey).CastAs<long>();
 					if (DateTime.Now.ToUnixTimestamp() - timestamp > 90)
 						throw new InvalidRequestException();
 				}
-
 				size = (query.TryGetValue("s", out var svalue) ? svalue : "300").CastAs<int>();
-
 				if (!query.TryGetValue("ecl", out var ecLevel))
 					ecLevel = "M";
-
 				if (!query.TryGetValue("i", out var image))
 					image = "";
-
-				// generate QR code
 				using var chart = await new Uri($"https://quickchart.io/qr?text={value.UrlEncode()}&size={size}&ecLevel={ecLevel}{(string.IsNullOrWhiteSpace(image) ? "" : $"&centerImageUrl={image.UrlEncode()}")}&margin=1").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-
+				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Global.IsDebugLogEnabled)
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -63,12 +58,12 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = ex.Message.Generate(size, size, true);
+				data = await ex.GenerateAsync(size, size, cancellationToken).ConfigureAwait(false);
 			}
 
 			// display
 			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-			await context.WriteAsync(await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

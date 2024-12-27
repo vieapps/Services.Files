@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -20,24 +19,57 @@ using WampSharp.V2.Realm;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using MongoDB.Driver;
-
+using System.Security.Cryptography;
 #endregion
 
 namespace net.vieapps.Services.Files
 {
 	public class Handler
 	{
-		string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
-		internal static Cache Cache { get; } = new Cache(UtilityService.GetAppSetting("Files:Cache:Name", "VIEApps-Services-Files"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+		#region Properties
+		string LoadBalancerHealthCheckURL
+			=> UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
+
+		internal static int TokenExpiresAfter
+			=> Int32.TryParse(UtilityService.GetAppSetting("APIs:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 900;
+
+		internal static Cache Cache
+			=> new (UtilityService.GetAppSetting("Files:Cache:Name", "VIEApps-Services-Files"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+
+		internal static bool IsCacheImages
+			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
+
+		internal static bool IsCacheThumbnails
+			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
+
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _NoThumbnailImageFilePath = null, _NoSync = null;
+
+		internal static string UserAvatarFilesPath
+			=> Handler._UserAvatarFilesPath ??= UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
+
+		internal static string DefaultUserAvatarFilePath
+			=> Handler._DefaultUserAvatarFilePath ??= UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png"));
+
+		internal static string AttachmentFilesPath
+			=> Handler._AttachmentFilesPath ??= UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments"));
+
+		internal static string TempFilesPath
+			=> Handler._TempFilesPath ??= UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp"));
+
+		internal static string NoThumbnailImageFilePath
+			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
+
+		internal static bool NoSync
+			=> "true".IsEquals(Handler._NoSync ??= UtilityService.GetAppSetting("Files:NoSync", "false"));
+		#endregion
 
 		public Handler(RequestDelegate _) { }
 
 		public async Task Invoke(HttpContext context)
 		{
 			// CORS: allow origin
-			context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+			context.Response.Headers.AccessControlAllowOrigin = "*";
 
 			// CORS: options
 			if (context.Request.Method.IsEquals("OPTIONS"))
@@ -49,12 +81,11 @@ namespace net.vieapps.Services.Files
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 					headers["Access-Control-Allow-Headers"] = requestHeaders;
 				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-				await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
 			}
 
 			// health check
 			else if (context.Request.Path.Value.IsEquals(this.LoadBalancerHealthCheckURL))
-				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 			// requests of files
 			else
@@ -64,8 +95,9 @@ namespace net.vieapps.Services.Files
 		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
-			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 			var requestPath = context.GetRequestPathSegments(true).First();
+			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+			context.SetItem("Correlation-ID", context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
@@ -82,24 +114,22 @@ namespace net.vieapps.Services.Files
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
-			// request to files
+			// request to prepare cache of an image
+			else if (requestPath.IsStartsWith("prepare") || requestPath.IsStartsWith("preload"))
+				await this.PrepareCacheAsync(context).ConfigureAwait(false);
+
+			// handle the request to files
 			else
-				await this.ProcessFileRequestAsync(context).ConfigureAwait(false);
+				await this.HandleRequestAsync(context).ConfigureAwait(false);
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
-		async Task ProcessFileRequestAsync(HttpContext context)
+		async Task HandleRequestAsync(HttpContext context)
 		{
 			// prepare
 			var requestPath = context.GetRequestPathSegments(true).First();
-			if (requestPath.IsStartsWith("preload"))
-			{
-				await this.ProcessPreloadRequestAsync(context).ConfigureAwait(false);
-				return;
-			}
-
 			if (!Handler.Handlers.TryGetValue(requestPath.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "s"), out var type))
 			{
 				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
@@ -111,7 +141,7 @@ namespace net.vieapps.Services.Files
 			var session = context.GetSession();
 
 			// get authenticate token
-			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token") ?? context.GetParameter("x-temp-token");
+			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
 
 			// normalize the Bearer token
 			if (string.IsNullOrWhiteSpace(authenticateToken))
@@ -121,13 +151,13 @@ namespace net.vieapps.Services.Files
 			}
 
 			// got authenticate token => update the session
-			var performSignIn = !string.IsNullOrWhiteSpace(authenticateToken) && context.GetParameter("x-temp-token") == null && (context.GetParameter("x-passport-token") != null || context.GetParameter("x-authenticate") != null);
+			var performSignIn = !string.IsNullOrWhiteSpace(authenticateToken) && context.GetParameter("x-temp-token") == null && context.GetParameter("x-authenticate") != null;
 			var responseSignInAsJon = performSignIn && "json".IsEquals(context.GetParameter("x-response"));
 			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
 					// authenticate (token is expired after 15 minutes)
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 900, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
 					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
 					// perform sign-in (to create authenticate ticket cookie)
@@ -143,7 +173,7 @@ namespace net.vieapps.Services.Files
 
 					if (responseSignInAsJon)
 					{
-						await context.WriteAsync(new JObject { ["ID"] = session.User.ID }, Global.CancellationToken).ConfigureAwait(false);
+						await context.WriteAsync(new JObject { ["Status"] = "OK" }, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, Global.CancellationToken).ConfigureAwait(false);
 						return;
 					}
 				}
@@ -216,7 +246,39 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		#region  Global settings & helpers
+		async Task PrepareCacheAsync(HttpContext context)
+		{
+			try
+			{
+				var request = context.Request.Method.IsEquals("GET") ? context.GetQueryParameter("x-request")?.Url64Decode() : null;
+				if ((request ?? "nothing").GetHMACSHA256(Global.ValidationKey).IsEquals(context.Request.Method.IsEquals("GET") ? context.GetQueryParameter("x-signature") : "nothing"))
+				{
+					var json = request.ToJson();
+					var attachment = new AttachmentInfo { IsThumbnail = "Thumbnail".IsEquals(json.Get<string>("Type")) }.Fill(json);
+					var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+					var forceCache = context.Request.Query.ContainsKey("x-force-cache");
+					if (attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey(), Global.CancellationToken).ConfigureAwait(false)))
+						await Task.WhenAll
+						(
+							attachment.PrepareCacheAsync(),
+							isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of a thumbnail [{attachment.GetCacheKey()} => {attachment.GetFilePath()}]") : Task.CompletedTask
+						).ConfigureAwait(false);
+					else if (!attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
+						await Task.WhenAll
+						(
+							attachment.PrepareCacheAsync(attachment.IsWebP()),
+							isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of an attachment [{attachment.GetCacheKey("file")} => {attachment.GetFilePath()}]") : Task.CompletedTask
+						).ConfigureAwait(false);
+				}
+			}
+			catch (Exception ex)
+			{
+				await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Error occurred while preparing cache of an image\r\n- URI: {context.GetRequestUri()}\r\n- Error: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+			}
+			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
+		}
+
+		#region Handlers
 		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 		{
 			{ "avatars", typeof(AvatarHandler) },
@@ -270,29 +332,6 @@ namespace net.vieapps.Services.Files
 
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(static kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
-
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _RedirectToPassportOnUnauthorized = null, _NoSync = null, _NoThumbnailImageFilePath = null;
-
-		internal static string UserAvatarFilesPath
-			=> Handler._UserAvatarFilesPath ??= UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
-
-		internal static string DefaultUserAvatarFilePath
-			=> Handler._DefaultUserAvatarFilePath ??= UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png"));
-
-		internal static string AttachmentFilesPath
-			=> Handler._AttachmentFilesPath ??= UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments"));
-
-		internal static string TempFilesPath
-			=> Handler._TempFilesPath ??= UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp"));
-
-		internal static bool RedirectToPassportOnUnauthorized
-			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ??= UtilityService.GetAppSetting("Files:RedirectToPassportOnUnauthorized", "true"));
-
-		internal static bool NoSync
-			=> "true".IsEquals(Handler._NoSync ??= UtilityService.GetAppSetting("Files:NoSync", "false"));
-
-		internal static string NoThumbnailImageFilePath
-			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
 		#endregion
 
 		#region API Gateway Router
@@ -416,7 +455,7 @@ namespace net.vieapps.Services.Files
 
 		static IAsyncDisposable SynchronizerInstance { get; set; }
 
-		static Synchronizer Synchronizer { get; } = new Synchronizer();
+		static Synchronizer Synchronizer => new();
 
 		internal static async Task RegisterSynchronizerAsync()
 		{
@@ -456,51 +495,7 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		async Task ProcessPreloadRequestAsync(HttpContext context)
-		{
-			try
-			{
-				if (!context.Request.Method.IsEquals("GET"))
-					throw new MethodNotAllowedException();
-
-				var request = context.GetQueryParameter("x-request").Url64Decode();
-				if (!request.GetHMACSHA256(Global.ValidationKey).IsEquals(context.GetQueryParameter("x-signature")))
-					throw new InvalidRequestException();
-
-				var data = request.ToJson();
-				var attachment = new AttachmentInfo
-				{
-					ID = data.Get("ID", UtilityService.NewUUID),
-					ServiceName = data.Get<string>("ServiceName"),
-					SystemID = data.Get<string>("SystemID"),
-					ObjectID = data.Get<string>("ObjectID"),
-					Filename = data.Get<string>("Filename"),
-					ContentType = data.Get<string>("ContentType"),
-					IsThumbnail = "Thumbnail".IsEquals(data.Get<string>("Type")),
-					IsTemporary = false
-				};
-
-				var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-				if (attachment.IsThumbnail && (context.Request.Query.ContainsKey("x-force-cache") || !await Global.Cache.ExistsAsync(attachment.GetCacheKey(), Global.CancellationToken).ConfigureAwait(false)))
-					await Task.WhenAll
-					(
-						attachment.PrepareCacheAsync(),
-						isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Preloads", $"Preload a thumbnail [{attachment.GetCacheKey()} => {attachment.GetFilePath()}]") : Task.CompletedTask
-					).ConfigureAwait(false);
-				else if (!attachment.IsThumbnail && (context.Request.Query.ContainsKey("x-force-cache") || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
-					await Task.WhenAll
-					(
-						attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp")),
-						isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Preloads", $"Preload an attachment [{attachment.GetCacheKey("file")} => {attachment.GetFilePath()}]") : Task.CompletedTask
-					).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await context.WriteLogsAsync(Global.Logger, $"Preloads", $"Error occurred while preloading => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-			}
-			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
-		}
-
+		#region Process inter-communicate messages
 		static async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
 			// refine thumbnail to rebuild info
@@ -559,11 +554,11 @@ namespace net.vieapps.Services.Files
 				}.Fill(message.Data).MoveFile(Global.Logger, "Synchronizers");
 
 			// sync files between instances of Files HTTP Service
-			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync"))
+			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync") || message.Type.IsEquals("Avatar#Sync"))
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Global.NodeID.IsEquals(node))
-					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), message.Data.Get<string>("CorrelationID")).Run();
+					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run();
 			}
 
 			// copy files from a legacy system
@@ -578,5 +573,7 @@ namespace net.vieapps.Services.Files
 			=> message.Type.IsEquals("Service#RequestInfo")
 				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
 				: Task.CompletedTask;
+		#endregion
+
 	}
 }

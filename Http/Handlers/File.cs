@@ -6,7 +6,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
@@ -48,7 +47,7 @@ namespace net.vieapps.Services.Files
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
 				throw new InvalidRequestException();
 
-			var useCache = attachment.ContentType.IsStartsWith("image/") && "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
+			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
 
 			// check "If-Modified-Since" request to reduce traffict
@@ -97,13 +96,13 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = $"HTTP-200/{typeof(FileHandler).Assembly.GetVersion(false)}";
 				var data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 				var lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
-				await context.WriteAsync(data, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.IsReadable() ? null : attachment.Filename, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.GetContentDisposition(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (useCache)
-					attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp")).Run();
+					attachment.PrepareCacheAsync(attachment.IsWebP()).Run();
 			}
 
 			// update counter & logs
@@ -147,7 +146,7 @@ namespace net.vieapps.Services.Files
 			try
 			{
 				// save uploaded files into temporary directory
-				attachments = "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
+				attachments = "file".IsEquals(context.GetParameter("x-receive-mode")) || "true".IsEquals(UtilityService.GetAppSetting("Files:SmallObjects", UtilityService.GetAppSetting("Files:SmallStreams", "false")))
 					? await this.ReceiveByFormFileAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false)
 					: await this.ReceiveByFormDataAsync(context, serviceName, objectName, systemID, entityInfo, objectID, isShared, isTracked, isTemporary, cancellationToken).ConfigureAwait(false);
 
@@ -180,7 +179,7 @@ namespace net.vieapps.Services.Files
 				Task.WhenAll
 				(
 					Handler.Cache.RemoveAsync($"{objectID}:attachments", Global.CancellationToken),
-					"true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
+					Handler.IsCacheImages ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
 				).Run();
 
 				// sync
@@ -250,6 +249,7 @@ namespace net.vieapps.Services.Files
 				using var uploadStream = file.OpenReadStream();
 
 				// prepare
+				var filename = string.IsNullOrWhiteSpace(file.FileName) ? context.GetParameter("x-attachment-file-name") : file.FileName;
 				var attachment = new AttachmentInfo
 				{
 					ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
@@ -259,12 +259,12 @@ namespace net.vieapps.Services.Files
 					EntityInfo = entityInfo,
 					ObjectID = objectID,
 					Size = file.Length,
-					Filename = file.FileName,
-					ContentType = file.ContentType,
+					Filename = filename,
+					ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? context.GetParameter("x-attachment-content-type") : file.ContentType,
 					IsShared = isShared,
 					IsTracked = isTracked,
 					IsTemporary = isTemporary,
-					Title = file.FileName,
+					Title = filename,
 					Description = "",
 					IsThumbnail = false
 				};
@@ -332,7 +332,7 @@ namespace net.vieapps.Services.Files
 					EntityInfo = entityInfo,
 					ObjectID = objectID,
 					Filename = filename,
-					ContentType = section.ContentType,
+					ContentType = string.IsNullOrWhiteSpace(section.ContentType) ? context.GetParameter("x-attachment-content-type") : section.ContentType,
 					IsShared = isShared,
 					IsTracked = isTracked,
 					IsTemporary = isTemporary,

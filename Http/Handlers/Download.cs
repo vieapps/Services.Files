@@ -1,9 +1,11 @@
 ﻿#region Related component
+using System;
 using System.IO;
 using System.Net;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -22,27 +24,24 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var correlationID = context.GetCorrelationID();
-			var requestUri = context.GetRequestUri();
-			var pathSegments = requestUri.GetRequestPathSegments();
+			var requestURI = context.GetRequestUri();
+			var pathSegments = requestURI.GetRequestPathSegments();
 			if (Global.IsDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
 
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
 				throw new InvalidRequestException();
 
-			var identifier = pathSegments[1].ToLower();
-			var direct = pathSegments.Length > 2 && pathSegments[2].Equals("0");
-
 			// check "If-Modified-Since" request to reduce traffict
+			var identifier = pathSegments[1].ToLower();
 			var eTag = "file#" + identifier;
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
-				await context.FlushAsync(cancellationToken).ConfigureAwait(false);
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestURI})").ConfigureAwait(false);
 				return;
 			}
 
@@ -61,11 +60,11 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, attachment.IsReadable() && direct ? null : attachment.Filename, eTag, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("0")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Http.Downloads", $"Successfully flush a file (as download) [{requestUri} => {fileInfo.FullName}]") : Task.CompletedTask
+					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file (as download) [{requestURI} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 		}

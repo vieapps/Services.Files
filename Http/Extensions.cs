@@ -20,15 +20,71 @@ namespace net.vieapps.Services.Files
 {
 	internal static class ServiceExtensions
 	{
-		public static bool IsReadable(this string mimeContentType)
-			=> !string.IsNullOrWhiteSpace(mimeContentType)
-				&& (mimeContentType.IsStartsWith("image/") || mimeContentType.IsStartsWith("text/")
-					|| mimeContentType.IsStartsWith("audio/") || mimeContentType.IsStartsWith("video/")
-					|| mimeContentType.IsEquals("application/pdf") || mimeContentType.IsEquals("application/x-pdf")
-					|| mimeContentType.IsEquals("application/json") || mimeContentType.IsEquals("application/javascript"));
+		static bool IsReadable(this string mimeType)
+			=> mimeType.IsStartsWith("image/") || mimeType.IsStartsWith("text/")
+				|| mimeType.IsStartsWith("audio/") || mimeType.IsStartsWith("video/")
+				|| mimeType.IsEquals("application/pdf") || mimeType.IsEquals("application/x-pdf")
+				|| mimeType.IsEquals("application/json") || mimeType.IsEquals("application/javascript");
 
 		public static bool IsReadable(this AttachmentInfo attachment)
-			=> attachment.ContentType.IsReadable();
+			=> (attachment.ContentType ?? "").IsReadable();
+
+		public static bool IsWebP(this AttachmentInfo attachment)
+			=> (attachment.Filename ?? "").IsEndsWith(".webp") || (attachment.ContentType ?? "").IsEndsWith("/webp");
+
+		public static string GetContentDisposition(this AttachmentInfo attachment, bool direct = false)
+			=> direct || attachment.IsReadable() || string.IsNullOrWhiteSpace(attachment.Filename) ? null : attachment.Filename;
+
+		public static AttachmentInfo Fill(this AttachmentInfo attachment, JToken json)
+		{
+			if (json != null)
+			{
+				attachment.ID = json.Get<string>("ID");
+				attachment.ServiceName = json.Get<string>("ServiceName");
+				attachment.ObjectName = json.Get<string>("ObjectName");
+				attachment.SystemID = json.Get<string>("SystemID");
+				attachment.EntityInfo = json.Get<string>("EntityInfo");
+				attachment.ObjectID = json.Get<string>("ObjectID");
+				attachment.Filename = json.Get<string>("Filename");
+				attachment.Size = json.Get<long>("Size");
+				attachment.ContentType = json.Get<string>("ContentType");
+				attachment.IsTemporary = json.Get<bool>("IsTemporary");
+				if (!attachment.IsThumbnail)
+				{
+					attachment.IsShared = json.Get<bool>("IsShared");
+					attachment.IsTracked = json.Get<bool>("IsTracked");
+					attachment.Title = json.Get<string>("Title");
+					attachment.Description = json.Get<string>("Description");
+				}
+			}
+			return attachment;
+		}
+
+		public static JObject ToJson(this AttachmentInfo attachment, Action<JObject> onCompleted = null)
+		{
+			var json = new JObject
+			{
+				{ "ID", attachment.ID },
+				{ "ServiceName", attachment.ServiceName?.ToLower() },
+				{ "ObjectName", attachment.ObjectName?.ToLower() },
+				{ "SystemID", attachment.SystemID?.ToLower() },
+				{ "EntityInfo", attachment.EntityInfo },
+				{ "ObjectID", attachment.ObjectID?.ToLower() },
+				{ "Size", attachment.Size },
+				{ "Filename", attachment.Filename },
+				{ "ContentType", attachment.ContentType },
+				{ "IsTemporary", attachment.IsTemporary },
+				{ "IsShared", attachment.IsShared },
+				{ "IsTracked", attachment.IsTracked },
+				{ "Title", attachment.Title },
+				{ "Description", attachment.Description }
+			};
+			onCompleted?.Invoke(json);
+			return json;
+		}
+
+		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
+			=> attachment.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
 
 		#region Working with files & directories
 		public static string GetFileName(this AttachmentInfo attachment)
@@ -139,57 +195,6 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		public static AttachmentInfo Fill(this AttachmentInfo attachment, JToken json)
-		{
-			if (json != null)
-			{
-				attachment.ID = json.Get<string>("ID");
-				attachment.ServiceName = json.Get<string>("ServiceName");
-				attachment.ObjectName = json.Get<string>("ObjectName");
-				attachment.SystemID = json.Get<string>("SystemID");
-				attachment.EntityInfo = json.Get<string>("EntityInfo");
-				attachment.ObjectID = json.Get<string>("ObjectID");
-				attachment.Filename = json.Get<string>("Filename");
-				attachment.Size = json.Get<long>("Size");
-				attachment.ContentType = json.Get<string>("ContentType");
-				attachment.IsTemporary = json.Get<bool>("IsTemporary");
-				if (!attachment.IsThumbnail)
-				{
-					attachment.IsShared = json.Get<bool>("IsShared");
-					attachment.IsTracked = json.Get<bool>("IsTracked");
-					attachment.Title = json.Get<string>("Title");
-					attachment.Description = json.Get<string>("Description");
-				}
-			}
-			return attachment;
-		}
-
-		public static JObject ToJson(this AttachmentInfo attachment, Action<JObject> onCompleted = null)
-		{
-			var json = new JObject
-			{
-				{ "ID", attachment.ID },
-				{ "ServiceName", attachment.ServiceName?.ToLower() },
-				{ "ObjectName", attachment.ObjectName?.ToLower() },
-				{ "SystemID", attachment.SystemID?.ToLower() },
-				{ "EntityInfo", attachment.EntityInfo },
-				{ "ObjectID", attachment.ObjectID?.ToLower() },
-				{ "Size", attachment.Size },
-				{ "Filename", attachment.Filename },
-				{ "ContentType", attachment.ContentType },
-				{ "IsTemporary", attachment.IsTemporary },
-				{ "IsShared", attachment.IsShared },
-				{ "IsTracked", attachment.IsTracked },
-				{ "Title", attachment.Title },
-				{ "Description", attachment.Description }
-			};
-			onCompleted?.Invoke(json);
-			return json;
-		}
-
-		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
-			=> attachment.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
-
 		#region Working with meta info
 		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
 			=> context.CallServiceAsync(context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
@@ -277,6 +282,22 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with images
+		public static async Task<MemoryStream> ConvertAsync(this MemoryStream imageStream, ImageFormat format, CancellationToken cancellationToken)
+		{
+			imageStream.Seek(0, SeekOrigin.Begin);
+			using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
+			var outputStream = UtilityService.CreateMemoryStream();
+			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Bmp ? new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder(), cancellationToken).ConfigureAwait(false);
+			return outputStream;
+		}
+
+		public static async Task<byte[]> ConvertAsync(this byte[] bytes, ImageFormat format, CancellationToken cancellationToken)
+		{
+			using var inputStream = bytes.ToMemoryStream();
+			using var outputStream = await inputStream.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+			return outputStream.ToBytes();
+		}
+
 		public static MemoryStream ToMemoryStream(this Image image, ImageFormat format = null)
 		{
 			var stream = UtilityService.CreateMemoryStream();
@@ -284,45 +305,7 @@ namespace net.vieapps.Services.Files
 			return stream;
 		}
 
-		public static SixLabors.ImageSharp.Formats.IImageEncoder GetEncoder(this ImageFormat format)
-			=> format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : format == ImageFormat.Bmp ? new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
-
-		public static byte[] Convert(this MemoryStream imageStream, ImageFormat format)
-		{
-			imageStream.Seek(0, SeekOrigin.Begin);
-			using var image = SixLabors.ImageSharp.Image.Load(imageStream);
-			using var stream = UtilityService.CreateMemoryStream();
-			image.Save(stream, format.GetEncoder());
-			return stream.ToBytes();
-		}
-
-		public static async Task<byte[]> ConvertAsync(this MemoryStream imageStream, ImageFormat format, CancellationToken cancellationToken)
-		{
-			imageStream.Seek(0, SeekOrigin.Begin);
-			using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
-			using var stream = UtilityService.CreateMemoryStream();
-			await image.SaveAsync(stream, format.GetEncoder(), cancellationToken).ConfigureAwait(false);
-			return stream.ToBytes();
-		}
-
-		public static async Task<byte[]> ConvertAsync(this byte[] bytes, ImageFormat format, CancellationToken cancellationToken)
-		{
-			using var stream = bytes.ToMemoryStream();
-			return await stream.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
-		}
-
-		public static byte[] Generate(this string message, int width = 300, int height = 100, bool asTransparent = false, bool asWebP = false)
-		{
-			using var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
-			using var graphics = Graphics.FromImage(bitmap);
-			graphics.SmoothingMode = SmoothingMode.AntiAlias;
-			graphics.Clear(Color.White);
-			graphics.DrawString(message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
-			using var stream = bitmap.ToMemoryStream();
-			return stream.Convert(asTransparent ? asWebP ? ImageFormat.Webp : ImageFormat.Png : ImageFormat.Jpeg);
-		}
-
-		public static MemoryStream Generate(this Image image, int width, int height, bool asBig)
+		static MemoryStream Generate(this Image image, int width, int height, bool asBig)
 		{
 			if (height < 1)
 			{
@@ -354,13 +337,26 @@ namespace net.vieapps.Services.Files
 		{
 			if (width > 0 || height > 0)
 			{
-				using var stream = bytes.ToMemoryStream();
-				using var bmp = isWebP ? (await stream.ConvertAsync(ImageFormat.Bmp, cancellationToken).ConfigureAwait(false)).ToMemoryStream() : null;
-				using var image = isWebP ? Image.FromStream(bmp) : Image.FromStream(stream);
-				using var thumbnail = image.Generate(width, height, asBig);
-				return await thumbnail.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+				using var inputStream = bytes.ToMemoryStream();
+				using var imageStream = await inputStream.ConvertAsync(ImageFormat.Bmp, cancellationToken).ConfigureAwait(false);
+				using var image = Image.FromStream(imageStream);
+				using var thumbnailStream = image.Generate(width, height, asBig);
+				using var outputStream = await thumbnailStream.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+				return outputStream.ToBytes();
 			}
-			return await bytes.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+			return isWebP && format == ImageFormat.Webp ? bytes : await bytes.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+		}
+
+		public static async Task<byte[]> GenerateAsync(this Exception ex, int width, int height, CancellationToken cancellationToken)
+		{
+			using var bitmap = new Bitmap(width, height, PixelFormat.Format16bppRgb555);
+			using var graphics = Graphics.FromImage(bitmap);
+			graphics.SmoothingMode = SmoothingMode.AntiAlias;
+			graphics.Clear(Color.White);
+			graphics.DrawString(ex.Message, new Font("Arial", 16, FontStyle.Bold), SystemBrushes.WindowText, new PointF(10, 40));
+			using var bitmapStream = bitmap.ToMemoryStream();
+			using var outputStream = await bitmapStream.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+			return outputStream.ToBytes();
 		}
 		#endregion
 
@@ -371,12 +367,12 @@ namespace net.vieapps.Services.Files
 		public static string GetCacheKey(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, int width = 0, int height = 0, bool asBig = true)
 			=> (attachment.IsThumbnail ? attachment.ObjectID : attachment.ID, attachment.IsThumbnail ? index < 0 ? attachment.Filename.Length == 36 ? 0 : attachment.Filename.Right(5).Replace(".jpg", "").As<int>() : index : 0, format ?? ImageFormat.Jpeg, width, height, asBig).GetCacheKey();
 
-		public static string GetCacheKey(this AttachmentInfo attachment, string preKey)
-			=> $"{preKey ?? "file"}#{attachment.ID}".ToLower();
+		public static string GetCacheKey(this AttachmentInfo attachment, string prefix)
+			=> $"{prefix ?? "file"}#{attachment.ID}".ToLower();
 
-		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, byte[] original = null, long lastModified = 0, int width = 0, int height = 0, bool asBig = true)
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, int index, ImageFormat format, byte[] original, long lastModified, int width = 0, int height = 0, bool asBig = true)
 		{
-			if (original == null || lastModified < 1)
+			if (original == null || original.Length < 1 || lastModified < 1)
 			{
 				var fileInfo = new FileInfo(attachment.GetFilePath());
 				original = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
@@ -394,9 +390,10 @@ namespace net.vieapps.Services.Files
 			}
 
 			var cacheKey = attachment.GetCacheKey(index, format, width, height, asBig);
+			var cacheKeys = attachment.IsThumbnail ? new List<string> { cacheKey, $"{cacheKey}:time" } : [];
+
 			await Task.WhenAll
 			(
-				attachment.IsThumbnail ? Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken) : Task.CompletedTask,
 				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
 				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
 			).ConfigureAwait(false);
@@ -413,24 +410,55 @@ namespace net.vieapps.Services.Files
 				}
 
 				cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, width, height, asBig);
+				cacheKeys = attachment.IsThumbnail ? [.. cacheKeys, cacheKey, $"{cacheKey}:time"] : cacheKeys;
+
 				await Task.WhenAll
 				(
-					attachment.IsThumbnail ? Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", [cacheKey, $"{cacheKey}:time"], Global.CancellationToken) : Task.CompletedTask,
 					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
 					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
 				).ConfigureAwait(false);
+
+				if (attachment.IsThumbnail && width < 1)
+				{
+					cacheKeys = [.. cacheKeys, .. ServiceExtensions.Widths.Select(w => attachment.GetCacheKey(index, ImageFormat.Webp, w, 0, asBig)).SelectMany(key => new[] { key, $"{key}:time" })];
+					await ServiceExtensions.Widths.ForEachAsync(async w =>
+					{
+						try
+						{
+							thumbnail = await original.GenerateAsync(ImageFormat.Webp, w, 0, asBig, false, Global.CancellationToken).ConfigureAwait(false);
+						}
+						catch
+						{
+							thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
+						}
+						cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, w, 0, asBig);
+						await Task.WhenAll
+						(
+							Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
+							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+						).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
+				}
 			}
+
+			if (attachment.IsThumbnail)
+				await Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:thumbnails", cacheKeys, Global.CancellationToken).ConfigureAwait(false);
 		}
 
-		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string preKey = "file", byte[] data = null, long lastModified = 0)
+		static List<int> Widths => [720, 1024, 1280];
+
+		public static Task PrepareCacheAsync(this AttachmentInfo attachment, ImageFormat format = null)
+			=> attachment.PrepareCacheAsync(-1, format, null, 0, 0, 0, true);
+
+		public static async Task PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string prefix = "file", byte[] data = null, long lastModified = 0)
 		{
-			if (data == null || lastModified < 1)
+			if (data == null || data.Length < 1 || lastModified < 1)
 			{
 				var fileInfo = new FileInfo(attachment.GetFilePath());
 				data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 			}
-			var cacheKey = attachment.GetCacheKey(preKey ?? (isWebP ? "webp" : "file"));
+			var cacheKey = attachment.GetCacheKey(prefix ?? (isWebP ? "webp" : "file"));
 			await Task.WhenAll
 			(
 				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),

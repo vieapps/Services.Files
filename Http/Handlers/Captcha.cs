@@ -30,9 +30,10 @@ namespace net.vieapps.Services.Files
 						useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
 					}
 					catch { }
-				using var stream = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
+				using var inputStream = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
+				using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-				await context.WriteAsync(await stream.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(outputStream, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, cancellationToken).ConfigureAwait(false);
 			}
 			else
 				throw new MethodNotAllowedException(context.Request.Method);

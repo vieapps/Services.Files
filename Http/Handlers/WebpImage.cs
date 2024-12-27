@@ -29,7 +29,6 @@ namespace net.vieapps.Services.Files
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-			var useCache = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
 			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
 
 			var attachment = new AttachmentInfo
@@ -37,17 +36,19 @@ namespace net.vieapps.Services.Files
 				ID = pathSegments.Length > 2 && pathSegments[2].IsValidUUID() ? pathSegments[2].ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
-				ContentType = "image/webp",
 				Filename = pathSegments.Length > 3 && pathSegments[2].IsValidUUID() ? pathSegments[3].UrlDecode() : "",
 				IsThumbnail = false
 			};
+			attachment.Filename = attachment.IsWebP() && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff"))
+				? attachment.Filename.Left(attachment.Filename.Length - 5)
+				: attachment.Filename;
 
 			// validate the request
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
 				throw new InvalidRequestException();
 
 			// prepare entity tag and headers
-			var eTag = attachment.GetCacheKey("webp");
+			var eTag = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
@@ -71,17 +72,14 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// check exist
+			// check existed
 			FileInfo fileInfo = null;
-			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
+			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 			byte[] data;
 			long lastModified;
 
 			if (!hasCached)
 			{
-				attachment.Filename = attachment.Filename.IsEndsWith(".webp") && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff"))
-					? attachment.Filename.Left(attachment.Filename.Length - 5)
-					: attachment.Filename;
 				fileInfo = new FileInfo(attachment.GetFilePath());
 				if (!fileInfo.Exists)
 				{
@@ -98,19 +96,24 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = $"HTTP-200/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
 				data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of a WebP image was found [{eTag} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{
 				var stepwatch = Stopwatch.StartNew();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
-				var length = data.Length;
-				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
-				stepwatch.Stop();
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+				if (!attachment.IsWebP())
+				{
+					var length = data.Length;
+					data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+					stepwatch.Stop();
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+				}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-				if (useCache)
-					attachment.PrepareCacheAsync(true, "webp", data, lastModified).Run();
+				if (Handler.IsCacheImages)
+					attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified).Run();
 			}
 
 			// flush the file to output stream

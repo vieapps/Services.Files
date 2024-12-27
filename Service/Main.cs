@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Files
 						{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
 						{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
 					}.ToString(Formatting.None);
-					new Uri($"{Utility.FilesHttpURI}/preload?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+					new Uri($"{Utility.FilesHttpURI}/prepare?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
 				});
 
 				// build JSON
@@ -472,7 +472,7 @@ namespace net.vieapps.Services.Files
 						{ "Filename", attachment.Filename },
 						{ "ContentType", attachment.ContentType }
 					}.ToString(Formatting.None);
-					new Uri($"{Utility.FilesHttpURI}/preload?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+					new Uri($"{Utility.FilesHttpURI}/prepare?x-index={index}&x-node={this.NodeID}&x-timestamp={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
 				});
 
 				// build JSON

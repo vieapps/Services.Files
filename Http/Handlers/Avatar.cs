@@ -4,10 +4,12 @@ using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
+using System.Collections.Generic;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -76,10 +78,9 @@ namespace net.vieapps.Services.Files
 			}
 
 			// response
-			context.SetResponseHeaders((int)HttpStatusCode.OK, fileInfo.GetMimeType(), eTag, fileInfo.LastWriteTime.AddMinutes(-13).ToUnixTimestamp(), "public", TimeSpan.FromDays(366), correlationID);
-			await context.WriteAsync(fileInfo, cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,###,###,###,##0} bytes]").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,##0} bytes]").ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -88,8 +89,6 @@ namespace net.vieapps.Services.Files
 			if (!context.User.Identity.IsAuthenticated)
 				throw new AccessDeniedException();
 
-			var fileSize = 0;
-			var fileExtension = ".png";
 			var content = Array.Empty<byte>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 
@@ -100,21 +99,8 @@ namespace net.vieapps.Services.Files
 			// read content from base64 string
 			if (asBase64)
 			{
-				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson().Get<string>("Data").ToArray();
-
-				var extension = base64Data.First().ToArray(";").First().ToArray(":").Last();
-				fileExtension = extension.IsEndsWith("png")
-					? ".png"
-					: extension.IsEndsWith("bmp")
-						? ".bmp"
-						: extension.IsEndsWith("gif")
-							? ".gif"
-							: ".jpg";
-
-				content = base64Data.Last().Base64ToBytes();
-				fileSize = content.Length;
-
-				if (fileSize > limitSize * 1024)
+				content = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson().Get<string>("Data").ToArray().Last().Base64ToBytes();
+				if (content.Length > limitSize * 1024)
 				{
 					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
 					return;
@@ -129,10 +115,7 @@ namespace net.vieapps.Services.Files
 				if (file == null || file.Length < 1 || !file.ContentType.IsStartsWith("image/"))
 					throw new InvalidRequestException("No uploaded image file is found");
 
-				fileSize = (int)file.Length;
-				fileExtension = Path.GetExtension(file.FileName);
-
-				if (fileSize > limitSize * 1024)
+				if (file.Length > limitSize * 1024)
 				{
 					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
 					return;
@@ -140,33 +123,44 @@ namespace net.vieapps.Services.Files
 
 				using var stream = file.OpenReadStream();
 				content = new byte[file.Length];
-				await stream.ReadAsync(content.AsMemory(0, fileSize), cancellationToken).ConfigureAwait(false);
+				await stream.ReadAsync(content, cancellationToken).ConfigureAwait(false);
 			}
 
 			// write into file of temporary directory
-			await content.SaveAsBinaryAsync(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), cancellationToken).ConfigureAwait(false);
+			content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+			var filename = context.User.Identity.Name + ".webp";
+			await content.SaveAsBinaryAsync(Path.Combine(Handler.TempFilesPath, filename), cancellationToken).ConfigureAwait(false);
 
 			// move file from temporary directory to official directory
-			new[] { ".png", ".jpg" }.ForEach(extension =>
+			File.Move(Path.Combine(Handler.TempFilesPath, filename), Path.Combine(Handler.UserAvatarFilesPath, filename), true);
+
+			// sync
+			new CommunicateMessage(Global.ServiceName)
 			{
-				var filePath = Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name + extension);
-				if (File.Exists(filePath))
-					try
-					{
-						File.Delete(filePath);
-					}
-					catch { }
-			});
-			File.Move(Path.Combine(Handler.TempFilesPath, context.User.Identity.Name + fileExtension), Path.Combine(Handler.UserAvatarFilesPath, context.User.Identity.Name + fileExtension));
+				Type = "Avatar#Sync",
+				ExcludedNodeID = Global.NodeID,
+				Data = new JObject
+				{
+					{ "Node", Global.NodeID },
+					{ "ServiceName", "Users" },
+					{ "SystemID", null },
+					{ "Filename", filename },
+					{ "IsTemporary", false },
+					{ "IsAvatar", true },
+					{ "CorrelationID", context.GetCorrelationID() }
+				}
+			}.Send();
+			if (Global.IsDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an avatar image ({filename})").ConfigureAwait(false);
 
 			// response
 			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
 			await context.WriteAsync(new JObject
 			{
-				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.NewUUID.Left(3)}|{context.User.Identity.Name}{fileExtension}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{profile.Get<string>("Name").GetANSIUri()}{fileExtension}" }
+				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{context.User.Identity.Name}.webp".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
 			}, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({fileSize:###,###,###,###,##0} bytes)").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
 		}
 	}
 }
