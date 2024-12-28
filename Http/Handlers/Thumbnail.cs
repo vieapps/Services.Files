@@ -197,6 +197,7 @@ namespace net.vieapps.Services.Files
 			var entityInfo = context.GetParameter("x-entity");
 			var objectID = context.GetParameter("x-object-id");
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");
@@ -315,18 +316,13 @@ namespace net.vieapps.Services.Files
 						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
 					).ConfigureAwait(false);
 					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data == null ? Task.CompletedTask : thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()), true, false).ConfigureAwait(false);
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);
 				}
 
 				// sync
 				await thumbnails.Where(thumbnail => thumbnail.Data != null).ForEachAsync(async thumbnail =>
 				{
-					new CommunicateMessage(Global.ServiceName)
-					{
-						Type = "Thumbnail#Delete",
-						ExcludedNodeID = Global.NodeID,
-						Data = thumbnail.Info.ToJson(json => json["CorrelationID"] = context.GetCorrelationID())
-					}.Send();
-					await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
 					new CommunicateMessage(Global.ServiceName)
 					{
 						Type = "Thumbnail#Sync",
@@ -341,7 +337,7 @@ namespace net.vieapps.Services.Files
 						{ "CorrelationID", context.GetCorrelationID() }
 						}
 					}.Send();
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync a thumbnail image ({thumbnail.Info.GetFilePath()})").ConfigureAwait(false);
 				}).ConfigureAwait(false);
 

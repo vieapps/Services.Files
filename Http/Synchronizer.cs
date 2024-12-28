@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Files
 					Verb = "GET",
 					Header = new Dictionary<string, string>
 					{
-						["x-signature"] = this.SyncKey.GetHMACBLAKE512(Global.ValidationKey),
+						["x-signature"] = Global.NodeID.GetHMACBLAKE512(Global.ValidationKey),
 						["x-node"] = Global.NodeID,
 						["x-service-name"] = serviceName,
 						["x-system-id"] = systemID,
@@ -66,19 +66,10 @@ namespace net.vieapps.Services.Files
 					},
 					CorrelationID = correlationID
 				}, Global.CancellationToken).ConfigureAwait(false);
-				await Global.WriteLogsAsync(this.Logger, "Synchronizers", $"Send a request to sync a file (via HTTP)" + "\r\n" +
-					$"- From: {Global.NodeID}" + "\r\n" +
-					$"- To: {node}" + "\r\n" +
-					$"- Service: {serviceName}" + "\r\n" +
-					$"- System ID: {systemID}" + "\r\n" +
-					$"- File: {filename}" + "\r\n" +
-					$"- Temporary: {isTemporary}" + "\r\n" +
-					$"- Avatar: {isAvatar}"
-				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync(this.Logger, "Synchronizers", "Cannot send a request to sync a file (via HTTP)" + "\r\n" +
+				await Global.WriteLogsAsync(this.Logger, "Synchronizers", "Cannot send a request to sync a file (HTTP)" + "\r\n" +
 					$"- From: {Global.NodeID}" + "\r\n" +
 					$"- To: {node}" + "\r\n" +
 					$"- Service: {serviceName}" + "\r\n" +
@@ -93,55 +84,62 @@ namespace net.vieapps.Services.Files
 		void ProcessSyncRequest(RequestInfo requestInfo)
 		{
 			var node = requestInfo.Header["x-node"];
+			if (!node.GetHMACBLAKE512(Global.ValidationKey).Equals(requestInfo.Header["x-signature"]))
+				throw new InvalidRequestException();
+
 			var serviceName = requestInfo.Header["x-service-name"];
 			var systemID = requestInfo.Header["x-system-id"];
 			var filename = requestInfo.Header["x-filename"];
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
 			var isAvatar = "true".IsEquals(requestInfo.Header["x-avatar"]);
+
+			var directory = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower();
 			var filePath = isAvatar
 				? Path.Combine(Handler.UserAvatarFilesPath, filename)
 				:	isTemporary
 					? Path.Combine(Handler.TempFilesPath, filename)
-					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower(), filename);
+					: Path.Combine(Handler.AttachmentFilesPath, directory, filename);
+
 			if (File.Exists(filePath))
 				Task.Run(async () =>
 				{
 					try
 					{
 						var stopwatch = Stopwatch.StartNew();
+						var fileInfo = new FileInfo(filePath);
 						var header = new Dictionary<string, string>
 						{
-							["x-signature"] = this.SyncKey.GetHMACBLAKE512(Global.ValidationKey),
+							["x-signature"] = Global.NodeID.GetHMACBLAKE512(Global.ValidationKey),
 							["x-node"] = Global.NodeID,
 							["x-service-name"] = serviceName,
 							["x-system-id"] = systemID,
 							["x-filename"] = filename,
 							["x-temporary"] = isTemporary.ToString().ToLower(),
-							["x-avatar"] = isAvatar.ToString().ToLower()
+							["x-avatar"] = isAvatar.ToString().ToLower(),
+							["x-creation-time"] = fileInfo.CreationTime.ToDTString(),
+							["x-last-write-time"] = fileInfo.LastWriteTime.ToDTString()
 						};
 						var service = Router.GetUniqueService(Extensions.GetUniqueName($"{Global.ServiceName}.http", node));
 						using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
-						var buffer = new byte[AspNetCoreUtilityService.BufferSize * 10];
+						var buffer = new byte[AspNetCoreUtilityService.BufferSize];
 						var read = 0;
+						var step = 0;
 						do
 						{
+							step++;
 							read = await stream.ReadAsync(buffer, Global.CancellationToken).ConfigureAwait(false);
-							var data = read > 0 ? buffer.Take(0, read) : [];
-							if (read < 1)
-							{
-								header["x-creation-time"] = File.GetCreationTime(filePath).ToDTString();
-								header["x-last-write-time"] = File.GetLastWriteTime(filePath).ToDTString();
-							}
+							var body = read > 0 ? buffer.Take(0, read).ToBase64() : "";
 							await service.ProcessRequestAsync(new RequestInfo
 							{
 								ServiceName = Global.ServiceName,
 								ObjectName = "Synchronizer",
 								Verb = "POST",
 								Header = header,
-								Body = data.Length > 0 ? data.ToBase64() : "",
+								Body = body,
 								Extra = new Dictionary<string, string>
 								{
-									["x-checksum"] = data.Length > 0 ? data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{filename}@{Global.NodeID}".GetHMACSHA256(this.SyncKey)
+									["x-checksum"] = body != "" ? body.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{directory}/{filename}@{Global.NodeID}".GetHMACSHA256(this.SyncKey),
+									["x-step"] = step.ToString()
 								},
 								CorrelationID = requestInfo.CorrelationID
 							}, Global.CancellationToken).ConfigureAwait(false);
@@ -152,7 +150,7 @@ namespace net.vieapps.Services.Files
 							$"- To: {node}" + "\r\n" +
 							$"- Service: {serviceName}" + "\r\n" +
 							$"- System ID: {systemID}" + "\r\n" +
-							$"- File: {filename} ({filePath} - {new FileInfo(filePath).Length:###,###,###,###,###,##0} bytes)"
+							$"- File: {filename} ({filePath} - {fileInfo.Length:###,###,###,###,###,##0} bytes)"
 						, null, Global.ServiceName, LogLevel.Information, requestInfo.CorrelationID).ConfigureAwait(false);
 					}
 					catch (Exception ex)
@@ -173,17 +171,21 @@ namespace net.vieapps.Services.Files
 		async Task ProcessSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var node = requestInfo.Header["x-node"];
+			if (!node.GetHMACBLAKE512(Global.ValidationKey).Equals(requestInfo.Header["x-signature"]))
+				throw new InvalidRequestException();
+
 			var serviceName = requestInfo.Header["x-service-name"];
 			var systemID = requestInfo.Header["x-system-id"];
 			var fileName = requestInfo.Header["x-filename"];
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
 			var isAvatar = "true".IsEquals(requestInfo.Header["x-avatar"]);
 
+			var directory = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower();
 			var path = isAvatar
 				? Handler.UserAvatarFilesPath
 				: isTemporary
 					? Handler.TempFilesPath
-					: Path.Combine(Handler.AttachmentFilesPath, string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName.ToLower() : systemID.ToLower());
+					: Path.Combine(Handler.AttachmentFilesPath, directory);
 
 			var filePath = Path.Combine(path, fileName);
 			if (!isTemporary && !Directory.Exists(path))
@@ -191,24 +193,27 @@ namespace net.vieapps.Services.Files
 
 			try
 			{
-				var data = Array.Empty<byte>();
+				var buffer = Array.Empty<byte>();
 				var checksum = "";
-				if (!string.IsNullOrWhiteSpace(requestInfo.Body))
-				{
-					data = requestInfo.Body.Base64ToBytes();
-					checksum = data.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex();
-				}
+				if (string.IsNullOrWhiteSpace(requestInfo.Body))
+					checksum = $"{directory}/{fileName}@{node}".GetHMACSHA256(this.SyncKey);
 				else
-					checksum = $"{fileName}@{node}".GetHMACSHA256(this.SyncKey);
+				{
+					buffer = requestInfo.Body.Base64ToBytes();
+					checksum = buffer.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex();
+				}
 
 				if (!requestInfo.Extra.TryGetValue("x-checksum", out var xchecksum) || !xchecksum.Equals(checksum))
 					throw new InvalidDataException("Invalid checksum");
 
-				if (data.Length > 0)
-					using (var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
-					{
-						await stream.WriteAsync(data, cancellationToken).ConfigureAwait(false);
-					}
+				if (!requestInfo.Extra.TryGetValue("x-step", out var step))
+					step = "0";
+
+				if (buffer.Length > 0)
+				{
+					using var stream = new FileStream(filePath, step.Equals("1") ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true);
+					await stream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+				}
 				else
 				{
 					if (requestInfo.Header.TryGetValue("x-creation-time", out var time) && DateTime.TryParse(time, out var creationTime))

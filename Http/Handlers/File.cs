@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
+using System.Net.Mail;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -128,6 +130,7 @@ namespace net.vieapps.Services.Files
 			var isShared = "true".IsEquals(context.GetParameter("x-shared"));
 			var isTracked = "true".IsEquals(context.GetParameter("x-tracked"));
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
 
 			if (string.IsNullOrWhiteSpace(objectID) && !segment.IsEquals("temp.file"))
 				throw new InvalidRequestException("Invalid object identity");
@@ -179,7 +182,8 @@ namespace net.vieapps.Services.Files
 				Task.WhenAll
 				(
 					Handler.Cache.RemoveAsync($"{objectID}:attachments", Global.CancellationToken),
-					Handler.IsCacheImages ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask
+					Handler.IsCacheImages ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask,
+					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).Select(attachment => attachment.GetCacheKey(attachment.ContentType.IsEndsWith("/webp") ? "webp" : "file")).Join(", ")})") : Task.CompletedTask
 				).Run();
 
 				// sync
@@ -194,12 +198,12 @@ namespace net.vieapps.Services.Files
 							{ "Node", Global.NodeID },
 							{ "ServiceName", attachment.ServiceName },
 							{ "SystemID", attachment.SystemID },
-							{ "Filename", attachment.ID + "-" + attachment.Filename },
+							{ "Filename", $"{attachment.ID}-{attachment.Filename}" },
 							{ "IsTemporary", false },
 							{ "CorrelationID", context.GetCorrelationID() }
 						}
 					}.Send();
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({attachment.GetFilePath()})").ConfigureAwait(false);
 				}).ConfigureAwait(false);
 
@@ -236,7 +240,6 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await context.WriteLogsAsync(this.Logger, "Uploads", $"Error occurred while receiving attachment file(s)", ex).ConfigureAwait(false);
-				//attachments.ForEach(attachment => attachment.DeleteFile(true, this.Logger, "Uploads"));
 				throw;
 			}
 		}

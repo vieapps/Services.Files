@@ -91,6 +91,7 @@ namespace net.vieapps.Services.Files
 
 			var content = Array.Empty<byte>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
 
 			// limit size - default is 1 MB
 			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Avatar"), out var limitSize))
@@ -150,16 +151,16 @@ namespace net.vieapps.Services.Files
 					{ "CorrelationID", context.GetCorrelationID() }
 				}
 			}.Send();
-			if (Global.IsDebugLogEnabled)
+			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an avatar image ({filename})").ConfigureAwait(false);
 
 			// response
 			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
 			await context.WriteAsync(new JObject
 			{
-				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{context.User.Identity.Name}.webp".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
+				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{filename}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
 			}, cancellationToken).ConfigureAwait(false);
-			if (Global.IsDebugLogEnabled)
+			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
 		}
 	}
