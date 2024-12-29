@@ -42,6 +42,9 @@ namespace net.vieapps.Services.Files
 		internal static bool IsCacheThumbnails
 			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
 
+		internal static bool PrepareCache
+			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false")) && Global.Cache != null;
+
 		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _NoThumbnailImageFilePath = null, _NoSync = null;
 
 		internal static string UserAvatarFilesPath

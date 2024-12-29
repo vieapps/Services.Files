@@ -217,9 +217,10 @@ namespace net.vieapps.Services.Files
 			var thumbnails = new List<(byte[] Data, AttachmentInfo Info)>();
 			if (context.GetParameter("x-as-base64") != null)
 			{
-				var base64Data = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson()["Data"];
-				if (base64Data is JArray base64Array)
-					await base64Array.Take(7).Select(data => data as JValue).ForEachAsync(async data =>
+				var body = await context.ReadTextAsync(cancellationToken).ConfigureAwait(false);
+				var json = body.ToJson()["Data"];
+				if (json is JArray array)
+					await array.Take(7).Select(data => data as JValue).ForEachAsync(async data =>
 					{
 						var thumbnailInfo = data.Value.ToString().ToArray();
 						var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
@@ -227,7 +228,7 @@ namespace net.vieapps.Services.Files
 						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
 						thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 					}, true, false).ConfigureAwait(false);
-				else if (base64Data is JValue data)
+				else if (json is JValue data)
 				{
 					var thumbnailInfo = data.Value.ToString().ToArray();
 					var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
@@ -259,37 +260,27 @@ namespace net.vieapps.Services.Files
 				var title = "";
 				try
 				{
-					title = context.GetParameter("x-object-title")?.Url64Decode()?.GetANSIUri() ?? UtilityService.NewUUID;
+					title = context.GetParameter("x-object-title")?.Url64Decode();
 				}
-				catch
+				catch	{ }
+				thumbnails = thumbnails.Select((thumbnail, index) => (thumbnail.Data, thumbnail.Data == null ? thumbnail.Info : new AttachmentInfo
 				{
-					title = UtilityService.NewUUID;
-				}
-				await thumbnails.ForEachAsync(async (thumbnail, index) =>
-				{
-					if (thumbnail.Data != null)
-					{
-						thumbnail.Info = new AttachmentInfo
-						{
-							ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
-							ServiceName = serviceName,
-							ObjectName = objectName,
-							SystemID = systemID,
-							EntityInfo = entityInfo,
-							ObjectID = objectID,
-							Size = thumbnail.Data.Length,
-							Filename = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg",
-							ContentType = "image/jpeg",
-							IsShared = false,
-							IsTracked = false,
-							IsTemporary = isTemporary,
-							Title = title,
-							Description = "",
-							IsThumbnail = true
-						};
-						await thumbnail.Data.SaveAsBinaryAsync(thumbnail.Info.GetFilePath(true), cancellationToken).ConfigureAwait(false);
-					}
-				}, true, false).ConfigureAwait(false);
+					ID = context.GetParameter("x-attachment-id") ?? UtilityService.NewUUID,
+					ServiceName = serviceName,
+					ObjectName = objectName,
+					SystemID = systemID,
+					EntityInfo = entityInfo,
+					ObjectID = objectID,
+					Size = thumbnail.Data.Length,
+					Filename = $"{objectID}{(index > 0 ? $"-{index}" : "")}.jpg",
+					ContentType = "image/jpeg",
+					IsShared = false,
+					IsTracked = false,
+					IsTemporary = isTemporary,
+					Title = title,
+					IsThumbnail = true
+				})).ToList();
+				await thumbnails.ForEachAsync(thumbnail => thumbnail.Data != null ? thumbnail.Data.SaveAsBinaryAsync(thumbnail.Info.GetFilePath(true), cancellationToken) : Task.CompletedTask, true, false).ConfigureAwait(false);
 
 				// create meta info
 				var response = new JArray();
@@ -315,9 +306,9 @@ namespace net.vieapps.Services.Files
 						Handler.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
 						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
 					).ConfigureAwait(false);
-					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data == null ? Task.CompletedTask : thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()), true, false).ConfigureAwait(false);
+					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()) : Task.CompletedTask, true, false).ConfigureAwait(false);
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index, ImageFormat.Jpeg) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);
 				}
 
 				// sync
@@ -329,12 +320,12 @@ namespace net.vieapps.Services.Files
 						ExcludedNodeID = Global.NodeID,
 						Data = new JObject
 						{
-						{ "Node", Global.NodeID },
-						{ "ServiceName", thumbnail.Info.ServiceName },
-						{ "SystemID", thumbnail.Info.SystemID },
-						{ "Filename", thumbnail.Info.Filename },
-						{ "IsTemporary", false },
-						{ "CorrelationID", context.GetCorrelationID() }
+							{ "Node", Global.NodeID },
+							{ "ServiceName", thumbnail.Info.ServiceName },
+							{ "SystemID", thumbnail.Info.SystemID },
+							{ "Filename", thumbnail.Info.Filename },
+							{ "IsTemporary", false },
+							{ "CorrelationID", context.GetCorrelationID() }
 						}
 					}.Send();
 					if (isDebugLogEnabled)
@@ -354,9 +345,8 @@ namespace net.vieapps.Services.Files
 					context.WriteLogsAsync(this.Logger, "Uploads", $"{thumbnails.Count(thumbnail => thumbnail.Data != null)} thumbnail image(s) has been uploaded - Execution times: {stopwatch.GetElapsedTimes()}")
 				).ConfigureAwait(false);
 			}
-			catch (Exception)
+			catch
 			{
-				thumbnails.Where(thumbnail => thumbnail.Data != null).ForEach(thumbnail => thumbnail.Info.DeleteFile(true, this.Logger, "Uploads"));
 				throw;
 			}
 		}

@@ -35,6 +35,8 @@ namespace net.vieapps.Services.Files
 		string AttachmentsDirectory => UtilityService.GetAppSetting("Files:Sync:Directory:Attachments", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "buffer-files", "attachments"));
 
 		string AvatarsDirectory => UtilityService.GetAppSetting("Files:Sync:Directory:Avatars", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "buffer-files", "user-avatars"));
+
+		bool PrepareCache => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false"));
 		#endregion
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
@@ -198,21 +200,24 @@ namespace net.vieapps.Services.Files
 					: Sorts<Thumbnail>.Ascending("ObjectID").ThenByAscending("Filename");
 
 				var thumbnails = await Thumbnail.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				thumbnails.ForEach((thumbnail, index) =>
+				if (this.PrepareCache)
 				{
-					var request = new JObject
+					thumbnails.ForEach((thumbnail, index) =>
 					{
-						{ "Type", "Thumbnail" },
-						{ "ServiceName", thumbnail.ServiceName },
-						{ "SystemID", thumbnail.SystemID },
-						{ "ObjectID", thumbnail.ObjectID },
-						{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
-						{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
-					}.ToString(Formatting.None);
-					new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
-				});
-				if (isDebugLogEnabled)
-					await this.WriteLogsAsync(requestInfo, $"Send {thumbnails.Count} request(s) to Files HTTP to prepare cache of thumbnail images ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
+						var request = new JObject
+						{
+							{ "Type", "Thumbnail" },
+							{ "ServiceName", thumbnail.ServiceName },
+							{ "SystemID", thumbnail.SystemID },
+							{ "ObjectID", thumbnail.ObjectID },
+							{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
+							{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
+						}.ToString(Formatting.None);
+						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+					});
+					if (isDebugLogEnabled)
+						await this.WriteLogsAsync(requestInfo, $"Send {thumbnails.Count} request(s) to Files HTTP to prepare cache of thumbnail images ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
+				}
 
 				// build JSON
 				var asAttachments = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-attachments") ?? requestInfo.GetParameter("x-as-attachments"));
@@ -479,22 +484,25 @@ namespace net.vieapps.Services.Files
 					: Sorts<Attachment>.Ascending("ObjectID").ThenByAscending("Title").ThenByAscending("Filename");
 
 				var attachments = await Attachment.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				attachments.Where(attachment => attachment.ContentType.IsStartsWith("image/")).ForEach((attachment, index) =>
+				if (this.PrepareCache)
 				{
-					var request = new JObject
+					attachments.Where(attachment => attachment.ContentType.IsStartsWith("image/")).ForEach((attachment, index) =>
 					{
-						{ "Type", "Attachment" },
-						{ "ID", attachment.ID },
-						{ "ServiceName", attachment.ServiceName },
-						{ "SystemID", attachment.SystemID },
-						{ "ObjectID", attachment.ObjectID },
-						{ "Filename", attachment.Filename },
-						{ "ContentType", attachment.ContentType }
-					}.ToString(Formatting.None);
-					new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
-				});
-				if (isDebugLogEnabled)
-					await this.WriteLogsAsync(requestInfo, $"Send {attachments.Count(attachment => attachment.ContentType.IsStartsWith("image/"))} request(s) to Files HTTP to prepare cache of attachments ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
+						var request = new JObject
+						{
+							{ "Type", "Attachment" },
+							{ "ID", attachment.ID },
+							{ "ServiceName", attachment.ServiceName },
+							{ "SystemID", attachment.SystemID },
+							{ "ObjectID", attachment.ObjectID },
+							{ "Filename", attachment.Filename },
+							{ "ContentType", attachment.ContentType }
+						}.ToString(Formatting.None);
+						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+					});
+					if (isDebugLogEnabled)
+						await this.WriteLogsAsync(requestInfo, $"Send {attachments.Count(attachment => attachment.ContentType.IsStartsWith("image/"))} request(s) to Files HTTP to prepare cache of attachments ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
+				}
 
 				// build JSON
 				if (objectIDs == null)

@@ -421,7 +421,7 @@ namespace net.vieapps.Services.Files
 					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
 				).ConfigureAwait(false);
 
-				if (attachment.IsThumbnail && width < 1)
+				if (attachment.IsThumbnail && width < 1 && Handler.PrepareCache)
 				{
 					cacheKeys = [.. cacheKeys, .. ServiceExtensions.Widths.Select(w => attachment.GetCacheKey(index, ImageFormat.Webp, w, 0, asBig)).SelectMany(key => new[] { key, $"{key}:time" })];
 					await ServiceExtensions.Widths.ForEachAsync(async w =>

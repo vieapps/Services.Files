@@ -12,8 +12,6 @@ using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
-using System.Net.Mail;
-
 #endregion
 
 namespace net.vieapps.Services.Files
