@@ -1,7 +1,6 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
@@ -10,7 +9,6 @@ using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using System.Collections.Generic;
-
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -24,11 +22,9 @@ namespace net.vieapps.Services.Files
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
-			// generate
 			var data = Array.Empty<byte>();
 			var size = 300;
 			var stopwatch = Stopwatch.StartNew();
-
 			try
 			{
 				var query = context.GetRequestUri().ParseQuery();
@@ -60,10 +56,7 @@ namespace net.vieapps.Services.Files
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
 				data = await ex.GenerateAsync(size, size, cancellationToken).ConfigureAwait(false);
 			}
-
-			// display
-			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-			await context.WriteAsync(data, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

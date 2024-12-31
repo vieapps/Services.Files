@@ -60,7 +60,7 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("0")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("0")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),

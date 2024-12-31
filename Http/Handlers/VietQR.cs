@@ -1,7 +1,6 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Net;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +10,6 @@ using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using System.Collections.Generic;
-
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -49,8 +47,7 @@ namespace net.vieapps.Services.Files
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the VietQR Code: {ex.Message}", ex).ConfigureAwait(false);
 				data = await ex.GenerateAsync(540, 540, cancellationToken).ConfigureAwait(false);
 			}
-			context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-			await context.WriteAsync(data, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

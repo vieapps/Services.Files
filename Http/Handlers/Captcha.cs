@@ -1,7 +1,6 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Net;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,18 +26,16 @@ namespace net.vieapps.Services.Files
 				if (pathSegments.Length > 1)
 					try
 					{
-						useSmallImage = !pathSegments[1].Url64Decode().IsEquals("big");
+						useSmallImage = !pathSegments[1].Url64Decode().IsStartsWith("big");
 					}
 					catch { }
 				using var inputStream = this.Generate(pathSegments[0].Url64Decode(), useSmallImage);
 				using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
-				context.SetResponseHeaders((int)HttpStatusCode.OK, "image/webp", null, 0, "private, no-store, no-cache", TimeSpan.Zero, context.GetCorrelationID());
-				await context.WriteAsync(outputStream, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}
 			else
 				throw new MethodNotAllowedException(context.Request.Method);
 		}
-
 		MemoryStream Generate(string code, bool useSmallImage = true, List<string> noises = null)
 		{
 			// check code

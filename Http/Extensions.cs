@@ -291,6 +291,7 @@ namespace net.vieapps.Services.Files
 			using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
 			var outputStream = UtilityService.CreateMemoryStream();
 			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Bmp ? new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder(), cancellationToken).ConfigureAwait(false);
+			outputStream.Seek(0, SeekOrigin.Begin);
 			return outputStream;
 		}
 

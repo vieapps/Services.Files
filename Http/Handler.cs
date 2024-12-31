@@ -159,14 +159,14 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					// authenticate (token is expired after 15 minutes)
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
-					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Authentications", context.GetCorrelationID()).ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
 					// perform sign-in (to create authenticate ticket cookie)
 					if (performSignIn)
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
+						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
 					}
 
 					// just assign user information
@@ -181,7 +181,7 @@ namespace net.vieapps.Services.Files
 				}
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					if (responseSignInAsJon)
 					{
 						context.WriteError(ex);
@@ -376,16 +376,16 @@ namespace net.vieapps.Services.Files
 									if (!Global.NodeID.IsEquals(message.ExcludedNodeID))
 									{
 										if (Global.IsDebugLogEnabled)
-											await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Got an inter-communicate message\r\n{message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", null, Global.ServiceName, LogLevel.Debug, message.Data?.Get<string>("CorrelationID")).ConfigureAwait(false);
+											await Global.WriteLogsAsync(Global.Logger, null, $"Got an inter-communicate message\r\n{message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", null, Global.ServiceName, LogLevel.Debug, message.Data?.Get<string>("CorrelationID")).ConfigureAwait(false);
 										await Handler.ProcessInterCommunicateMessageAsync(message).ConfigureAwait(false);
 									}
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while processing an inter-communicate message: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
@@ -400,10 +400,10 @@ namespace net.vieapps.Services.Files
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while processing an inter-communicate message of API Gateway: {ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName).ConfigureAwait(false);
 								}
 							},
-							async exception => await Global.WriteLogsAsync(Global.Logger, $"Http.{Global.ServiceName}", $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
+							async exception => await Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
 				async (sender, arguments) =>
@@ -463,14 +463,14 @@ namespace net.vieapps.Services.Files
 		{
 			try
 			{
-				Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Extensions.GetUniqueName($"{Global.ServiceName}.http"), WampInvokePolicy.Single)).ConfigureAwait(false);
+				Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.Synchronizer.ServiceUniqueName, WampInvokePolicy.Single)).ConfigureAwait(false);
 			}
 			catch
 			{
 				await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
 				try
 				{
-					Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Extensions.GetUniqueName($"{Global.ServiceName}.http"), WampInvokePolicy.Single)).ConfigureAwait(false);
+					Handler.SynchronizerInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<IUniqueService>(() => Handler.Synchronizer, RegistrationInterceptor.Create(Handler.Synchronizer.ServiceUniqueName, WampInvokePolicy.Single)).ConfigureAwait(false);
 				}
 				catch (Exception)
 				{
@@ -488,12 +488,17 @@ namespace net.vieapps.Services.Files
 				}
 				catch (Exception ex)
 				{
-					Global.Logger?.LogError($"Error occurred while unregistering the synchronizer: {ex.Message}", ex);
+					Global.Logger?.LogError($"Error occurred while unregistering the synchronizer => {ex.Message}", ex);
 				}
 				finally
 				{
 					Handler.SynchronizerInstance = null;
 				}
+			try
+			{
+				await Handler.Synchronizer.DisposeAsync().ConfigureAwait(false);
+			}
+			catch { }
 		}
 		#endregion
 

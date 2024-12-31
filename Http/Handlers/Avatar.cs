@@ -5,11 +5,11 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing.Imaging;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
-using System.Collections.Generic;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Files
 				catch (Exception ex)
 				{
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
 					fileName = null;
 				}
 
@@ -56,14 +56,14 @@ namespace net.vieapps.Services.Files
 				if (!fileInfo.Exists)
 				{
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"The file is not existed ({fileInfo.FullName}, then use the default avatar)").ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use the default avatar)").ConfigureAwait(false);
 					fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 				}
 			}
 			catch (Exception ex)
 			{
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
 				fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 			}
 
@@ -73,14 +73,14 @@ namespace net.vieapps.Services.Files
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", correlationID);
 				if (Global.IsDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
 			// response
 			await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
 			if (Global.IsDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,##0} bytes]").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,##0} bytes]").ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -155,13 +155,13 @@ namespace net.vieapps.Services.Files
 				await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an avatar image ({filename})").ConfigureAwait(false);
 
 			// response
-			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Http.Avatars").ConfigureAwait(false);
+			var profile = await context.CallServiceAsync(new RequestInfo(context.GetSession(), "Users", "Profile", "GET"), cancellationToken, this.Logger, "Avatars").ConfigureAwait(false);
 			await context.WriteAsync(new JObject
 			{
 				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{filename}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
 			}, cancellationToken).ConfigureAwait(false);
 			if (isDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Http.Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
 		}
 	}
 }

@@ -509,12 +509,12 @@ namespace net.vieapps.Services.Files.Storages
 			);
 		}
 
-		internal static void Disconnect(int waitingTimes = 1234)
+		internal static void Disconnect()
 		{
-			Global.UnregisterService($"Http.{Global.ServiceName}", waitingTimes);
+			Global.UnregisterService($"Http.{Global.ServiceName}");
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			Global.Disconnect(waitingTimes);
+			Global.Disconnect();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
