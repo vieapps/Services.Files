@@ -153,7 +153,7 @@ namespace net.vieapps.Services.Files
 					}
 					catch (Exception ex)
 					{
-						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image [{fileInfo.FullName}] => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
 						thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 					}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
@@ -168,23 +168,37 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream
+			bool useNoThumbnailImage = false;
 			try
 			{
 				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
+			catch (SixLabors.ImageSharp.UnknownImageFormatException ex)
+			{
+				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Unknown format of thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
+				useNoThumbnailImage = true;
+			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while showing a thumbnail image [{eTag} => {requestURL}] => {ex.Message}", ex).ConfigureAwait(false);
-				throw;
+				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while showing a thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
+				useNoThumbnailImage = true;
+			}
+
+			// use no-thumbnail if got any error
+			if (useNoThumbnailImage)
+			{
+				fileInfo = new FileInfo(Handler.NoThumbnailImageFilePath);
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 
 			// update counter & logs
 			stopwatch.Stop();
-			await Task.WhenAll
-			(
-				isNoThumbnailImage ? Task.CompletedTask : context.UpdateAsync(attachment, "Direct", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
-			).ConfigureAwait(false);
+			if (!useNoThumbnailImage)
+				await Task.WhenAll
+				(
+					!isNoThumbnailImage ? context.UpdateAsync(attachment, "Direct", cancellationToken) : Task.CompletedTask,
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
@@ -222,20 +236,26 @@ namespace net.vieapps.Services.Files
 				if (json is JArray array)
 					await array.Take(7).Select(data => data as JValue).ForEachAsync(async data =>
 					{
+						try
+						{
+							var thumbnailInfo = data.Value.ToString().ToArray();
+							var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
+							var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
+							thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
+							thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
+						}
+						catch { }
+					}, true, false).ConfigureAwait(false);
+				else if (json is JValue data)
+					try
+					{
 						var thumbnailInfo = data.Value.ToString().ToArray();
 						var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 						var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
 						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
 						thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
-					}, true, false).ConfigureAwait(false);
-				else if (json is JValue data)
-				{
-					var thumbnailInfo = data.Value.ToString().ToArray();
-					var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
-					var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-					thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
-					thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
-				}
+					}
+					catch { }
 			}
 			else
 			{
@@ -246,10 +266,14 @@ namespace net.vieapps.Services.Files
 					.Where(file => file != null && file.ContentType.IsStartsWith("image/") && file.Length > 0 && file.Length <= limitSize * 1024)
 					.ForEachAsync(async (file, index) =>
 					{
-						using var thumbnailStream = file.OpenReadStream();
-						var thumbnailData = new byte[file.Length];
-						await thumbnailStream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
-						thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false), new AttachmentInfo());
+						try
+						{
+							using var thumbnailStream = file.OpenReadStream();
+							var thumbnailData = new byte[file.Length];
+							await thumbnailStream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
+							thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false), new AttachmentInfo());
+						}
+						catch { }
 					}, true, false).ConfigureAwait(false);
 			}
 
