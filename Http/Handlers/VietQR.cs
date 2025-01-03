@@ -24,6 +24,7 @@ namespace net.vieapps.Services.Files
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			var data = Array.Empty<byte>();
+			var cacheControl = "public";
 			var stopwatch = Stopwatch.StartNew();
 			try
 			{
@@ -39,15 +40,16 @@ namespace net.vieapps.Services.Files
 				data = await vietqr.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Global.IsDebugLogEnabled)
+				if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate VietQR Code successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the VietQR Code: {ex.Message}", ex).ConfigureAwait(false);
 				data = await ex.GenerateAsync(540, 540, cancellationToken).ConfigureAwait(false);
+				cacheControl = "private, no-store, no-cache";
 			}
-			await context.WriteAsync(data, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, "image/webp", null, null, 0, cacheControl, TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 		}
 	}
 }

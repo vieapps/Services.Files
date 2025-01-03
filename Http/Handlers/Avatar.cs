@@ -30,6 +30,7 @@ namespace net.vieapps.Services.Files
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 			var fileName = pathSegments.Length > 1 ? pathSegments[1] : null;
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 
 			if (fileName != null)
 				try
@@ -44,7 +45,7 @@ namespace net.vieapps.Services.Files
 				}
 				catch (Exception ex)
 				{
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while parsing filename [{fileName}] => {ex.Message}", ex).ConfigureAwait(false);
 					fileName = null;
 				}
@@ -55,14 +56,14 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(Path.Combine(Handler.UserAvatarFilesPath, fileName ?? "@default.png"));
 				if (!fileInfo.Exists)
 				{
-					if (Global.IsDebugLogEnabled)
+					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Avatars", $"The file is not existed ({fileInfo.FullName}, then use the default avatar)").ConfigureAwait(false);
 					fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 				}
 			}
 			catch (Exception ex)
 			{
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Avatars", $"Error occurred while combine file-path ({Handler.UserAvatarFilesPath} - {fileName}) => {ex.Message}", ex).ConfigureAwait(false);
 				fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 			}
@@ -72,14 +73,14 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", correlationID);
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Avatars", $"Response to request with status code 304 to reduce traffic ({requestUri})").ConfigureAwait(false);
 				return;
 			}
 
 			// response
-			await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
-			if (Global.IsDebugLogEnabled)
+			await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
+			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,##0} bytes]").ConfigureAwait(false);
 		}
 

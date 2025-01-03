@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Files
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
 
 			var attachment = new AttachmentInfo
 			{

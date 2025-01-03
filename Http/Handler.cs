@@ -97,9 +97,10 @@ namespace net.vieapps.Services.Files
 		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
-			var requestPath = context.GetRequestPathSegments(true).First();
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			context.SetItem("Correlation-ID", context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
+			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
+
+			var requestPath = context.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
@@ -110,7 +111,7 @@ namespace net.vieapps.Services.Files
 
 			// request to robots.txt file
 			else if (requestPath.Equals("robots.txt"))
-				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
+				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/", "text/plain", null, 0, "public", TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
@@ -153,12 +154,11 @@ namespace net.vieapps.Services.Files
 			}
 
 			// got authenticate token => update the session
-			var performSignIn = !string.IsNullOrWhiteSpace(authenticateToken) && context.GetParameter("x-temp-token") == null && context.GetParameter("x-authenticate") != null;
-			var responseSignInAsJon = performSignIn && "json".IsEquals(context.GetParameter("x-response"));
+			var performSignIn = context.TryGetParameter("x-authenticate", out var _);
 			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
-					// authenticate (token is expired after 15 minutes)
+					// authenticate
 					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Authentications", context.GetCorrelationID()).ConfigureAwait(false);
 					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
@@ -167,22 +167,21 @@ namespace net.vieapps.Services.Files
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
+						if ("json".IsEquals(context.GetParameter("x-response")))
+						{
+							await context.WriteAsync(new JObject { ["Status"] = "OK" }, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, Global.CancellationToken).ConfigureAwait(false);
+							return;
+						}
 					}
 
 					// just assign user information
 					else
 						context.User = new UserPrincipal(session.User);
-
-					if (responseSignInAsJon)
-					{
-						await context.WriteAsync(new JObject { ["Status"] = "OK" }, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, Global.CancellationToken).ConfigureAwait(false);
-						return;
-					}
 				}
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					if (responseSignInAsJon)
+					if (performSignIn)
 					{
 						context.WriteError(ex);
 						return;
@@ -199,16 +198,13 @@ namespace net.vieapps.Services.Files
 			else
 				session.SessionID = session.User.SessionID;
 
-			var appName = context.GetParameter("x-app-name");
-			if (!string.IsNullOrWhiteSpace(appName))
+			if (context.TryGetParameter("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName))
 				session.AppName = appName;
 
-			var appPlatform = context.GetParameter("x-app-platform");
-			if (!string.IsNullOrWhiteSpace(appPlatform))
+			if (context.TryGetParameter("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform))
 				session.AppPlatform = appPlatform;
 
-			var deviceID = context.GetParameter("x-device-id");
-			if (!string.IsNullOrWhiteSpace(deviceID))
+			if (context.TryGetParameter("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID))
 				session.DeviceID = deviceID;
 
 			// store the session for further use

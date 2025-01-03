@@ -48,7 +48,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
-			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
 
 			// check "If-Modified-Since" request to reduce traffict
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

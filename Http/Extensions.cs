@@ -30,10 +30,10 @@ namespace net.vieapps.Services.Files
 			=> (attachment.ContentType ?? "").IsReadable();
 
 		public static bool IsThumbnail(this string mimeType)
-			=> mimeType.IsEndsWith("/jpeg") || mimeType.IsEndsWith("/png") || mimeType.IsEndsWith("/webp");
+			=> mimeType.IsStartsWith("image/") && (mimeType.IsEndsWith("/jpeg") || mimeType.IsEndsWith("/png") || mimeType.IsEndsWith("/webp"));
 
 		public static bool IsWebP(this AttachmentInfo attachment)
-			=> (attachment.Filename ?? "").IsEndsWith(".webp") || (attachment.ContentType ?? "").IsEndsWith("/webp");
+			=> (attachment.Filename ?? "").IsEndsWith(".webp") || (attachment.ContentType ?? "").IsEndsWith("image/webp");
 
 		public static string GetContentDisposition(this AttachmentInfo attachment, bool direct = false)
 			=> direct || attachment.IsReadable() || string.IsNullOrWhiteSpace(attachment.Filename) ? null : attachment.Filename;

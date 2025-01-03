@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-			var processCache = context.GetParameter("x-no-cache") == null && context.GetParameter("x-force-cache") == null;
+			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
 
 			var requestURI = context.GetRequestUri();
 			var requestURL = $"{requestURI}";
@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream
-			bool useNoThumbnailImage = false;
+			var useNoThumbnailImage = false;
 			try
 			{
 				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -193,12 +193,11 @@ namespace net.vieapps.Services.Files
 
 			// update counter & logs
 			stopwatch.Stop();
-			if (!useNoThumbnailImage)
-				await Task.WhenAll
-				(
-					!isNoThumbnailImage ? context.UpdateAsync(attachment, "Direct", cancellationToken) : Task.CompletedTask,
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
-				).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				!useNoThumbnailImage && !isNoThumbnailImage ? context.UpdateAsync(attachment, "Direct", cancellationToken) : Task.CompletedTask,
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+			).ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
