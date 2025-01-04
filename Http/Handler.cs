@@ -503,40 +503,60 @@ namespace net.vieapps.Services.Files
 		{
 			// refine thumbnail to rebuild info
 			if (message.Type.IsEquals("Thumbnail#Refine"))
-				try
+			{
+				await Task.Delay(UtilityService.GetRandomNumber(123, 456), Global.CancellationToken).ConfigureAwait(false);
+
+				var correlationID = message.Data.Get("CorrelationID", UtilityService.NewUUID);
+				var attachmentInfo = new AttachmentInfo { IsThumbnail = true }.Fill(message.Data);
+
+				var sourceFilename = attachmentInfo.Filename;
+				var destinationFilename = $"{attachmentInfo.ObjectID.ToLower()}.jpg";
+
+				var fileInfo = new FileInfo(Path.Combine(Handler.AttachmentFilesPath, attachmentInfo.SystemID, sourceFilename));
+				if (!fileInfo.Exists)
 				{
-					var attachmentInfo = new AttachmentInfo { IsThumbnail = true }.Fill(message.Data);
-					var fileInfo = new FileInfo(attachmentInfo.GetFilePath());
-					if (fileInfo.Exists)
-						await new CommunicateMessage(Global.ServiceName)
-						{
-							Type = "Thumbnail#Rebuild",
-							Data = new JObject
-							{
-								{ "ID", string.IsNullOrWhiteSpace(attachmentInfo.ID) || !attachmentInfo.ID.IsValidUUID() ? UtilityService.NewUUID : attachmentInfo.ID },
-								{ "ServiceName", attachmentInfo.ServiceName },
-								{ "ObjectName", attachmentInfo.ObjectName },
-								{ "SystemID", attachmentInfo.SystemID },
-								{ "EntityInfo", attachmentInfo.EntityInfo },
-								{ "ObjectID", attachmentInfo.ObjectID },
-								{ "Filename", attachmentInfo.Filename },
-								{ "Size", fileInfo.Length },
-								{ "ContentType", "image/jpeg" },
-								{ "IsTemporary", false },
-								{ "IsShared", false },
-								{ "IsTracked", false },
-								{ "IsThumbnail", true },
-								{ "Title", "" },
-								{ "Description", "" },
-								{ "LastModified", message.Data.Get<DateTime>("LastModified") },
-								{ "LastModifiedID", message.Data.Get<string>("LastModifiedID") }
-							}
-						}.PublishAsync(Global.Logger, "Thumbnails").ConfigureAwait(false);
+					sourceFilename = $"{attachmentInfo.ObjectID.ToLower()}.jpg";
+					fileInfo = new FileInfo(Path.Combine(Handler.AttachmentFilesPath, attachmentInfo.SystemID, sourceFilename));
+					if (!fileInfo.Exists)
+					{
+						sourceFilename = $"{attachmentInfo.ID.ToLower()}.jpg";
+						fileInfo = new FileInfo(Path.Combine(Handler.AttachmentFilesPath, attachmentInfo.SystemID, sourceFilename));
+					}
 				}
-				catch (Exception ex)
+
+				if (fileInfo.Exists)
+					try
+					{
+						File.Move(fileInfo.FullName, Path.Combine(Handler.AttachmentFilesPath, attachmentInfo.SystemID, destinationFilename));
+					}
+					catch { }
+
+				new CommunicateMessage(Global.ServiceName)
 				{
-					Global.Logger.LogError("Cannot send an inter-communicate message to refine thumbnail image", ex);
-				}
+					Type = "Thumbnail#Rebuild",
+					Data = new JObject
+					{
+						{ "ID", string.IsNullOrWhiteSpace(attachmentInfo.ID) || !attachmentInfo.ID.IsValidUUID() ? UtilityService.NewUUID : attachmentInfo.ID },
+						{ "ServiceName", attachmentInfo.ServiceName },
+						{ "ObjectName", attachmentInfo.ObjectName },
+						{ "SystemID", attachmentInfo.SystemID },
+						{ "EntityInfo", attachmentInfo.EntityInfo },
+						{ "ObjectID", attachmentInfo.ObjectID },
+						{ "Filename", fileInfo.Exists ? destinationFilename : "Not-Existed" },
+						{ "Size", fileInfo.Exists ? fileInfo.Length : 0 },
+						{ "ContentType", "image/jpeg" },
+						{ "IsTemporary", false },
+						{ "IsShared", false },
+						{ "IsTracked", false },
+						{ "IsThumbnail", true },
+						{ "Title", "" },
+						{ "Description", "" },
+						{ "LastModified", message.Data.Get<DateTime>("LastModified") },
+						{ "LastModifiedID", message.Data.Get<string>("LastModifiedID") },
+						{ "CorrelationID", correlationID }
+					}
+				}.Send();
+			}
 
 			// check no-sync
 			if (Handler.NoSync)

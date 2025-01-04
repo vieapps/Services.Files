@@ -222,9 +222,9 @@ namespace net.vieapps.Services.Files
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// limit size - default is 512 KB
+			// limit size
 			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Thumbnail"), out var limitSize))
-				limitSize = 512;
+				limitSize = 1024;
 
 			// prepare uploaded files
 			var thumbnails = new List<(byte[] Data, AttachmentInfo Info)>();

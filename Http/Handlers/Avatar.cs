@@ -94,7 +94,7 @@ namespace net.vieapps.Services.Files
 			var asBase64 = context.GetParameter("x-as-base64") != null;
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
 
-			// limit size - default is 1 MB
+			// limit size
 			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Avatar"), out var limitSize))
 				limitSize = 1024;
 
@@ -102,8 +102,10 @@ namespace net.vieapps.Services.Files
 			if (asBase64)
 			{
 				content = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson().Get<string>("Data").ToArray().Last().Base64ToBytes();
+				content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				if (content.Length > limitSize * 1024)
 				{
+					await context.WriteLogsAsync(this.Logger, "Uploads", $"Limit size exceeded (base64) - Max allowed size: ${limitSize * 1024:###,###,###,##0} bytes - Actual size: ${content.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
 					return;
 				}
@@ -119,6 +121,7 @@ namespace net.vieapps.Services.Files
 
 				if (file.Length > limitSize * 1024)
 				{
+					await context.WriteLogsAsync(this.Logger, "Uploads", $"Limit size exceeded (file) - Max allowed size: ${limitSize * 1024:###,###,###,##0} bytes - Actual size: ${file.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 					context.SetResponseHeaders((int)HttpStatusCode.RequestEntityTooLarge, null, 0, "private", null);
 					return;
 				}
@@ -126,10 +129,10 @@ namespace net.vieapps.Services.Files
 				using var stream = file.OpenReadStream();
 				content = new byte[file.Length];
 				await stream.ReadAsync(content, cancellationToken).ConfigureAwait(false);
+				content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 			}
 
 			// write into file of temporary directory
-			content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 			var filename = context.User.Identity.Name + ".webp";
 			await content.SaveAsBinaryAsync(Path.Combine(Handler.TempFilesPath, filename), cancellationToken).ConfigureAwait(false);
 
@@ -162,7 +165,7 @@ namespace net.vieapps.Services.Files
 				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{filename}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
 			}, cancellationToken).ConfigureAwait(false);
 			if (isDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Avatars", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Uploads", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
 		}
 	}
 }

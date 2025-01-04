@@ -1398,26 +1398,33 @@ namespace net.vieapps.Services.Files
 
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			var correlationID = UtilityService.NewUUID;
+			var correlationID = message.Data.Get("CorrelationID", UtilityService.NewUUID);
 			if (message.Type.IsEquals("Thumbnail#Rebuild"))
 				try
 				{
 					var objectID = message.Data.Get<string>("ObjectID");
-					var thumbnail = (await Thumbnail.FindAsync(Filters<Thumbnail>.Equals("ObjectID", objectID), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).FirstOrDefault();
-					if (thumbnail == null)
+					var thumbnail = "Not-Existed".IsEquals(message.Data.Get<string>("Filename")) ? await Thumbnail.GetAsync<Thumbnail>(message.Data.Get<string>("ID"), this.CancellationToken).ConfigureAwait(false) : null;
+					if (thumbnail != null)
+						await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, null, this.CancellationToken).ConfigureAwait(false);
+					else
 					{
-						thumbnail = message.Data.Copy<Thumbnail>("Title,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-						thumbnail.ID ??= UtilityService.NewUUID;
+						var thumbnails = await Thumbnail.FindAsync(Filters<Thumbnail>.Equals("ObjectID", objectID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+						thumbnail = thumbnails.FirstOrDefault();
+						if (thumbnail == null)
+						{
+							thumbnail = message.Data.Copy<Thumbnail>("Title,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
+							thumbnail.ID ??= UtilityService.NewUUID;
+						}
 						thumbnail.CreatedID = thumbnail.LastModifiedID = message.Data.Get<string>("LastModifiedID");
 						thumbnail.Created = thumbnail.LastModified = message.Data.Get<DateTime>("LastModified");
-						await Thumbnail.CreateAsync(thumbnail, cancellationToken).ConfigureAwait(false);
-						await Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false);
+						await (thumbnails.Count < 1 ? Thumbnail.CreateAsync(thumbnail, cancellationToken) : Thumbnail.UpdateAsync(thumbnail, true, cancellationToken)).ConfigureAwait(false);
 						this.Logger.LogInformation($"Rebuild thumbnail image info successful => {thumbnail.Filename}");
 					}
+					await Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					await this.WriteLogsAsync(correlationID, $"Error occurred while rebuilding thumbnail image info => {ex.Message}", ex, this.ServiceName, "Thumbnails.Rebuilds").ConfigureAwait(false);
+					await this.WriteLogsAsync(correlationID, $"Error occurred while rebuilding thumbnail image info [{message.Data.Get<string>("ObjectID")}] => {ex.Message}", ex, this.ServiceName, "Thumbnails").ConfigureAwait(false);
 				}
 
 			else if (message.Type.IsEquals("Sync"))
@@ -1428,10 +1435,12 @@ namespace net.vieapps.Services.Files
 					var directory = message.Data.Get<string>("Directory");
 					var filename = message.Data.Get<string>("Filename");
 					if (directory.IsValidUUID() ? Directory.Exists(this.AttachmentsDirectory) : Directory.Exists(this.AvatarsDirectory))
-						this.SendSyncRequestAsync(node, directory, filename, message.Data.Get<string>("CorrelationID")).Run();
+						this.SendSyncRequestAsync(node, directory, filename, correlationID).Run();
 				}
 			}
 		}
+
+		static List<string> Directories => ["RecycleBin", "Temporary", "Trash"];
 
 		public override void DoWork(string[] args = null)
 		{
@@ -1466,7 +1475,7 @@ namespace net.vieapps.Services.Files
 			if (isRefineDirectories)
 				directories.ForEach(dirPath =>
 				{
-					new[] { "RecycleBin", "Temporary" }.ForEach(name =>
+					Directories.ForEach(name =>
 					{
 						try
 						{
