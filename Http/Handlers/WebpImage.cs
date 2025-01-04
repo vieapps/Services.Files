@@ -33,10 +33,10 @@ namespace net.vieapps.Services.Files
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 2 && pathSegments[2].IsValidUUID() ? pathSegments[2].ToLower() : "",
+				ID = pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
-				Filename = pathSegments.Length > 3 && pathSegments[2].IsValidUUID() ? pathSegments[3].UrlDecode() : "",
+				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Right(pathSegments[2].Length - 33) : "",
 				IsThumbnail = false
 			};
 			attachment.Filename = attachment.IsWebP() && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff"))

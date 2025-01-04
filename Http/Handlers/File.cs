@@ -36,11 +36,11 @@ namespace net.vieapps.Services.Files
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
+				ID = pathSegments.Length > 3 && pathSegments[3].Length > 33 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
-				Filename = pathSegments.Length > 4 ? pathSegments[4].UrlDecode() : "",
+				Filename = pathSegments.Length > 4 ? pathSegments[4].UrlDecode() : pathSegments.Length > 3 && pathSegments[3].Length > 33 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Right(pathSegments[3].Length - 33) : "",
 				IsThumbnail = false
 			};
 
