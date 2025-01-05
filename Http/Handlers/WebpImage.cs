@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
@@ -28,12 +29,12 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "",
+				ID = pathSegments.Length > 2 && pathSegments[2].Length > 31 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Right(pathSegments[2].Length - 33) : "",
@@ -45,7 +46,10 @@ namespace net.vieapps.Services.Files
 
 			// validate the request
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
+			{
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Invalid request segments\r\nSegments:\r\n- {pathSegments.Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}").ConfigureAwait(false);
 				throw new InvalidRequestException();
+			}
 
 			// prepare entity tag and headers
 			var eTag = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");

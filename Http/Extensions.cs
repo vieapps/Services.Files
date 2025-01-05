@@ -424,18 +424,18 @@ namespace net.vieapps.Services.Files
 
 				if (attachment.IsThumbnail && width < 1 && Handler.PrepareCache)
 				{
-					cacheKeys = [.. cacheKeys, .. ServiceExtensions.Widths.Select(w => attachment.GetCacheKey(index, ImageFormat.Webp, w, 0, asBig)).SelectMany(key => new[] { key, $"{key}:time" })];
-					await ServiceExtensions.Widths.ForEachAsync(async w =>
+					cacheKeys = [.. cacheKeys, .. ServiceExtensions.Widths.Select(variant => attachment.GetCacheKey(index, ImageFormat.Webp, variant, 0, asBig)).SelectMany(key => new[] { key, $"{key}:time" })];
+					await ServiceExtensions.Widths.ForEachAsync(async variant =>
 					{
 						try
 						{
-							thumbnail = await original.GenerateAsync(ImageFormat.Webp, w, 0, asBig, false, Global.CancellationToken).ConfigureAwait(false);
+							thumbnail = await original.GenerateAsync(ImageFormat.Webp, variant, 0, asBig, false, Global.CancellationToken).ConfigureAwait(false);
 						}
 						catch
 						{
 							thumbnail = await original.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
 						}
-						cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, w, 0, asBig);
+						cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, variant, 0, asBig);
 						await Task.WhenAll
 						(
 							Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),

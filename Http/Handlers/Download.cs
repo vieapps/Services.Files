@@ -26,7 +26,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			if (Global.IsDebugLogEnabled)
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
+			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
 
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
@@ -40,7 +41,7 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestURI})").ConfigureAwait(false);
 				return;
 			}
@@ -64,7 +65,7 @@ namespace net.vieapps.Services.Files
 				await Task.WhenAll
 				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
-					Global.IsDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file (as download) [{requestURI} => {fileInfo.FullName}]") : Task.CompletedTask
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file (as download) [{requestURI} => {fileInfo.FullName}]") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 		}

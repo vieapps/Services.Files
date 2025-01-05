@@ -32,11 +32,11 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 3 && pathSegments[3].Length > 33 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
+				ID = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
@@ -45,7 +45,10 @@ namespace net.vieapps.Services.Files
 			};
 
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
+			{
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Invalid request segments\r\nSegments:\r\n- {pathSegments.Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}").ConfigureAwait(false);
 				throw new InvalidRequestException();
+			}
 
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
@@ -128,7 +131,7 @@ namespace net.vieapps.Services.Files
 			var isShared = "true".IsEquals(context.GetParameter("x-shared"));
 			var isTracked = "true".IsEquals(context.GetParameter("x-tracked"));
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 
 			if (string.IsNullOrWhiteSpace(objectID) && !segment.IsEquals("temp.file"))
 				throw new InvalidRequestException("Invalid object identity");

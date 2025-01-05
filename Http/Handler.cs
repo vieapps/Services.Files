@@ -111,7 +111,7 @@ namespace net.vieapps.Services.Files
 
 			// request to robots.txt file
 			else if (requestPath.Equals("robots.txt"))
-				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/", "text/plain", null, 0, "public", TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
+				await context.WriteAsync("User-agent: *\r\nDisallow: /File.ashx/\r\nDisallow: /Download.ashx/\r\nDisallow: /Thumbnails.ashx/\r\nDisallow: /Captcha.ashx/\r\nDisallow: /captchas/\r\nDisallow: /qrcodes/\r\nDisallow: /vietqrs/", "text/plain", null, 0, "public", TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
@@ -581,7 +581,10 @@ namespace net.vieapps.Services.Files
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Global.NodeID.IsEquals(node))
+				{
+					await Task.Delay(UtilityService.GetRandomNumber(123, 234), Global.CancellationToken).ConfigureAwait(false);
 					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run();
+				}
 			}
 
 			// copy files from a legacy system

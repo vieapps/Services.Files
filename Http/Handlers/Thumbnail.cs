@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// flush the thumbnail image to output stream
-			var useNoThumbnailImage = false;
+			var asReplacement = false;
 			try
 			{
 				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -176,16 +176,16 @@ namespace net.vieapps.Services.Files
 			catch (SixLabors.ImageSharp.UnknownImageFormatException ex)
 			{
 				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Unknown format of thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
-				useNoThumbnailImage = true;
+				asReplacement = true;
 			}
 			catch (Exception ex)
 			{
 				await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while showing a thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
-				useNoThumbnailImage = true;
+				asReplacement = true;
 			}
 
-			// use no-thumbnail if got any error
-			if (useNoThumbnailImage)
+			// use no-thumbnail-image as a replacement if got any error
+			if (asReplacement)
 			{
 				fileInfo = new FileInfo(Handler.NoThumbnailImageFilePath);
 				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -193,11 +193,12 @@ namespace net.vieapps.Services.Files
 
 			// update counter & logs
 			stopwatch.Stop();
-			await Task.WhenAll
-			(
-				!useNoThumbnailImage && !isNoThumbnailImage ? context.UpdateAsync(attachment, "Direct", cancellationToken) : Task.CompletedTask,
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
-			).ConfigureAwait(false);
+			if (!asReplacement)
+				await Task.WhenAll
+				(
+					!isNoThumbnailImage ? context.UpdateAsync(attachment, "Direct", cancellationToken) : Task.CompletedTask,
+					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Thumbnails", $"Show a thumbnail image successful [{eTag} => {requestURL}] - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
 		async Task ReceiveAsync(HttpContext context, CancellationToken cancellationToken)
