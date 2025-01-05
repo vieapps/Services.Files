@@ -6,6 +6,8 @@ namespace net.vieapps.Services.Files
 	{
 		public static Components.Caching.Cache Cache { get; internal set; }
 
+		public static Components.Caching.Cache HttpCache { get; internal set; }
+
 		public static string FilesHttpURI { get; internal set; }
 
 		public static string CaptchaURI => $"{Utility.FilesHttpURI}/captchas/";

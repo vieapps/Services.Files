@@ -43,6 +43,7 @@ namespace net.vieapps.Services.Files
 			=> base.Start(args, initializeRepository, _ =>
 			{
 				Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+				Utility.HttpCache = new Cache($"VIEApps-Services-{this.ServiceName}-Http", Components.Utility.Logger.GetLoggerFactory());
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 				while (Utility.FilesHttpURI.EndsWith("/"))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
@@ -169,7 +170,8 @@ namespace net.vieapps.Services.Files
 				: null;
 
 			var isForceCache = requestInfo.TryGetParameter("x-force-cache", out var _);
-			var isDebugLogEnabled = this.IsDebugLogEnabled || requestInfo.TryGetParameter("x-logs", out var _);
+			var isLogRequest = requestInfo.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = this.IsDebugLogEnabled || isLogRequest;
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Start to search thumbnail images ({requestInfo.GetHeaderParameter("x-origin")})\r\n- Object IDs: {objectID ?? objectIDs?.Join(", ")}\r\n- Header: {requestInfo.Header.ToJson()}\r\n- Query: {requestInfo.Query.ToJson()}\"").ConfigureAwait(false);
 
@@ -215,7 +217,7 @@ namespace net.vieapps.Services.Files
 							{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
 							{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
 						}.ToString(Formatting.None);
-						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(isLogRequest ? "&x-logs=true" : "")}").FetchHttpAsync().Run();
 					});
 					if (isDebugLogEnabled && thumbnails.Count > 0)
 						await this.WriteLogsAsync(requestInfo, $"Send {thumbnails.Count} request(s) to Files HTTP to prepare cache of thumbnail images ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
@@ -362,7 +364,12 @@ namespace net.vieapps.Services.Files
 
 			// delete & clear cache
 			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken).ConfigureAwait(false);
+			var httpKeys = (await Utility.HttpCache.GetSetMembersAsync($"{thumbnail.ObjectID}:images", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{thumbnail.ObjectID}:images"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			await Task.WhenAll
+			(
+				Utility.Cache.RemoveAsync($"{thumbnail.ObjectID}:thumbnails", cancellationToken),
+				Utility.HttpCache.RemoveAsync(httpKeys, cancellationToken)
+			).ConfigureAwait(false);
 
 			// send update messages
 			var response = thumbnail.ToJson(false, null, json =>
@@ -469,7 +476,8 @@ namespace net.vieapps.Services.Files
 				: null;
 
 			var isForceCache = requestInfo.TryGetParameter("x-force-cache", out var _);
-			var isDebugLogEnabled = this.IsDebugLogEnabled || requestInfo.TryGetParameter("x-logs", out var _);
+			var isLogRequest = requestInfo.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = this.IsDebugLogEnabled || isLogRequest;
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Start to search attachments ({requestInfo.GetHeaderParameter("x-origin")})\r\n- Object IDs: {objectID ?? objectIDs?.Join(", ")}\r\n- Info: {requestInfo.Header.ToJson()}").ConfigureAwait(false);
 
@@ -515,7 +523,7 @@ namespace net.vieapps.Services.Files
 							{ "Filename", attachment.Filename },
 							{ "ContentType", attachment.ContentType }
 						}.ToString(Formatting.None);
-						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}").FetchHttpAsync().Run();
+						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(isLogRequest ? "&x-logs=true" : "")}").FetchHttpAsync().Run();
 					});
 					if (isDebugLogEnabled)
 						await this.WriteLogsAsync(requestInfo, $"Send {attachments.Count(attachment => attachment.ContentType.IsStartsWith("image/"))} request(s) to Files HTTP to prepare cache of attachments ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
@@ -648,6 +656,11 @@ namespace net.vieapps.Services.Files
 			// delete
 			await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken).ConfigureAwait(false);
+			if (attachment.ContentType.IsStartsWith("image/"))
+			{
+				var httpKeys = (await Utility.HttpCache.GetSetMembersAsync($"{attachment.ObjectID}:images", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{attachment.ObjectID}:images"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				await Utility.HttpCache.RemoveAsync(httpKeys, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update message and response
 			var response = attachment.ToJson();
@@ -1427,6 +1440,19 @@ namespace net.vieapps.Services.Files
 					await this.WriteLogsAsync(correlationID, $"Error occurred while rebuilding thumbnail image info [{message.Data.Get<string>("ObjectID")}] => {ex.Message}", ex, this.ServiceName, "Thumbnails").ConfigureAwait(false);
 				}
 
+			else if (message.Type.IsEquals("ClearCache"))
+				try
+				{
+					var objectID = message.Data.Get<string>("ObjectID");
+					var cacheKeys = (await Utility.Cache.GetSetMembersAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false) ?? []).ToList();
+					cacheKeys = (await Utility.Cache.GetSetMembersAsync($"{objectID}:attachments", cancellationToken).ConfigureAwait(false) ?? []).Concat([.. cacheKeys, $"{objectID}:thumbnails", $"{objectID}:attachments"]).ToList();
+					await Utility.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(correlationID, $"Error occurred while clear cache [{message.Data.Get<string>("ObjectID")}] => {ex.Message}", ex, this.ServiceName).ConfigureAwait(false);
+				}
+
 			else if (message.Type.IsEquals("Sync"))
 			{
 				var node = message.Data.Get<string>("Node");
@@ -1498,7 +1524,7 @@ namespace net.vieapps.Services.Files
 						: null
 					: null;
 				var syncTask = this.SendSyncRequestsAsync(directories, lastWriteTime, isAvatars, message => this.Logger.LogInformation(message));
-				syncTask.Wait();
+				syncTask.Run(true);
 				this.Logger.LogInformation($"============================\r\n{syncTask.Result:###,###,###,###,##0} files were synced\r\n============================");
 			}
 		}

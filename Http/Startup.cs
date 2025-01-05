@@ -194,7 +194,7 @@ namespace net.vieapps.Services.Files
 				Global.Logger.LogInformation($"Default user avatar: {Handler.DefaultUserAvatarFilePath}");
 				Global.Logger.LogInformation($"Logging level: {this.LogLevel} - Local rolling log files is {(string.IsNullOrWhiteSpace(logPath) ? "disabled" : $"enabled => {logPath}")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
-				Global.Logger.LogInformation($"Request limits => Files (multipart/form-data): {Global.MaxRequestBodySize:###,###,##0} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "512")} KB");
+				Global.Logger.LogInformation($"Request limits => Files (multipart/form-data): {Global.MaxRequestBodySize:###,###,##0} MB - Avatars: {UtilityService.GetAppSetting("Limits:Avatar", "1024")} KB - Thumbnails: {UtilityService.GetAppSetting("Limits:Thumbnail", "1024")} KB");
 				
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Environment.ProcessId} - Execution times: {stopwatch.GetElapsedTimes()}");

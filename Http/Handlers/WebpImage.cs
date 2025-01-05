@@ -40,8 +40,8 @@ namespace net.vieapps.Services.Files
 				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Right(pathSegments[2].Length - 33) : "",
 				IsThumbnail = false
 			};
-			attachment.Filename = attachment.IsWebP() && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff"))
-				? attachment.Filename.Left(attachment.Filename.Length - 5)
+			attachment.Filename = attachment.IsWebP() && !attachment.Filename.IsEndsWith(".webp")
+				? attachment.Filename.Left(attachment.Filename.Length - new FileInfo(attachment.GetFilePath()).Extension.Length)
 				: attachment.Filename;
 
 			// validate the request

@@ -94,8 +94,8 @@ namespace net.vieapps.Services.Files
 				IsThumbnail = isThumbnail,
 				IsTemporary = false
 			};
-			if (!isThumbnail && format == ImageFormat.Webp && attachment.IsWebP() && (attachment.Filename.IsContains(".png") || attachment.Filename.IsContains(".jpg") || attachment.Filename.IsContains(".gif") || attachment.Filename.IsContains(".bmp") || attachment.Filename.IsContains(".tiff")))
-				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
+			if (!isThumbnail && format == ImageFormat.Webp && attachment.IsWebP() && !attachment.Filename.IsEndsWith(".webp"))
+				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - new FileInfo(attachment.GetFilePath()).Extension.Length);
 
 			FileInfo fileInfo = null;
 			var hasCached = !isNoThumbnailImage && Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
@@ -324,12 +324,8 @@ namespace net.vieapps.Services.Files
 				// update cache
 				if (Handler.IsCacheThumbnails)
 				{
-					cacheKeys = cacheKeys.Concat(await Global.Cache.GetSetMembersAsync($"{objectID}:thumbnails", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{objectID}:thumbnails"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-					await Task.WhenAll
-					(
-						Handler.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
-						Global.Cache.RemoveAsync(cacheKeys, cancellationToken)
-					).ConfigureAwait(false);
+					cacheKeys = cacheKeys.Concat(await Global.Cache.GetSetMembersAsync($"{objectID}:images", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{objectID}:images"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+					await Global.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
 					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()) : Task.CompletedTask, true, false).ConfigureAwait(false);
 					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index, ImageFormat.Jpeg) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);

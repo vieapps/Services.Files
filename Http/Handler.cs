@@ -33,9 +33,6 @@ namespace net.vieapps.Services.Files
 		internal static int TokenExpiresAfter
 			=> Int32.TryParse(UtilityService.GetAppSetting("APIs:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 900;
 
-		internal static Cache Cache
-			=> new (UtilityService.GetAppSetting("Files:Cache:Name", "VIEApps-Services-Files"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
-
 		internal static bool IsCacheImages
 			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
 
@@ -256,17 +253,17 @@ namespace net.vieapps.Services.Files
 					var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
 					var forceCache = context.Request.Query.ContainsKey("x-force-cache");
 					if (attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey(), Global.CancellationToken).ConfigureAwait(false)))
-						await Task.WhenAll
-						(
-							attachment.PrepareCacheAsync(),
-							isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of a thumbnail [{attachment.GetCacheKey()} => {attachment.GetFilePath()}]") : Task.CompletedTask
-						).ConfigureAwait(false);
+					{
+						var keys = await attachment.PrepareCacheAsync().ConfigureAwait(false);
+						if (isDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of a thumbnail\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
+					}
 					else if (!attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
-						await Task.WhenAll
-						(
-							attachment.PrepareCacheAsync(attachment.IsWebP()),
-							isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of an attachment [{attachment.GetCacheKey("file")} => {attachment.GetFilePath()}]") : Task.CompletedTask
-						).ConfigureAwait(false);
+					{
+						var keys = await attachment.PrepareCacheAsync(attachment.IsWebP()).ConfigureAwait(false);
+						if (isDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of an attachment\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
+					}
 				}
 			}
 			catch (Exception ex)
