@@ -75,6 +75,7 @@ namespace net.vieapps.Services.Files
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
+					["X-Node"] = Global.NodeID,
 					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
 				};
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
@@ -292,7 +293,10 @@ namespace net.vieapps.Services.Files
 			{ "thumbnailwebps", typeof(ThumbnailHandler) },
 			{ "thumbnailsmalls", typeof(ThumbnailHandler) },
 			{ "thumbnailsmallpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailsmallwebps", typeof(ThumbnailHandler) }
+			{ "thumbnailsmallwebps", typeof(ThumbnailHandler) },
+			{ "thumbnailbigs", typeof(ThumbnailHandler) },
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
+			{ "thumbnailbigwebps", typeof(ThumbnailHandler) }
 		};
 
 		internal static void PrepareHandlers()
