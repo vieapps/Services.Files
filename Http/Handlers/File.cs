@@ -34,13 +34,14 @@ namespace net.vieapps.Services.Files
 			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 
+			var identifier = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "",
+				ID = identifier,
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
 				ContentType = pathSegments.Length > 2 ? pathSegments[2].Replace("=", "/") : "",
-				Filename = pathSegments.Length > 4 ? pathSegments[4].UrlDecode() : pathSegments.Length > 3 && pathSegments[3].Length > 33 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Right(pathSegments[3].Length - 33) : "",
+				Filename = pathSegments.Length > 4 ? pathSegments[4].UrlDecode() : pathSegments.Length > 3 && pathSegments[3].Length > 33 && pathSegments[3].Left(32).IsEquals(identifier) ? pathSegments[3].Right(pathSegments[3].Length - 33).UrlDecode() : "",
 				IsThumbnail = false
 			};
 

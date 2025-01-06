@@ -32,12 +32,13 @@ namespace net.vieapps.Services.Files
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
 
+			var identifier = pathSegments.Length > 2 && pathSegments[2].Length > 31 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
 			{
-				ID = pathSegments.Length > 2 && pathSegments[2].Length > 31 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "",
+				ID = identifier,
 				ServiceName = pathSegments.Length > 1 && !pathSegments[1].IsValidUUID() ? pathSegments[1] : "",
 				SystemID = pathSegments.Length > 1 && pathSegments[1].IsValidUUID() ? pathSegments[1].ToLower() : "",
-				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Right(pathSegments[2].Length - 33) : "",
+				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsEquals(identifier) ? pathSegments[2].Right(pathSegments[2].Length - 33).UrlDecode() : "",
 				IsThumbnail = false
 			};
 			attachment.Filename = attachment.IsWebP() && !attachment.Filename.IsEndsWith(".webp")
