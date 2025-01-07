@@ -41,9 +41,13 @@ namespace net.vieapps.Services.Files
 				Filename = pathSegments.Length > 3 ? pathSegments[3].UrlDecode() : pathSegments.Length > 2 && pathSegments[2].Length > 33 && pathSegments[2].Left(32).IsEquals(identifier) ? pathSegments[2].Right(pathSegments[2].Length - 33).UrlDecode() : "",
 				IsThumbnail = false
 			};
-			attachment.Filename = attachment.IsWebP() && !attachment.Filename.IsEndsWith(".webp")
-				? attachment.Filename.Left(attachment.Filename.Length - new FileInfo(attachment.GetFilePath()).Extension.Length)
-				: attachment.Filename;
+
+			FileInfo fileInfo = null;
+			if (attachment.Filename.IsEndsWith(".webp"))
+			{
+				fileInfo = new FileInfo(attachment.Filename.Left(attachment.Filename.Length - 5));
+				attachment.Filename = fileInfo.Extension != null && fileInfo.Extension != "" && fileInfo.Extension != "." ? fileInfo.Name : attachment.Filename;
+			}
 
 			// validate the request
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
@@ -78,7 +82,6 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// check existed
-			FileInfo fileInfo = null;
 			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 			byte[] data;
 			long lastModified;

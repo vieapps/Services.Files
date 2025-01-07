@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Files
 			=> mimeType.IsStartsWith("image/") && (mimeType.IsEndsWith("/jpeg") || mimeType.IsEndsWith("/png") || mimeType.IsEndsWith("/webp"));
 
 		public static bool IsWebP(this AttachmentInfo attachment)
-			=> (attachment.Filename ?? "").IsEndsWith(".webp") || (attachment.ContentType ?? "").IsEndsWith("image/webp");
+			=> (attachment.ContentType ?? "").IsEndsWith("image/webp") || (attachment.Filename ?? "").IsEndsWith(".webp");
 
 		public static string GetContentDisposition(this AttachmentInfo attachment, bool direct = false)
 			=> direct || attachment.IsReadable() || string.IsNullOrWhiteSpace(attachment.Filename) ? null : attachment.Filename;
