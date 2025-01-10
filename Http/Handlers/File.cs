@@ -32,7 +32,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 			var identifier = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
-			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
+			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
 
 			// check "If-Modified-Since" request to reduce traffict
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -66,7 +66,7 @@ namespace net.vieapps.Services.Files
 
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				headers["X-Cache"] = $"HTTP-304/{typeof(FileHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream
 			if (hasCached)
 			{
-				headers["X-Cache"] = $"HTTP-200/{typeof(FileHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-200";
 				var data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 				var lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -134,7 +134,7 @@ namespace net.vieapps.Services.Files
 			var isShared = "true".IsEquals(context.GetParameter("x-shared"));
 			var isTracked = "true".IsEquals(context.GetParameter("x-tracked"));
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 			if (string.IsNullOrWhiteSpace(objectID) && !segment.IsEquals("temp.file"))
 				throw new InvalidRequestException("Invalid object identity");

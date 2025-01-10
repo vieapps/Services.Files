@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
 
@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, new Dictionary<string, string> { ["X-Node"] = Global.NodeID });
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic ({requestURI})").ConfigureAwait(false);
 				return;

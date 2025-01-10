@@ -29,8 +29,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
-			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
 
 			var identifier = pathSegments.Length > 2 && pathSegments[2].Length > 31 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				headers["X-Cache"] = $"HTTP-304/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
@@ -101,7 +101,7 @@ namespace net.vieapps.Services.Files
 			// prepare
 			if (hasCached)
 			{
-				headers["X-Cache"] = $"HTTP-200/{typeof(WebpImageHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-200";
 				data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)

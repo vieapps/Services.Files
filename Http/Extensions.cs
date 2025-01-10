@@ -386,7 +386,7 @@ namespace net.vieapps.Services.Files
 			byte[] thumbnail;
 			try
 			{
-				thumbnail = await original.GenerateAsync(format, width, height, asBig, attachment.ContentType.IsEndsWith("/webp"), Global.CancellationToken).ConfigureAwait(false);
+				thumbnail = await original.GenerateAsync(format, width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
 			}
 			catch
 			{
@@ -406,7 +406,7 @@ namespace net.vieapps.Services.Files
 			{
 				try
 				{
-					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, false, Global.CancellationToken).ConfigureAwait(false);
+					thumbnail = await original.GenerateAsync(ImageFormat.Webp, width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
 				}
 				catch
 				{

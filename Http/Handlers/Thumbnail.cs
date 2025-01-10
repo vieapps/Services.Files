@@ -30,8 +30,8 @@ namespace net.vieapps.Services.Files
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-			var processCache = !context.TryGetParameter("x-no-cache", out var _) && !context.TryGetParameter("x-force-cache", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
 
 			var requestURI = context.GetRequestUri();
 			var requestURL = $"{requestURI}";
@@ -76,14 +76,14 @@ namespace net.vieapps.Services.Files
 			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{eTag}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : 0;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
 			{
-				headers["X-Cache"] = $"HTTP-304/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return;
 			}
 
-			// check existed
+			// prepare
 			var attachment = new AttachmentInfo
 			{
 				ID = identifier,
@@ -94,14 +94,22 @@ namespace net.vieapps.Services.Files
 				IsThumbnail = isThumbnail,
 				IsTemporary = false
 			};
-			if (!isThumbnail && format == ImageFormat.Webp && attachment.IsWebP() && !attachment.Filename.IsEndsWith(".webp"))
-				attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - new FileInfo(attachment.GetFilePath()).Extension.Length);
 
-			FileInfo fileInfo = null;
+			// check existed
+			var fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 			var hasCached = !isNoThumbnailImage && Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
 			if (!hasCached)
 			{
-				fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
+				if (!isThumbnail && !isNoThumbnailImage && attachment.Filename.IsEndsWith(".webp"))
+				{
+					attachment.Filename = attachment.Filename.Left(attachment.Filename.Length - 5);
+					fileInfo = new FileInfo(attachment.GetFilePath());
+					if (!fileInfo.Exists)
+					{
+						attachment.Filename += ".webp";
+						fileInfo = new FileInfo(attachment.GetFilePath());
+					}
+				}
 				if (!fileInfo.Exists)
 				{
 					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
@@ -123,7 +131,7 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> getAsync()
 			{
-				headers["X-Cache"] = $"HTTP-200/{typeof(ThumbnailHandler).Assembly.GetVersion(false)}";
+				headers["X-Cache"] = "HTTP-200";
 				var thumbnail = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
 				if (lastModified < 1)
 				{
@@ -211,7 +219,7 @@ namespace net.vieapps.Services.Files
 			var entityInfo = context.GetParameter("x-entity");
 			var objectID = context.GetParameter("x-object-id");
 			var isTemporary = "true".IsEquals(context.GetParameter("x-temporary"));
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 			if (string.IsNullOrWhiteSpace(objectID))
 				throw new InvalidRequestException("Invalid object identity");

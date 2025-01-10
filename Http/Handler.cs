@@ -42,7 +42,7 @@ namespace net.vieapps.Services.Files
 		internal static bool PrepareCache
 			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false")) && Global.Cache != null;
 
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _NoThumbnailImageFilePath = null, _NoSync = null;
+		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _NoThumbnailImageFilePath = null;
 
 		internal static string UserAvatarFilesPath
 			=> Handler._UserAvatarFilesPath ??= UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
@@ -58,9 +58,6 @@ namespace net.vieapps.Services.Files
 
 		internal static string NoThumbnailImageFilePath
 			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
-
-		internal static bool NoSync
-			=> "true".IsEquals(Handler._NoSync ??= UtilityService.GetAppSetting("Files:NoSync", "false"));
 		#endregion
 
 		public Handler(RequestDelegate _) { }
@@ -140,6 +137,7 @@ namespace net.vieapps.Services.Files
 			var header = context.Request.Headers.ToDictionary();
 			var query = context.ParseQuery();
 			var session = context.GetSession();
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 			// get authenticate token
 			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
@@ -152,19 +150,21 @@ namespace net.vieapps.Services.Files
 			}
 
 			// got authenticate token => update the session
-			var performSignIn = context.TryGetParameter("x-authenticate", out var _);
+			var performSignIn = context.ContainsKey("x-authenticate");
 			if (!string.IsNullOrWhiteSpace(authenticateToken))
 				try
 				{
 					// authenticate
 					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Authentications", context.GetCorrelationID()).ConfigureAwait(false);
-					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
 
 					// perform sign-in (to create authenticate ticket cookie)
 					if (performSignIn)
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
+						if (isDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
 						if ("json".IsEquals(context.GetParameter("x-response")))
 						{
 							await context.WriteAsync(new JObject { ["Status"] = "OK" }, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, Global.CancellationToken).ConfigureAwait(false);
@@ -281,10 +281,10 @@ namespace net.vieapps.Services.Files
 			{ "captchas", typeof(CaptchaHandler) },
 			{ "downloads", typeof(DownloadHandler) },
 			{ "files", typeof(FileHandler) },
-			{ "one.file", typeof(FileHandler) },
 			{ "temp.file", typeof(FileHandler) },
-			{ "images", typeof(FileHandler) },
+			{ "one.file", typeof(FileHandler) },
 			{ "one.image", typeof(FileHandler) },
+			{ "images", typeof(WebpImageHandler) },
 			{ "webp.image", typeof(WebpImageHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
 			{ "vietqrs", typeof(VietQRHandler) },
@@ -559,12 +559,8 @@ namespace net.vieapps.Services.Files
 				}.Send();
 			}
 
-			// check no-sync
-			if (Handler.NoSync)
-				return;
-
 			// move files into trash
-			if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
+			else if (message.Type.IsEquals("Thumbnail#Delete") || message.Type.IsEquals("Attachment#Delete"))
 				new AttachmentInfo
 				{
 					IsThumbnail = message.Type.IsEquals("Thumbnail#Delete")
@@ -577,6 +573,13 @@ namespace net.vieapps.Services.Files
 					IsThumbnail = message.Type.IsEquals("Thumbnail#Move")
 				}.Fill(message.Data).MoveFile(Global.Logger, "Synchronizers");
 
+			// copy files from a legacy system
+			else if (message.Type.IsEquals("Thumbnail#Copy") || message.Type.IsEquals("Attachment#Copy"))
+				new AttachmentInfo
+				{
+					IsThumbnail = message.Type.IsEquals("Thumbnail#Copy")
+				}.Fill(message.Data).CopyFile(Global.Logger, "Synchronizers", message.Data.Get<string>("SourceDirectory"));
+
 			// sync files between instances of Files HTTP Service
 			else if (message.Type.IsEquals("Thumbnail#Sync") || message.Type.IsEquals("Attachment#Sync") || message.Type.IsEquals("Avatar#Sync"))
 			{
@@ -587,13 +590,6 @@ namespace net.vieapps.Services.Files
 					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run();
 				}
 			}
-
-			// copy files from a legacy system
-			else if (message.Type.IsEquals("Thumbnail#Copy") || message.Type.IsEquals("Attachment#Copy"))
-				new AttachmentInfo
-				{
-					IsThumbnail = message.Type.IsEquals("Thumbnail#Copy")
-				}.Fill(message.Data).CopyFile(Global.Logger, "Synchronizers", message.Data.Get<string>("SourceDirectory"));
 		}
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)

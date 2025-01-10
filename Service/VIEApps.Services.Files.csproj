@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>net9.0</TargetFrameworks>
 		<WarningLevel>3</WarningLevel>
-		<NoWarn>1573,1591</NoWarn>
+		<NoWarn>CA1507,1573,1591</NoWarn>
 		<RootNamespace>net.vieapps.Services.Files</RootNamespace>
 		<AssemblyName>VIEApps.Services.Files</AssemblyName>
 		<AssemblyTitle>VIEApps NGX Files</AssemblyTitle>

@@ -290,6 +290,15 @@ namespace net.vieapps.Services.Files
 			else
 				(json as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
 
+			// send update mesage
+			if (objectID != null)
+				new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#Thumbnail#Search",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = json
+				}.Send();
+
 			// response
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Complete search for thumbnail images ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
@@ -354,12 +363,27 @@ namespace net.vieapps.Services.Files
 
 		async Task<JToken> DeleteThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			// prepare
 			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
-
 			if (thumbnail == null)
-				throw new InvalidRequestException();
+			{
+				var data = new JObject
+				{
+					["ID"] = requestInfo.GetObjectIdentity(),
+					["ServiceName"] = requestInfo.ServiceName.GetCapitalizedFirstLetter(),
+					["ObjectName"] = requestInfo.ObjectName.GetCapitalizedFirstLetter()
+				};
+				new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#Thumbnail#Delete",
+					DeviceID = requestInfo.Session.DeviceID,
+					Data = data
+				}.Send();
+				return data;
+			}
 
-			else if (!await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.EntityInfo, thumbnail.ObjectID, cancellationToken).ConfigureAwait(false))
+			// check
+			if (!await Router.GetService(thumbnail.ServiceName).CanEditAsync(requestInfo.Session.User, thumbnail.ObjectName, thumbnail.SystemID, thumbnail.EntityInfo, thumbnail.ObjectID, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// delete & clear cache
@@ -546,6 +570,15 @@ namespace net.vieapps.Services.Files
 			else if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Cached of attachments was found ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
 
+			// send update mesage
+			if (objectID != null)
+				new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#Attachments#Search",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = json
+				}.Send();
+
 			// response
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Complete search for attachments ({requestInfo.GetHeaderParameter("x-origin")}) => {json}").ConfigureAwait(false);
@@ -607,12 +640,12 @@ namespace net.vieapps.Services.Files
 
 			// send update message and response
 			var response = attachment.ToJson();
-			await this.SendUpdateMessageAsync(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Attachment#Create",
-				DeviceID = requestInfo.Session.DeviceID,
+				DeviceID = "*",
 				Data = response
-			}, cancellationToken).ConfigureAwait(false);
+			}.Send();
 			return response;
 		}
 
@@ -634,12 +667,12 @@ namespace net.vieapps.Services.Files
 
 			// send update message and response
 			var response = attachment.ToJson();
-			await this.SendUpdateMessageAsync(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Attachment#Update",
-				DeviceID = requestInfo.Session.DeviceID,
+				DeviceID = "*",
 				Data = response
-			}, cancellationToken).ConfigureAwait(false);
+			}.Send();
 			return response;
 		}
 
@@ -664,21 +697,18 @@ namespace net.vieapps.Services.Files
 
 			// send update message and response
 			var response = attachment.ToJson();
-			await Task.WhenAll
-			(
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = "Attachment#Delete",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken),
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#Attachment#Delete",
-					DeviceID = requestInfo.Session.DeviceID,
-					Data = response
-				}, cancellationToken)
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#Attachment#Delete",
+				DeviceID = "*",
+				Data = response
+			}.Send();
+			new CommunicateMessage(this.ServiceName)
+			{
+				Type = "Attachment#Delete",
+				Data = response,
+				ExcludedNodeID = this.NodeID
+			}.Send();
 			return response;
 		}
 
@@ -709,11 +739,11 @@ namespace net.vieapps.Services.Files
 					attachment.LastModified = DateTime.Now;
 					attachment.LastModifiedID = userID;
 					await Attachment.UpdateAsync(attachment, userID, cancellationToken).ConfigureAwait(false);
-					await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+					new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Attachment#Move",
 						Data = attachment.ToJson(false, false)
-					}, cancellationToken).ConfigureAwait(false);
+					}.Send();
 				}
 				json.Add(attachment.ToJson());
 			}).ConfigureAwait(false);
@@ -930,13 +960,19 @@ namespace net.vieapps.Services.Files
 				// delete
 				await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
-				// send update message to other nodes to update and sync files
-				await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				// send update message to other nodes to update and sync
+				var json = thumbnail.ToJson(false, null);
+				new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Thumbnail#Delete",
-					Data = thumbnail.ToJson(false, null)
-				}, cancellationToken).ConfigureAwait(false);
-
+					Data = json
+				}.Send();
+				new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#Thumbnail#Delete",
+					DeviceID = "*",
+					Data = json
+				}.Send();
 			}, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
 
 			// get attachments and delete (move to trash)
@@ -951,12 +987,18 @@ namespace net.vieapps.Services.Files
 				await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 				// send update message to other nodes to update and sync files
-				await this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				var json = attachment.ToJson();
+				new CommunicateMessage(this.ServiceName)
 				{
 					Type = "Attachment#Delete",
-					Data = attachment.ToJson()
-				}, cancellationToken).ConfigureAwait(false);
-
+					Data = json
+				}.Send();
+				new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#Attachment#Delete",
+					DeviceID = "*",
+					Data = json
+				}.Send();
 			}, true, false).ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion);
 
 			// wait for all the deletion tasks completed
@@ -966,7 +1008,8 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync($"{objectID}:attachments", cancellationToken),
-				Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken)
+				Utility.Cache.RemoveAsync($"{objectID}:thumbnails", cancellationToken),
+				Utility.HttpCache.RemoveAsync($"{objectID}:images", cancellationToken)
 			).ConfigureAwait(false);
 
 			// response
