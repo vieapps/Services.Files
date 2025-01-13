@@ -35,8 +35,8 @@ namespace net.vieapps.Services.Files
 		public static bool IsWebP(this AttachmentInfo attachment)
 			=> (attachment.ContentType ?? "").IsEndsWith("image/webp") || (attachment.Filename ?? "").IsEndsWith(".webp");
 
-		public static string GetContentDisposition(this AttachmentInfo attachment, bool direct = false)
-			=> direct || attachment.IsReadable() || string.IsNullOrWhiteSpace(attachment.Filename) ? null : attachment.Filename;
+		public static string GetContentDisposition(this AttachmentInfo attachment, bool alwaysUseDisposition = false)
+			=> (alwaysUseDisposition || !attachment.IsReadable()) && !string.IsNullOrWhiteSpace(attachment.Filename) ? attachment.Filename : null;
 
 		public static AttachmentInfo Fill(this AttachmentInfo attachment, JToken json)
 		{
