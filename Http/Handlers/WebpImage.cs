@@ -28,9 +28,12 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
-			var pathSegments = requestURI.GetRequestPathSegments();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
+
+			var pathSegments = requestURI.GetRequestPathSegments();
+			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
+			pathSegments = pathSegments.Length > 2 && pathSegments[2].IsStartsWith("image=") ? pathSegments.Take(0, 2).Concat(pathSegments.Skip(3)).ToArray() : pathSegments;
 
 			var identifier = pathSegments.Length > 2 && pathSegments[2].Length > 31 && pathSegments[2].Left(32).IsValidUUID() ? pathSegments[2].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
@@ -52,7 +55,7 @@ namespace net.vieapps.Services.Files
 			// validate the request
 			if (string.IsNullOrWhiteSpace(attachment.ID) || string.IsNullOrWhiteSpace(attachment.Filename))
 			{
-				await context.WriteLogsAsync(this.Logger, "Downloads", $"Invalid request segments\r\nSegments:\r\n- {pathSegments.Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}").ConfigureAwait(false);
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Invalid request segments\r\nOriginal:\r\n- {requestURI.GetRequestPathSegments().Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}\r\nNormalized:\r\n- {pathSegments.Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}").ConfigureAwait(false);
 				throw new InvalidRequestException();
 			}
 
