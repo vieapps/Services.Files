@@ -63,6 +63,16 @@ namespace net.vieapps.Services.Files
 			return attachment;
 		}
 
+		public static AttachmentInfo Normalize(this AttachmentInfo attachment)
+		{
+			if (!string.IsNullOrWhiteSpace(attachment.Filename) && attachment.Filename.Length > 200)
+			{
+				var fileInfo = new FileInfo(attachment.Filename);
+				attachment.Filename = fileInfo.Name.Left(fileInfo.Name.Length - fileInfo.Extension.Length).Left(167) + "-" + UtilityService.NewUUID + fileInfo.Extension;
+			}
+			return attachment;
+		}
+
 		public static JObject ToJson(this AttachmentInfo attachment, Action<JObject> onCompleted = null)
 		{
 			var json = new JObject

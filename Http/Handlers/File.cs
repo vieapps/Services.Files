@@ -185,11 +185,11 @@ namespace net.vieapps.Services.Files
 				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Uploads"));
 
 				// update cache
-				Task.WhenAll
+				await Task.WhenAll
 				(
 					Handler.IsCacheImages ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask,
 					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).Select(attachment => attachment.GetCacheKey(attachment.ContentType.IsEndsWith("/webp") ? "webp" : "file")).Join(", ")})") : Task.CompletedTask
-				).Run();
+				).ConfigureAwait(false);
 
 				// sync
 				await attachments.Where(attachment => !attachment.IsTemporary).ForEachAsync(async attachment =>
@@ -275,7 +275,7 @@ namespace net.vieapps.Services.Files
 					Title = filename,
 					Description = "",
 					IsThumbnail = false
-				};
+				}.Normalize();
 
 				// save file into disc
 				using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))
@@ -347,7 +347,7 @@ namespace net.vieapps.Services.Files
 					Title = filename,
 					Description = "",
 					IsThumbnail = false
-				};
+				}.Normalize();
 
 				// save file into disc
 				using (var fileStream = new FileStream(attachment.GetFilePath(true), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, AspNetCoreUtilityService.BufferSize, true))

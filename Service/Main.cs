@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -36,7 +37,13 @@ namespace net.vieapps.Services.Files
 
 		string AvatarsDirectory => UtilityService.GetAppSetting("Files:Sync:Directory:Avatars", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "user-avatars"));
 
-		bool PrepareCache => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false"));
+		bool PrepareCache => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "true"));
+
+		bool IsPrepareCacheRequester => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Requester", "false"));
+
+		ConcurrentQueue<JObject> PrepareCacheRequests => [];
+
+		bool IsPreparingCache { get; set; } = false;
 		#endregion
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
@@ -123,6 +130,10 @@ namespace net.vieapps.Services.Files
 					await this.WriteLogsAsync(requestInfo, (requestInfo.TryGetParameter("x-request", out var xrequest) ? $"- Request (Encoded): {xrequest}\r\n" : "") + $"- Request (JSON): {requestInfo.ToString(this.JsonFormat)}\r\n- Response (JSON): {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
 				return json;
 			}
+			catch (RepositoryOperationException ex)
+			{
+				throw ex.InnerException is not OperationCanceledException ? this.GetRuntimeException(requestInfo, ex, stopwatch) : ex;
+			}
 			catch (Exception ex)
 			{
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
@@ -169,8 +180,8 @@ namespace net.vieapps.Services.Files
 				? objectIdentity.ToLower().ToArray(",", true)
 				: null;
 
-			var isForceCache = requestInfo.TryGetParameter("x-force-cache", out var _);
-			var isLogRequest = requestInfo.TryGetParameter("x-logs", out var _);
+			var isForceCache = requestInfo.ContainsKey("x-force-cache");
+			var isLogRequest = requestInfo.ContainsKey("x-logs");
 			var isDebugLogEnabled = this.IsDebugLogEnabled || isLogRequest;
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Start to search thumbnail images ({requestInfo.GetHeaderParameter("x-origin")})\r\n- Object IDs: {objectID ?? objectIDs?.Join(", ")}\r\n- Header: {requestInfo.Header.ToJson()}\r\n- Query: {requestInfo.Query.ToJson()}\"").ConfigureAwait(false);
@@ -205,23 +216,7 @@ namespace net.vieapps.Services.Files
 
 				var thumbnails = await Thumbnail.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
 				if (this.PrepareCache)
-				{
-					thumbnails.ForEach((thumbnail, index) =>
-					{
-						var request = new JObject
-						{
-							{ "Type", "Thumbnail" },
-							{ "ServiceName", thumbnail.ServiceName },
-							{ "SystemID", thumbnail.SystemID },
-							{ "ObjectID", thumbnail.ObjectID },
-							{ "Filename", string.IsNullOrWhiteSpace(thumbnail.Filename) ? $"{thumbnail.ObjectID}.jpg" : thumbnail.Filename },
-							{ "ContentType", string.IsNullOrWhiteSpace(thumbnail.ContentType) ? "image/jpeg" : thumbnail.ContentType }
-						}.ToString(Formatting.None);
-						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(isLogRequest ? "&x-logs=true" : "")}").FetchHttpAsync().Run();
-					});
-					if (isDebugLogEnabled && thumbnails.Count > 0)
-						await this.WriteLogsAsync(requestInfo, $"Send {thumbnails.Count} request(s) to Files HTTP to prepare cache of thumbnail images ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
-				}
+					this.SendPrepareCacheRequests(requestInfo, thumbnails);
 
 				// build JSON
 				var asAttachments = "true".IsEquals(requestInfo.GetParameter("x-thumbnails-as-attachments") ?? requestInfo.GetParameter("x-as-attachments"));
@@ -499,9 +494,8 @@ namespace net.vieapps.Services.Files
 				? objectIdentity.ToLower().ToArray(",", true)
 				: null;
 
-			var isForceCache = requestInfo.TryGetParameter("x-force-cache", out var _);
-			var isLogRequest = requestInfo.TryGetParameter("x-logs", out var _);
-			var isDebugLogEnabled = this.IsDebugLogEnabled || isLogRequest;
+			var isForceCache = requestInfo.ContainsKey("x-force-cache");
+			var isDebugLogEnabled = this.IsDebugLogEnabled || requestInfo.ContainsKey("x-logs");
 			if (isDebugLogEnabled)
 				await this.WriteLogsAsync(requestInfo, $"Start to search attachments ({requestInfo.GetHeaderParameter("x-origin")})\r\n- Object IDs: {objectID ?? objectIDs?.Join(", ")}\r\n- Info: {requestInfo.Header.ToJson()}").ConfigureAwait(false);
 
@@ -534,24 +528,7 @@ namespace net.vieapps.Services.Files
 
 				var attachments = await Attachment.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
 				if (this.PrepareCache)
-				{
-					attachments.Where(attachment => attachment.ContentType.IsStartsWith("image/")).ForEach((attachment, index) =>
-					{
-						var request = new JObject
-						{
-							{ "Type", "Attachment" },
-							{ "ID", attachment.ID },
-							{ "ServiceName", attachment.ServiceName },
-							{ "SystemID", attachment.SystemID },
-							{ "ObjectID", attachment.ObjectID },
-							{ "Filename", attachment.Filename },
-							{ "ContentType", attachment.ContentType }
-						}.ToString(Formatting.None);
-						new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={requestInfo.CorrelationID}&x-node={this.NodeID}&{index}={DateTime.Now.ToUnixTimestamp()}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(isLogRequest ? "&x-logs=true" : "")}").FetchHttpAsync().Run();
-					});
-					if (isDebugLogEnabled)
-						await this.WriteLogsAsync(requestInfo, $"Send {attachments.Count(attachment => attachment.ContentType.IsStartsWith("image/"))} request(s) to Files HTTP to prepare cache of attachments ({Utility.FilesHttpURI}/prepare?x-node={this.NodeID})").ConfigureAwait(false);
-				}
+					this.SendPrepareCacheRequests(requestInfo, attachments.Where(attachment => attachment.ContentType.IsStartsWith("image/")));
 
 				// build JSON
 				if (objectIDs == null)
@@ -1048,7 +1025,7 @@ namespace net.vieapps.Services.Files
 			}
 		}
 
-		async Task<long> SendSyncRequestsAsync(IEnumerable<string> directories, DateTime? lastWriteTime, bool asAvatars = false, Action<string> tracker = null)
+		async Task<long> SendSyncRequestsAsync(IEnumerable<string> directories, DateTime? lastWriteTime, bool asAvatars = false, Action<string> tracker = null, string nodeID = null)
 		{
 			long syncCounter = 0;
 			await directories.ForEachAsync(async path =>
@@ -1071,7 +1048,7 @@ namespace net.vieapps.Services.Files
 							Type = "Sync",
 							Data = new JObject
 							{
-								{ "Node", this.NodeID },
+								{ "Node", nodeID ?? this.NodeID },
 								{ "Directory", asAvatars ? "avatars" : path.Right(32).ToLower() },
 								{ "Filename", file.Name }
 							}
@@ -1093,12 +1070,14 @@ namespace net.vieapps.Services.Files
 
 		async Task SyncFilesAsync()
 		{
+			var lastWriteTime = DateTime.Now.AddHours(0 - this.SyncHours);
 			long syncCounter = 0;
 			if (Directory.Exists(this.AttachmentsDirectory))
-				syncCounter += await this.SendSyncRequestsAsync(Directory.GetDirectories(this.AttachmentsDirectory).Where(dirPath => dirPath.Right(32).IsValidUUID()), DateTime.Now.AddHours(0 - this.SyncHours)).ConfigureAwait(false);
+				syncCounter += await this.SendSyncRequestsAsync(Directory.GetDirectories(this.AttachmentsDirectory).Where(dirPath => dirPath.Right(32).IsValidUUID()), lastWriteTime).ConfigureAwait(false);
 			if (Directory.Exists(this.AvatarsDirectory))
-				syncCounter += await this.SendSyncRequestsAsync([this.AvatarsDirectory], DateTime.Now.AddHours(0 - this.SyncHours), true).ConfigureAwait(false);
-			await this.WriteLogsAsync(UtilityService.NewUUID, $"{syncCounter:###,###,###,###,##0} files were synced", null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
+				syncCounter += await this.SendSyncRequestsAsync([this.AvatarsDirectory], lastWriteTime, true).ConfigureAwait(false);
+			if (syncCounter > 0)
+				await this.WriteLogsAsync(UtilityService.NewUUID, $"{syncCounter:###,###,###,###,##0} files were synced", null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 		}
 
 		void ProcessSyncRequest(RequestInfo requestInfo)
@@ -1159,7 +1138,7 @@ namespace net.vieapps.Services.Files
 									Body = body,
 									Extra = new Dictionary<string, string>
 									{
-										["x-checksum"] = body != "" ? body.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex() : $"{directory}/{filename}@{this.NodeID}".GetHMACSHA256(this.SyncKey),
+										["x-checksum"] = (string.IsNullOrWhiteSpace(body) ? $"{directory}/{filename}@{this.NodeID}" : body).GetHMACSHA256(this.SyncKey),
 										["x-step"] = step.ToString()
 									},
 									CorrelationID = requestInfo.CorrelationID
@@ -1169,7 +1148,7 @@ namespace net.vieapps.Services.Files
 							await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, $"Sync a file successful - Execution times: {stopwatch.GetElapsedTimes()}" + "\r\n" +
 								$"- From: {this.NodeID}" + "\r\n" +
 								$"- To: {node}" + "\r\n" +
-								$"- File: {(directory.IsValidUUID() ? $"/{this.AttachmentsDirectory.Replace("\\", "/")}" : "")}/{directory}/{filename} ({fileInfo.Length:###,###,###,###,###,##0} bytes)"
+								$"- File: {(directory.IsValidUUID() ? $"{this.AttachmentsDirectory.Replace("\\", "/")}/" : "")}{directory}/{filename} ({fileInfo.Length:###,###,###,###,###,##0} bytes)"
 							, null, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 						}
 					}
@@ -1178,7 +1157,7 @@ namespace net.vieapps.Services.Files
 						await this.WriteLogsAsync(requestInfo.CorrelationID, this.Logger, "Sync a file failed" + "\r\n" +
 							$"- From: {this.NodeID}" + "\r\n" +
 							$"- To: {node}" + "\r\n" +
-							$"- File: {(directory.IsValidUUID() ? $"/{this.AttachmentsDirectory.Replace("\\", "/")}" : "")}/{directory}/{filename}"
+							$"- File: {(directory.IsValidUUID() ? $"{this.AttachmentsDirectory.Replace("\\", "/")}/" : "")}{directory}/{filename}"
 						, ex, this.ServiceName, "Synchronizers").ConfigureAwait(false);
 					}
 				}).ConfigureAwait(false);
@@ -1235,22 +1214,14 @@ namespace net.vieapps.Services.Files
 
 			try
 			{
-				var buffer = Array.Empty<byte>();
-				var checksum = "";
-				if (string.IsNullOrWhiteSpace(requestInfo.Body))
-					checksum = $"{directory}/{filename}@{node}".GetHMACSHA256(this.SyncKey);
-				else
-				{
-					buffer = requestInfo.Body.Base64ToBytes();
-					checksum = buffer.GetCheckSum().GetHMACHash(this.SyncKey.ToBytes()).ToHex();
-				}
-
+				var checksum = (string.IsNullOrWhiteSpace(requestInfo.Body) ? $"{directory}/{filename}@{node}" : requestInfo.Body).GetHMACSHA256(this.SyncKey);
 				if (!requestInfo.Extra.TryGetValue("x-checksum", out var xchecksum) || !xchecksum.Equals(checksum))
 					throw new InvalidDataException("Invalid checksum");
 
 				if (!requestInfo.Extra.TryGetValue("x-step", out var step))
 					step = "0";
 
+				var buffer = string.IsNullOrWhiteSpace(requestInfo.Body) ? [] : requestInfo.Body.Base64ToBytes();
 				if (buffer.Length > 0)
 				{
 					using var stream = new FileStream(filePath, step.Equals("1") ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, 1024 * 64, true);
@@ -1393,6 +1364,53 @@ namespace net.vieapps.Services.Files
 			=> base.SendSyncRequestAsync(requestInfo, cancellationToken);
 		#endregion
 
+		#region Prepare cache of images
+		void SendPrepareCacheRequests(RequestInfo requestInfo, IEnumerable<IAttachment> attachments)
+		{
+			var type = requestInfo.ObjectName.IsStartsWith("thumbnail") ? "Thumbnail" : "Attachment";
+			var xlogs = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
+			attachments.ForEach(attachment =>
+			{
+				new CommunicateMessage(this.ServiceName)
+				{
+					Type = "PrepareCache",
+					Data = new JObject
+					{
+						{ "ID", attachment.ID },
+						{ "ServiceName", attachment.ServiceName },
+						{ "SystemID", attachment.SystemID },
+						{ "ObjectID", attachment.ObjectID },
+						{ "Filename", string.IsNullOrWhiteSpace(attachment.Filename) ? $"{attachment.ObjectID}.jpg" : attachment.Filename },
+						{ "ContentType", string.IsNullOrWhiteSpace(attachment.ContentType) ? "image/jpeg" : attachment.ContentType },
+						{ "X-Type", type },
+						{ "X-Logs", xlogs },
+						{ "X-Correlation-ID", requestInfo.CorrelationID }
+					}
+				}.Send();
+			});
+		}
+
+		async Task PrepareCacheAsync()
+		{
+			while (this.PrepareCacheRequests.TryDequeue(out var data))
+				try
+				{
+					var request = new JObject
+					{
+						{ "ID", data.Get<string>("ID") },
+						{ "ServiceName", data.Get<string>("ServiceName") },
+						{ "SystemID", data.Get<string>("SystemID") },
+						{ "ObjectID", data.Get<string>("ObjectID") },
+						{ "Filename", data.Get<string>("Filename") },
+						{ "ContentType", data.Get<string>("ContentType") },
+						{ "Type", data.Get("X-Type", "Thumbnail") }
+					}.ToString(Formatting.None);
+					await new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={data.Get("X-Correlation-ID", UtilityService.NewUUID)}&x-node={this.NodeID}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(this.IsDebugResultsEnabled || data.Get("X-Logs", false) ? "&x-logs=true" : "")}").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
+				}
+				catch { }
+		}
+		#endregion
+
 		#region Helpers for working with JSON
 		JObject BuildJson<T>(List<T> objects, Func<T, JObject> toJSON) where T : class
 		{
@@ -1496,6 +1514,17 @@ namespace net.vieapps.Services.Files
 					await this.WriteLogsAsync(correlationID, $"Error occurred while clear cache [{message.Data.Get<string>("ObjectID")}] => {ex.Message}", ex, this.ServiceName).ConfigureAwait(false);
 				}
 
+			else if (message.Type.IsEquals("PrepareCache") && this.IsPrepareCacheRequester)
+			{
+				this.PrepareCacheRequests.Enqueue(message.Data as JObject);
+				if (!this.IsPreparingCache)
+				{
+					this.IsPreparingCache = true;
+					await this.PrepareCacheAsync().ConfigureAwait(false);
+					this.IsPreparingCache = false;
+				}
+			}
+
 			else if (message.Type.IsEquals("Sync"))
 			{
 				var node = message.Data.Get<string>("Node");
@@ -1566,7 +1595,8 @@ namespace net.vieapps.Services.Files
 						? DateTime.Now.AddMonths(0 - month) as DateTime?
 						: null
 					: null;
-				var syncTask = this.SendSyncRequestsAsync(directories, lastWriteTime, isAvatars, message => this.Logger.LogInformation(message));
+				var nodeID = args?.FirstOrDefault(arg => arg.IsStartsWith("/node:"))?[6..].Trim();
+				var syncTask = this.SendSyncRequestsAsync(directories, lastWriteTime, isAvatars, message => this.Logger.LogInformation(message), nodeID);
 				syncTask.Run(true);
 				this.Logger.LogInformation($"============================\r\n{syncTask.Result:###,###,###,###,##0} files were synced\r\n============================");
 			}

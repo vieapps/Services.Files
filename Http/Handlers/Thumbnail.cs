@@ -316,14 +316,10 @@ namespace net.vieapps.Services.Files
 
 				// create meta info
 				var response = new JArray();
-				var cacheKeys = new List<string>();
 				await thumbnails.ForEachAsync(async (thumbnail, index) =>
 				{
 					if (thumbnail.Data != null)
-					{
 						response.Add(await context.CreateAsync(thumbnail.Info, cancellationToken).ConfigureAwait(false));
-						cacheKeys = Handler.IsCacheThumbnails ? new[] { ImageFormat.Webp, ImageFormat.Jpeg, ImageFormat.Png }.Select(format => thumbnail.Info.GetCacheKey(index, format)).Concat(cacheKeys).ToList() : cacheKeys;
-					}
 				}, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
@@ -332,8 +328,6 @@ namespace net.vieapps.Services.Files
 				// update cache
 				if (Handler.IsCacheThumbnails)
 				{
-					cacheKeys = cacheKeys.Concat(await Global.Cache.GetSetMembersAsync($"{objectID}:images", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{objectID}:images"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-					await Global.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
 					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()) : Task.CompletedTask, true, false).ConfigureAwait(false);
 					if (isDebugLogEnabled)
 						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index, ImageFormat.Jpeg) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);
