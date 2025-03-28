@@ -181,8 +181,8 @@ namespace net.vieapps.Services.Files.Storages
 			await paths.ForEachAsync(async (path, index, token) =>
 			{
 				files = files == null
-					? await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)
-					: files.Concat(await UtilityService.GetFilesAsync(path, "*.*", this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)).ToList();
+					? await UtilityService.GetFilesAsync(path, "*.*", 0, this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)
+					: files.Concat(await UtilityService.GetFilesAsync(path, "*.*", 0, this.IncludeSubDirectories, null, "Name", "ASC", token).ConfigureAwait(false)).ToList();
 			}, Global.CancellationTokenSource.Token, true, false).ConfigureAwait(false);
 
 			// sort
