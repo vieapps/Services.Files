@@ -33,10 +33,10 @@ namespace net.vieapps.Services.Files.Storages
 		{
 			// mandatory services
 			services
-				.AddResponseCompression(options => options.EnableForHttps = true)
+				.AddHttpContextAccessor()
+				.AddResponseCompression(options => Global.PrepareResponseCompression(options))
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
-				.AddHttpContextAccessor()
 				.AddSession(options => Global.PrepareSessionOptions(options, 30))
 				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
 
