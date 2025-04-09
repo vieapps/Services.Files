@@ -295,12 +295,20 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with images
+		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder BmpEncoder { get; } = new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder();
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder PngEncoder { get; } = new SixLabors.ImageSharp.Formats.Png.PngEncoder();
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder JpegEncoder { get; } = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
+
 		public static async Task<MemoryStream> ConvertAsync(this MemoryStream imageStream, ImageFormat format, CancellationToken cancellationToken)
 		{
 			imageStream.Seek(0, SeekOrigin.Begin);
 			using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
 			var outputStream = UtilityService.CreateMemoryStream();
-			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? new SixLabors.ImageSharp.Formats.Webp.WebpEncoder() : format == ImageFormat.Bmp ? new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder() : format == ImageFormat.Png ? new SixLabors.ImageSharp.Formats.Png.PngEncoder() : new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder(), cancellationToken).ConfigureAwait(false);
+			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? ServiceExtensions.WebpEncoder : format == ImageFormat.Bmp ? ServiceExtensions.BmpEncoder : format == ImageFormat.Png ? ServiceExtensions.PngEncoder : ServiceExtensions.JpegEncoder, cancellationToken).ConfigureAwait(false);
 			outputStream.Seek(0, SeekOrigin.Begin);
 			return outputStream;
 		}
