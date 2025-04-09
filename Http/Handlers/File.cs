@@ -36,6 +36,20 @@ namespace net.vieapps.Services.Files
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
 
+			if (pathSegments[0].IsEquals("pdfs") && pathSegments.Length > 2 && !pathSegments[2].IsContains("=pdf"))
+			{
+				var segments = pathSegments.ToList();
+				segments.Insert(2, "application=pdf");
+				pathSegments = segments.ToArray();
+			}
+
+			if (pathSegments[0].IsEquals("videos") && pathSegments.Length > 2 && !pathSegments[2].IsContains("video=mp4"))
+			{
+				var segments = pathSegments.ToList();
+				segments.Insert(2, "video=mp4");
+				pathSegments = segments.ToArray();
+			}
+
 			var identifier = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
 			{

@@ -284,6 +284,8 @@ namespace net.vieapps.Services.Files
 			{ "temp.file", typeof(FileHandler) },
 			{ "one.file", typeof(FileHandler) },
 			{ "one.image", typeof(FileHandler) },
+			{ "pdfs", typeof(FileHandler) },
+			{ "videos", typeof(FileHandler) },
 			{ "images", typeof(WebpImageHandler) },
 			{ "webp.image", typeof(WebpImageHandler) },
 			{ "qrcodes", typeof(QRCodeHandler) },
