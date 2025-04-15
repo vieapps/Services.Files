@@ -31,24 +31,12 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var isDebugLogEnabled = context.IsDebugLogEnabled();
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
-
-			if (pathSegments[0].IsEquals("pdfs") && pathSegments.Length > 2 && !pathSegments[2].IsContains("=pdf"))
-			{
-				var segments = pathSegments.ToList();
-				segments.Insert(2, "application=pdf");
-				pathSegments = segments.ToArray();
-			}
-
-			if (pathSegments[0].IsEquals("videos") && pathSegments.Length > 2 && !pathSegments[2].IsContains("video=mp4"))
-			{
-				var segments = pathSegments.ToList();
-				segments.Insert(2, "video=mp4");
-				pathSegments = segments.ToArray();
-			}
+			var mime = Handler.MIMEs.Any(info => info.Handler.IsEquals(pathSegments[0])) ? Handler.MIMEs.First(info => info.Handler.IsEquals(pathSegments[0])) : (null, null);
+			pathSegments = mime.Handler == null ? pathSegments : pathSegments.Take(2).Concat([mime.MIMEType]).Concat(pathSegments.Skip(2)).ToArray();
 
 			var identifier = pathSegments.Length > 3 && pathSegments[3].Length > 31 && pathSegments[3].Left(32).IsValidUUID() ? pathSegments[3].Left(32).ToLower() : "";
 			var attachment = new AttachmentInfo
@@ -68,7 +56,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
-			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
+			var processCache = !context.IsBypassCache();
 
 			// check "If-Modified-Since" request to reduce traffict
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -76,7 +64,8 @@ namespace net.vieapps.Services.Files
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID
 			};
-			var eTag = attachment.GetCacheKey("file");
+			var cacheKey = attachment.GetCacheKey("file");
+			var eTag = cacheKey.Replace("file", "vieapps");
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 
@@ -96,7 +85,7 @@ namespace net.vieapps.Services.Files
 
 			// check existed
 			FileInfo fileInfo = null;
-			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
+			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 			if (!hasCached)
 			{
@@ -110,15 +99,20 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
+			// meta headers
+			headers["X-Meta-System"] = attachment.SystemID?.ToLower();
+			headers["X-Meta-Entity"] = attachment.EntityInfo?.ToLower();
+			headers["X-Meta-Object"] = attachment.ObjectID?.ToLower();
+
 			// flush the file to output stream
 			if (hasCached)
 			{
 				headers["X-Cache"] = "HTTP-200";
-				var data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
-				var lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
+				var data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of an image was found [{eTag} => {requestURI}]").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of an image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{

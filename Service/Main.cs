@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -482,6 +483,33 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> SearchAttachmentsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var request = requestInfo.GetRequestExpando();
+			var query = request.Get<string>("FilterBy.Query");
+
+			if (!string.IsNullOrWhiteSpace(query))
+			{
+				var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Attachment>() ?? Filters<Attachment>.And();
+				var (totalRecords, totalPages, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
+				totalRecords = totalRecords > -1
+					? totalRecords
+					: await Attachment.CountAsync(query, filter, null, cancellationToken).ConfigureAwait(false);
+
+				var attachments = totalRecords > 0
+					? await Attachment.SearchAsync(query, filter, null, pageSize, pageNumber, null, cancellationToken).ConfigureAwait(false)
+					: [];
+
+				totalPages = (totalRecords, pageSize).GetTotalPages();
+				if (totalPages > 0 && pageNumber > totalPages)
+					pageNumber = totalPages;
+
+				return new JObject
+				{
+					{ "FilterBy", filter.ToClientJson(query) },
+					{ "SortBy", null },
+					{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
+					{ "Objects", attachments.Select(@object => @object.ToJson()).ToJArray() }
+				};
+			}
+
 			var objectIdentity = requestInfo.GetParameter("x-object-id") ?? requestInfo.GetParameter("object-id");
 			if (string.IsNullOrWhiteSpace(objectIdentity))
 				throw new InvalidRequestException();

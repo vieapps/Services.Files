@@ -7,7 +7,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
@@ -43,12 +45,30 @@ namespace net.vieapps.Services.Files
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddSession(options => Global.PrepareSessionOptions(options, 45))
 				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
-				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
+				.Configure<CookiePolicyOptions>(options =>
+				{
+					Global.PrepareCookiePolicyOptions(options);
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:SameSite"), out SameSiteMode sameSite))
+						options.MinimumSameSitePolicy = sameSite;
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:Secure"), out CookieSecurePolicy secure))
+						options.Secure = secure;
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:HttpOnly"), out HttpOnlyPolicy httpOnly))
+						options.HttpOnly = httpOnly;
+				});
 
 			// authentication
 			services
 				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
-				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 45));
+				.AddCookie(options =>
+				{
+					Global.PrepareCookieAuthenticationOptions(options, 45);
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:SameSite"), out SameSiteMode sameSite))
+						options.Cookie.SameSite = sameSite;
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:Secure"), out CookieSecurePolicy secure))
+						options.Cookie.SecurePolicy = secure;
+					if (Enum.TryParse(UtilityService.GetAppSetting("Files:HTTP:Cookies:HttpOnly"), out HttpOnlyPolicy httpOnly) && httpOnly == HttpOnlyPolicy.Always)
+						options.Cookie.HttpOnly = true;
+				});
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			services.AddDataProtection().PrepareDataProtection("VIEApps-NGX-Files");
@@ -106,7 +126,7 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Environment:\r\n\t{Extensions.GetRuntimeEnvironment()}\r\n\t- Node ID: {Extensions.GetNodeID()}");
 
 			Global.CreateRSA();
-			Handler.PrepareHandlers();
+			Handler.PrepareHanlders();
 
 			JsonConvert.DefaultSettings = () => new JsonSerializerSettings
 			{
@@ -148,9 +168,9 @@ namespace net.vieapps.Services.Files
 				.Select(info =>
 				{
 					var path = info.Path;
-					while (path.StartsWith("/"))
+					while (path.StartsWith('/'))
 						path = path.Right(path.Length - 1);
-					while (path.EndsWith("/"))
+					while (path.EndsWith('/'))
 						path = path.Left(path.Length - 1);
 					return (Path: path, info.Type);
 				})

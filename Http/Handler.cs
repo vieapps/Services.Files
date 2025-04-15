@@ -58,9 +58,80 @@ namespace net.vieapps.Services.Files
 
 		internal static string NoThumbnailImageFilePath
 			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
+
+		internal static IEnumerable<(string Handler, string MIMEType)> MIMEs { get; } =
+		[
+			("pngs", "image=png"),
+			("jpgs", "image=jpeg"),
+			("jpegs", "image=jpeg"),
+			("webps", "image=webp"),
+			("mp3s", "audio=mp3"),
+			("m4as", "audio=m4a"),
+			("mp4s", "video=mp4"),
+			("pdfs", "application=pdf"),
+			("docs", "application=msword"),
+			("docxs", "application=vnd.openxmlformats-officedocument.wordprocessingml.document")
+		];
+
+		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+		{
+			{ "avatars", typeof(AvatarHandler) },
+			{ "captchas", typeof(CaptchaHandler) },
+			{ "downloads", typeof(DownloadHandler) },
+			{ "files", typeof(FileHandler) },
+			{ "temp.file", typeof(FileHandler) },
+			{ "one.file", typeof(FileHandler) },
+			{ "one.image", typeof(FileHandler) },
+			{ "images", typeof(WebpImageHandler) },
+			{ "webp.image", typeof(WebpImageHandler) },
+			{ "qrcodes", typeof(QRCodeHandler) },
+			{ "vietqrs", typeof(VietQRHandler) },
+			{ "thumbnails", typeof(ThumbnailHandler) },
+			{ "thumbnailpngs", typeof(ThumbnailHandler) },
+			{ "thumbnailwebps", typeof(ThumbnailHandler) },
+			{ "thumbnailsmalls", typeof(ThumbnailHandler) },
+			{ "thumbnailsmallpngs", typeof(ThumbnailHandler) },
+			{ "thumbnailsmallwebps", typeof(ThumbnailHandler) },
+			{ "thumbnailbigs", typeof(ThumbnailHandler) },
+			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
+			{ "thumbnailbigwebps", typeof(ThumbnailHandler) }
+		};
 		#endregion
 
 		public Handler(RequestDelegate _) { }
+
+		internal static void PrepareHanlders()
+		{
+			Handler.MIMEs.ForEach(mime => Handler.Handlers[mime.Handler] = typeof(FileHandler));
+			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
+				handlers.ToList()
+					.Select(info => (Path: info.Attributes["path"]?.Value?.ToLower()?.Trim(), Type: info.Attributes["type"]?.Value))
+					.Where(info => !string.IsNullOrEmpty(info.Path) && !string.IsNullOrEmpty(info.Type))
+					.Select(info =>
+					{
+						var path = info.Path;
+						while (path.StartsWith('/'))
+							path = path.Right(path.Length - 1);
+						while (path.EndsWith('/'))
+							path = path.Left(path.Length - 1);
+						return (Path: path, info.Type);
+					})
+					.Where(info => !Handler.Handlers.ContainsKey(info.Path))
+					.ForEach(info =>
+					{
+						try
+						{
+							var type = AssemblyLoader.GetType(info.Type);
+							if (type != null && type.CreateInstance() is Services.FileHandler)
+								Handler.Handlers[info.Path] = type;
+						}
+						catch (Exception ex)
+						{
+							Global.Logger.LogError($"Cannot load a file handler ({info.Type}) => {ex.Message}", ex);
+						}
+					});
+			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
+		}
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -273,67 +344,6 @@ namespace net.vieapps.Services.Files
 			}
 			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
 		}
-
-		#region Handlers
-		internal static Dictionary<string, Type> Handlers { get; } = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
-		{
-			{ "avatars", typeof(AvatarHandler) },
-			{ "captchas", typeof(CaptchaHandler) },
-			{ "downloads", typeof(DownloadHandler) },
-			{ "files", typeof(FileHandler) },
-			{ "temp.file", typeof(FileHandler) },
-			{ "one.file", typeof(FileHandler) },
-			{ "one.image", typeof(FileHandler) },
-			{ "pdfs", typeof(FileHandler) },
-			{ "videos", typeof(FileHandler) },
-			{ "images", typeof(WebpImageHandler) },
-			{ "webp.image", typeof(WebpImageHandler) },
-			{ "qrcodes", typeof(QRCodeHandler) },
-			{ "vietqrs", typeof(VietQRHandler) },
-			{ "thumbnails", typeof(ThumbnailHandler) },
-			{ "thumbnailpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailwebps", typeof(ThumbnailHandler) },
-			{ "thumbnailsmalls", typeof(ThumbnailHandler) },
-			{ "thumbnailsmallpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailsmallwebps", typeof(ThumbnailHandler) },
-			{ "thumbnailbigs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigpngs", typeof(ThumbnailHandler) },
-			{ "thumbnailbigwebps", typeof(ThumbnailHandler) }
-		};
-
-		internal static void PrepareHandlers()
-		{
-			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
-				handlers.ToList()
-					.Select(static info => (Path: info.Attributes["path"]?.Value?.ToLower()?.Trim(), Type: info.Attributes["type"]?.Value))
-					.Where(static info => !string.IsNullOrEmpty(info.Path) && !string.IsNullOrEmpty(info.Type))
-					.Select(static info =>
-					{
-						var path = info.Path;
-						while (path.StartsWith("/"))
-							path = path.Right(path.Length - 1);
-						while (path.EndsWith("/"))
-							path = path.Left(path.Length - 1);
-						return (Path: path, info.Type);
-					})
-					.Where(static info => !Handler.Handlers.ContainsKey(info.Path))
-					.ForEach(static info =>
-					{
-						try
-						{
-							var type = AssemblyLoader.GetType(info.Type);
-							if (type != null && type.CreateInstance() is Services.FileHandler)
-								Handler.Handlers[info.Path] = type;
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Cannot load a file handler ({info.Type}) => {ex.Message}", ex);
-						}
-					});
-
-			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(static kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
-		}
-		#endregion
 
 		#region API Gateway Router
 		internal static void Connect(List<Action<object, WampSessionCreatedEventArgs>> onIncomingConnectionEstablished = null, List<Action<object, WampSessionCreatedEventArgs>> onOutgoingConnectionEstablished = null, int waitingTimes = 6789)

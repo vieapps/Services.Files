@@ -49,7 +49,7 @@ namespace net.vieapps.Services.Files
 				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
+				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)

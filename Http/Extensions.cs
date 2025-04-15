@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
+using SixLabors.ImageSharp.Formats;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -20,6 +21,12 @@ namespace net.vieapps.Services.Files
 {
 	internal static class ServiceExtensions
 	{
+		public static bool IsDebugLogEnabled(this HttpContext context)
+			=> Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+
+		public static bool IsBypassCache(this HttpContext context)
+			=> context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || (context.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"));
+
 		static bool IsReadable(this string mimeType)
 			=> mimeType.IsStartsWith("image/") || mimeType.IsStartsWith("text/")
 				|| mimeType.IsStartsWith("audio/") || mimeType.IsStartsWith("video/")
@@ -295,13 +302,13 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with images
-		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
+		static IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
 
-		static SixLabors.ImageSharp.Formats.IImageEncoder BmpEncoder { get; } = new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder();
+		static IImageEncoder BmpEncoder { get; } = new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder();
 
-		static SixLabors.ImageSharp.Formats.IImageEncoder PngEncoder { get; } = new SixLabors.ImageSharp.Formats.Png.PngEncoder();
+		static IImageEncoder PngEncoder { get; } = new SixLabors.ImageSharp.Formats.Png.PngEncoder();
 
-		static SixLabors.ImageSharp.Formats.IImageEncoder JpegEncoder { get; } = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
+		static IImageEncoder JpegEncoder { get; } = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder();
 
 		public static async Task<MemoryStream> ConvertAsync(this MemoryStream imageStream, ImageFormat format, CancellationToken cancellationToken)
 		{
@@ -382,15 +389,15 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
-		#region Working with image cache
-		public static string GetCacheKey(this (string id, int index, ImageFormat format, int width, int height, bool asBig) info)
-			=> "thumbnail#" + $"{info.id}@{info.index}:{info.format}:{info.width}:{info.height}:{info.asBig}".ToLower().GenerateUUID();
+		#region Working with cache
+		public static string GetCacheKey(this (string id, int index, ImageFormat format, int width, int height, bool asBig) info, string prefix = "thumbnail")
+			=> $"{(string.IsNullOrWhiteSpace(prefix) ? "thumbnail" : prefix)}#" + $"{info.id}@{info.index}:{info.format}:{info.width}:{info.height}:{info.asBig}".ToLower().GenerateUUID();
+
+		public static string GetCacheKey(this AttachmentInfo attachment, string prefix)
+			=> $"{(string.IsNullOrWhiteSpace(prefix) ? "file" : prefix)}#{attachment.ID}".ToLower();
 
 		public static string GetCacheKey(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, int width = 0, int height = 0, bool asBig = true)
 			=> (attachment.IsThumbnail ? attachment.ObjectID : attachment.ID, attachment.IsThumbnail ? index < 0 ? attachment.Filename.Length == 36 ? 0 : attachment.Filename.Right(5).Replace(".jpg", "").As<int>() : index : 0, format ?? ImageFormat.Jpeg, width, height, asBig).GetCacheKey();
-
-		public static string GetCacheKey(this AttachmentInfo attachment, string prefix)
-			=> $"{prefix ?? "file"}#{attachment.ID}".ToLower();
 
 		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, int index, ImageFormat format, byte[] original, long lastModified, int width = 0, int height = 0, bool asBig = true)
 		{

@@ -30,7 +30,7 @@ namespace net.vieapps.Services.Files
 			var requestUri = context.GetRequestUri();
 			var pathSegments = requestUri.GetRequestPathSegments();
 			var fileName = pathSegments.Length > 1 ? pathSegments[1] : null;
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
+			var isDebugLogEnabled = context.IsDebugLogEnabled();
 
 			if (fileName != null)
 				try
@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// check request headers to reduce traffict
-			var eTag = "avatar#" + (fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID();
+			var eTag = $"vieapps#{(fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID()}";
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, 0, "public", correlationID);

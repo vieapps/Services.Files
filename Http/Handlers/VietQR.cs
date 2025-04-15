@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Files
 				data = await vietqr.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
+				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate VietQR Code successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 			catch (Exception ex)

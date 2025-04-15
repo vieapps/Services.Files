@@ -28,8 +28,8 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
-			var processCache = !context.ContainsKey("x-no-cache") && !context.ContainsKey("x-force-cache");
+			var isDebugLogEnabled = context.IsDebugLogEnabled();
+			var processCache = !context.IsBypassCache();
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
@@ -60,7 +60,8 @@ namespace net.vieapps.Services.Files
 			}
 
 			// prepare entity tag and headers
-			var eTag = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
+			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
+			var eTag = $"vieapps#{(attachment.IsWebP() ? cacheKey.Replace("file#", "") : cacheKey.GenerateUUID())}";
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
@@ -85,7 +86,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// check existed
-			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(eTag, cancellationToken).ConfigureAwait(false);
+			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			byte[] data;
 			long lastModified;
 
@@ -105,10 +106,10 @@ namespace net.vieapps.Services.Files
 			if (hasCached)
 			{
 				headers["X-Cache"] = "HTTP-200";
-				data = await Global.Cache.GetAsync<byte[]>(eTag, cancellationToken).ConfigureAwait(false);
-				lastModified = await Global.Cache.GetAsync<long>($"{eTag}:time", cancellationToken).ConfigureAwait(false);
+				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of a WebP image was found [{eTag} => {requestURI}]").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{
@@ -126,6 +127,11 @@ namespace net.vieapps.Services.Files
 				if (Handler.IsCacheImages)
 					attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified).Run();
 			}
+
+			// meta headers
+			headers["X-Meta-System"] = attachment.SystemID?.ToLower();
+			headers["X-Meta-Entity"] = attachment.EntityInfo?.ToLower();
+			headers["X-Meta-Object"] = attachment.ObjectID?.ToLower();
 
 			// flush the file to output stream
 			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);

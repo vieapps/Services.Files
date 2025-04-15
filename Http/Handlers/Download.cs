@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var isDebugLogEnabled = context.IsDebugLogEnabled();
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
 
@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Files
 
 			// check "If-Modified-Since" request to reduce traffict
 			var identifier = pathSegments[1].ToLower();
-			var eTag = "file#" + identifier;
+			var eTag = $"vieapps#{identifier}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
@@ -61,7 +61,14 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream, update counter & logs
 			else
 			{
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
+				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					["X-Meta-System"] = attachment.SystemID?.ToLower(),
+					["X-Meta-Entity"] = attachment.EntityInfo?.ToLower(),
+					["X-Meta-Object"] = attachment.ObjectID?.ToLower(),
+					["X-Node"] = Global.NodeID
+				};
+				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),
