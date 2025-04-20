@@ -322,8 +322,8 @@ namespace net.vieapps.Services.Files
 				{
 					var json = request.ToJson();
 					var attachment = new AttachmentInfo { IsThumbnail = "Thumbnail".IsEquals(json.Get<string>("Type")) }.Fill(json);
-					var isDebugLogEnabled = Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs");
-					var forceCache = context.Request.Query.ContainsKey("x-force-cache");
+					var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+					var forceCache = context.ContainsKey("x-force-cache");
 					if (attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey(), Global.CancellationToken).ConfigureAwait(false)))
 					{
 						var keys = await attachment.PrepareCacheAsync().ConfigureAwait(false);
