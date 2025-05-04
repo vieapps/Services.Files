@@ -53,7 +53,7 @@ namespace net.vieapps.Services.Files
 				Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 				Utility.HttpCache = new Cache($"VIEApps-Services-{this.ServiceName}-Http", Components.Utility.Logger.GetLoggerFactory());
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
-				while (Utility.FilesHttpURI.EndsWith("/"))
+				while (Utility.FilesHttpURI.EndsWith('/'))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
 				if (this.Sync)
 					this.StartTimer(() => this.SyncFilesAsync().Run(), 60 * this.SyncMinutes);
