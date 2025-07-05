@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Files
 
 		bool PrepareCache => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "true"));
 
-		bool IsPrepareCacheRequester => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Requester", "false"));
+		bool IsPrepareCacheRequester => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Requester", "true"));
 
 		ConcurrentQueue<JObject> PrepareCacheRequests => [];
 
@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Files
 				while (Utility.FilesHttpURI.EndsWith('/'))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
 				if (this.Sync)
-					this.StartTimer(() => this.SyncFilesAsync().Run(), 60 * this.SyncMinutes);
+					this.StartTimer(async () => await this.SyncFilesAsync().ConfigureAwait(false), 60 * this.SyncMinutes);
 				next?.Invoke(this);
 			});
 
@@ -1592,7 +1592,7 @@ namespace net.vieapps.Services.Files
 
 			if (isRefineDirectories || isSyncFiles)
 			{
-				directories = directories.Where(dirPath => Directory.Exists(dirPath)).ToList();
+				directories = [.. directories.Where(dirPath => Directory.Exists(dirPath))];
 				directories = args?.FirstOrDefault(arg => arg.IsStartsWith("/reverse")) != null
 					? [.. directories.OrderDescending()]
 					: [.. directories.Order()];

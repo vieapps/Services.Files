@@ -68,7 +68,8 @@ namespace net.vieapps.Services.Files
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
-				["X-Node"] = Global.NodeID
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = correlationID
 			};
 
 			// check "If-Modified-Since" request to reduce traffict
@@ -179,9 +180,14 @@ namespace net.vieapps.Services.Files
 			// meta headers
 			if (!isThumbnail)
 			{
-				headers["X-Meta-System"] = attachment.SystemID?.ToLower();
-				headers["X-Meta-Entity"] = attachment.EntityInfo?.ToLower();
-				headers["X-Meta-Object"] = attachment.ObjectID?.ToLower();
+				headers["X-Meta-Service"] = attachment.ServiceName;
+				headers["X-Meta-Object"] = attachment.ObjectName;
+				headers["X-Meta-System-ID"] = attachment.SystemID?.ToLower();
+				headers["X-Meta-Object-ID"] = attachment.ObjectID?.ToLower();
+				if (!string.IsNullOrWhiteSpace(attachment.EntityInfo) && attachment.EntityInfo.IsValidUUID())
+					headers["X-Meta-Entity-ID"] = attachment.EntityInfo.ToLower();
+				else
+					headers["X-Meta-Entity"] = attachment.EntityInfo;
 			}
 
 			// flush the thumbnail image to output stream
