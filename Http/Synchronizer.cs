@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Files
 
 		public string ServiceUniqueURI => $"services.{this.ServiceUniqueName}";
 
-		internal string SyncKey => UtilityService.GetAppSetting("Keys:Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
+		internal string SyncKey { get; } = UtilityService.GetAppSetting("Keys:Sync", "VIEApps-FD2CD7FA-NGX-40DE-Services-401D-Sync-93D9-Key-A47006F07048");
 
 		public async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{

@@ -423,7 +423,7 @@ namespace net.vieapps.Services.Files
 
 		static IAsyncDisposable SynchronizerInstance { get; set; }
 
-		static Synchronizer Synchronizer => new();
+		static Synchronizer Synchronizer { get; } = new();
 
 		internal static async Task RegisterSynchronizerAsync()
 		{
@@ -554,16 +554,13 @@ namespace net.vieapps.Services.Files
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Global.NodeID.IsEquals(node))
-				{
-					await Task.Delay(UtilityService.GetRandomNumber(123, 234), Global.CancellationToken).ConfigureAwait(false);
-					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run();
-				}
+					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run(UtilityService.GetRandomNumber(123, 234));
 			}
 		}
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
 			=> message.Type.IsEquals("Service#RequestInfo")
-				? Global.SendServiceInfoAsync($"Http.{Global.ServiceName}")
+				? Global.SendServiceInfoAsync("Communicates")
 				: Task.CompletedTask;
 		#endregion
 
