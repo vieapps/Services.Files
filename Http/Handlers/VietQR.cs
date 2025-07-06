@@ -23,6 +23,8 @@ namespace net.vieapps.Services.Files
 
 		async Task ShowAsync(HttpContext context, CancellationToken cancellationToken)
 		{
+			if (Handler.TrackSessions)
+				context.SendSessionState();
 			var data = Array.Empty<byte>();
 			var cacheControl = "public";
 			var stopwatch = Stopwatch.StartNew();

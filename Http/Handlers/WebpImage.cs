@@ -59,6 +59,9 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 			}
 
+			if (Handler.TrackSessions)
+				context.SendSessionState(attachment.SystemID);
+
 			// prepare entity tag and headers
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
 			var eTag = $"vieapps#{(attachment.IsWebP() ? cacheKey.Replace("file#", "") : cacheKey.GenerateUUID())}";

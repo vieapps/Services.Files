@@ -17,6 +17,9 @@ namespace net.vieapps.Services.Files
 		{
 			if (context.Request.Method.IsEquals("GET") || context.Request.Method.IsEquals("HEAD"))
 			{
+				if (Handler.TrackSessions)
+					context.SendSessionState();
+
 				var pathSegments = context.GetRequestPathSegments().Skip(1).ToArray();
 				var code = pathSegments[0].Url64Decode();
 

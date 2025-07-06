@@ -779,6 +779,34 @@ namespace net.vieapps.Services.Files
 		}
 		#endregion
 
+		#region Session state
+		public static void SendSessionState(this Session session, string uri, string systemID = null, bool isOnline = true)
+			=> new CommunicateMessage("Users")
+			{
+				Type = "Session#State",
+				Data = session.ToJson(json =>
+				{
+					json["SessionID"] = session.SessionID;
+					json["UserID"] = session.User?.ID;
+					json["Online"] = isOnline;
+					json["AppInfo"] = $"{session.AppName} @ {session.AppPlatform}";
+					json["OSInfo"] = $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]";
+					json["Service"] = new JObject
+					{
+						["Name"] = $"{Global.ServiceName}.HTTP".ToLower(),
+						["URI"] = uri,
+						["SystemID"] = string.IsNullOrWhiteSpace(systemID) ? null : systemID
+					};
+				})
+			}.Send();
+
+		public static void SendSessionState(this HttpContext context, string systemID = null, bool isOnline = true)
+			=> context.GetSession().SendSessionState($"{context.Request.Method} {context.GetRequestUrl()}", systemID, isOnline);
+
+		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool isOnline = true)
+			=> requestInfo.Session.SendSessionState($"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, isOnline);
+		#endregion
+
 	}
 
 	public struct AttachmentInfo

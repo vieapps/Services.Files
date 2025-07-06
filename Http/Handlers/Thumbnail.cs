@@ -119,6 +119,9 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
+			if (Handler.TrackSessions)
+				context.SendSessionState(attachment.SystemID);
+
 			// check permission
 			async Task<bool> gotRightsAsync()
 			{
@@ -245,6 +248,9 @@ namespace net.vieapps.Services.Files
 				: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
+
+			if (Handler.TrackSessions)
+				context.SendSessionState(systemID);
 
 			// limit size
 			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Thumbnail"), out var limitSize))

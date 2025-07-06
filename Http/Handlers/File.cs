@@ -1,17 +1,19 @@
 ﻿#region Related component
-using System;
-using System.IO;
-using System.Net;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
-using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Mail;
+using System.Threading;
+using System.Threading.Tasks;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -54,6 +56,9 @@ namespace net.vieapps.Services.Files
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Invalid request segments\r\nOriginal:\r\n- {requestURI.GetRequestPathSegments().Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}\r\nNormalized:\r\n- {pathSegments.Select((segment, index) => $"{index}: {segment}").Join("\r\n- ")}").ConfigureAwait(false);
 				throw new InvalidRequestException();
 			}
+
+			if (Handler.TrackSessions)
+				context.SendSessionState(attachment.SystemID);
 
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = !context.IsBypassCache();
@@ -163,6 +168,9 @@ namespace net.vieapps.Services.Files
 					: await context.CanEditAsync(serviceName, objectName, systemID, entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
+
+			if (Handler.TrackSessions)
+				context.SendSessionState(systemID);
 
 			// save uploaded files & create meta info
 			var attachments = new List<AttachmentInfo>();

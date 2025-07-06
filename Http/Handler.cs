@@ -27,37 +27,27 @@ namespace net.vieapps.Services.Files
 	{
 
 		#region Properties
-		string LoadBalancerHealthCheckURL
-			=> UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
+		string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
-		internal static int TokenExpiresAfter
-			=> Int32.TryParse(UtilityService.GetAppSetting("APIs:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 900;
+		internal static int TokenExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("APIs:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 900;
 
-		internal static bool IsCacheImages
-			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
+		internal static bool IsCacheImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
 
-		internal static bool IsCacheThumbnails
-			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
+		internal static bool IsCacheThumbnails { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
 
-		internal static bool PrepareCache
-			=> "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false")) && Global.Cache != null;
+		internal static bool PrepareCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false")) && Global.Cache != null;
 
-		static string _UserAvatarFilesPath = null, _DefaultUserAvatarFilePath = null, _AttachmentFilesPath = null, _TempFilesPath = null, _NoThumbnailImageFilePath = null;
+		internal static string UserAvatarFilesPath { get; } = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
 
-		internal static string UserAvatarFilesPath
-			=> Handler._UserAvatarFilesPath ??= UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
+		internal static string DefaultUserAvatarFilePath { get; } = UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png"));
 
-		internal static string DefaultUserAvatarFilePath
-			=> Handler._DefaultUserAvatarFilePath ??= UtilityService.GetAppSetting("Path:DefaultUserAvatar", Path.Combine(Handler.UserAvatarFilesPath, "@default.png"));
+		internal static string AttachmentFilesPath { get; } = UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments"));
 
-		internal static string AttachmentFilesPath
-			=> Handler._AttachmentFilesPath ??= UtilityService.GetAppSetting("Path:Attachments", Path.Combine(Global.RootPath, "data-files", "attachments"));
+		internal static string TempFilesPath { get; } = UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp"));
 
-		internal static string TempFilesPath
-			=> Handler._TempFilesPath ??= UtilityService.GetAppSetting("Path:Temp", Path.Combine(Global.RootPath, "data-files", "temp"));
+		internal static string NoThumbnailImageFilePath { get; } = UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
 
-		internal static string NoThumbnailImageFilePath
-			=> Handler._NoThumbnailImageFilePath ??= UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
+		internal static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true")) && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Files", "true"));
 
 		internal static IEnumerable<(string Handler, string MIMEType)> MIMEs { get; } =
 		[

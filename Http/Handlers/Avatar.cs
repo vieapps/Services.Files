@@ -1,15 +1,17 @@
 ﻿#region Related component
+using Microsoft.AspNetCore.Http;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Net;
+using System.Net.Mail;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Drawing.Imaging;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Http;
-using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -68,6 +70,9 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 			}
 
+			if (Handler.TrackSessions)
+				context.SendSessionState();
+
 			// check request headers to reduce traffict
 			var eTag = $"vieapps#{(fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID()}";
 			if (eTag.IsEquals(context.GetHeaderParameter("If-None-Match")) && context.GetHeaderParameter("If-Modified-Since") != null)
@@ -89,6 +94,9 @@ namespace net.vieapps.Services.Files
 			// prepare
 			if (!context.User.Identity.IsAuthenticated)
 				throw new AccessDeniedException();
+
+			if (Handler.TrackSessions)
+				context.SendSessionState();
 
 			var content = Array.Empty<byte>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;
