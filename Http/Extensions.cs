@@ -780,6 +780,8 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Session state
+		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
+
 		public static void SendSessionState(this Session session, string uri, string systemID = null, bool isOnline = true)
 			=> new CommunicateMessage("Users")
 			{
@@ -789,6 +791,7 @@ namespace net.vieapps.Services.Files
 					json["SessionID"] = session.SessionID;
 					json["UserID"] = session.User?.ID;
 					json["Online"] = isOnline;
+					json["Crawler"] = CrawlerDetector.IsCrawler(session.AppAgent) || "Generic OS".IsEquals(session.AppAgent.GetOSInfo());
 					json["AppInfo"] = $"{session.AppName} @ {session.AppPlatform}";
 					json["OSInfo"] = $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]";
 					json["Service"] = new JObject
