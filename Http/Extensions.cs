@@ -782,32 +782,17 @@ namespace net.vieapps.Services.Files
 		#region Session state
 		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
 
-		public static void SendSessionState(this Session session, string uri, string systemID = null, bool isOnline = true)
-			=> new CommunicateMessage("Users")
-			{
-				Type = "Session#State",
-				Data = session.ToJson(json =>
-				{
-					json["SessionID"] = session.SessionID;
-					json["UserID"] = session.User?.ID;
-					json["Online"] = isOnline;
-					json["Crawler"] = CrawlerDetector.IsCrawler(session.AppAgent) || "Generic OS".IsEquals(session.AppAgent.GetOSInfo());
-					json["AppInfo"] = $"{session.AppName} @ {session.AppPlatform}";
-					json["OSInfo"] = $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]";
-					json["Service"] = new JObject
-					{
-						["Name"] = $"{Global.ServiceName}.HTTP".ToLower(),
-						["URI"] = uri,
-						["SystemID"] = string.IsNullOrWhiteSpace(systemID) ? null : systemID
-					};
-				})
-			}.Send();
+		static bool IsCrawler(this Session session)
+			=> CrawlerDetector.IsCrawler(session.AppAgent) || "Generic OS".IsEquals(session.AppAgent.GetOSInfo());
 
-		public static void SendSessionState(this HttpContext context, string systemID = null, bool isOnline = true)
-			=> context.GetSession().SendSessionState($"{context.Request.Method} {context.GetRequestUrl()}", systemID, isOnline);
+		public static void SendSessionState(this HttpContext context, string systemID = null, bool online = true)
+		{
+			var session = context.GetSession();
+			session.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, true, false, message => message.Data["Crawler"] = session.IsCrawler());
+		}
 
-		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool isOnline = true)
-			=> requestInfo.Session.SendSessionState($"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, isOnline);
+		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool online = true)
+			=> requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, true, false, message => message.Data["Crawler"] = requestInfo.Session.IsCrawler());
 		#endregion
 
 	}

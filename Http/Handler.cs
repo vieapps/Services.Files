@@ -252,19 +252,19 @@ namespace net.vieapps.Services.Files
 				session.User = context.GetUser();
 
 			// update session
-			if (string.IsNullOrWhiteSpace(session.User.SessionID))
-				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
-			else
-				session.SessionID = session.User.SessionID;
+			session.SessionID = session.User.SessionID = string.IsNullOrWhiteSpace(session.User.SessionID)
+				? UtilityService.NewUUID
+				: session.User.SessionID;
+
+			session.DeviceID = context.TryGetParameter("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID)
+				? deviceID
+				: $"{UtilityService.NewUUID}@vieapps-ngx-portals";
 
 			if (context.TryGetParameter("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName))
 				session.AppName = appName;
 
 			if (context.TryGetParameter("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform))
 				session.AppPlatform = appPlatform;
-
-			if (context.TryGetParameter("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID))
-				session.DeviceID = deviceID;
 
 			// store the session for further use
 			context.SetItem("Session", session);
