@@ -45,8 +45,7 @@ namespace net.vieapps.Services.Files
 					ecLevel = "M";
 				if (!query.TryGetValue("i", out var image))
 					image = "";
-				if (Handler.TrackSessions)
-					context.SendSessionState();
+				context.SendSessionState();
 				using var chart = await new Uri($"https://quickchart.io/qr?text={value.UrlEncode()}&size={size}&ecLevel={ecLevel}{(string.IsNullOrWhiteSpace(image) ? "" : $"&centerImageUrl={image.UrlEncode()}")}&margin=1").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
 				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);

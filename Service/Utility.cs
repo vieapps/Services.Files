@@ -21,6 +21,6 @@ namespace net.vieapps.Services.Files
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Repository]
+	[Repository(ServiceName = "Files")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

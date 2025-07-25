@@ -57,9 +57,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 			}
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(attachment.SystemID);
-
+			context.SendSessionState(attachment.SystemID);
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = !context.IsBypassCache();
 
@@ -169,8 +167,7 @@ namespace net.vieapps.Services.Files
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(systemID);
+			context.SendSessionState(systemID);
 
 			// save uploaded files & create meta info
 			var attachments = new List<AttachmentInfo>();

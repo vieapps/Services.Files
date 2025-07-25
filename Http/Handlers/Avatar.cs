@@ -70,8 +70,8 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(Handler.DefaultUserAvatarFilePath);
 			}
 
-			if (Handler.TrackSessions)
-				context.SendSessionState();
+			// track session
+			context.SendSessionState();
 
 			// check request headers to reduce traffict
 			var eTag = $"vieapps#{(fileInfo.Name + "-" + fileInfo.LastWriteTime.ToIsoString()).ToLower().GenerateUUID()}";
@@ -95,8 +95,7 @@ namespace net.vieapps.Services.Files
 			if (!context.User.Identity.IsAuthenticated)
 				throw new AccessDeniedException();
 
-			if (Handler.TrackSessions)
-				context.SendSessionState();
+			context.SendSessionState();
 
 			var content = Array.Empty<byte>();
 			var asBase64 = context.GetParameter("x-as-base64") != null;

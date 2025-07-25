@@ -59,8 +59,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 			}
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(attachment.SystemID);
+			context.SendSessionState(attachment.SystemID);
 
 			// prepare entity tag and headers
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");

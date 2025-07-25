@@ -95,31 +95,31 @@ namespace net.vieapps.Services.Files
 			Handler.MIMEs.ForEach(mime => Handler.Handlers[mime.Handler] = typeof(FileHandler));
 			if (ConfigurationManager.GetSection(UtilityService.GetAppSetting("Section:Handlers", "net.vieapps.services.files.http.handlers")) is AppConfigurationSectionHandler config && config.Section.SelectNodes("handler") is XmlNodeList handlers)
 				handlers.ToList()
-					.Select(info => (Path: info.Attributes["path"]?.Value?.ToLower()?.Trim(), Type: info.Attributes["type"]?.Value))
-					.Where(info => !string.IsNullOrEmpty(info.Path) && !string.IsNullOrEmpty(info.Type))
-					.Select(info =>
+				.Select(info => (Path: info.Attributes["path"]?.Value?.ToLower()?.Trim(), Type: info.Attributes["type"]?.Value))
+				.Where(info => !string.IsNullOrEmpty(info.Path) && !string.IsNullOrEmpty(info.Type))
+				.Select(info =>
+				{
+					var path = info.Path;
+					while (path.StartsWith('/'))
+						path = path.Right(path.Length - 1);
+					while (path.EndsWith('/'))
+						path = path.Left(path.Length - 1);
+					return (Path: path, info.Type);
+				})
+				.Where(info => !Handler.Handlers.ContainsKey(info.Path))
+				.ForEach(info =>
+				{
+					try
 					{
-						var path = info.Path;
-						while (path.StartsWith('/'))
-							path = path.Right(path.Length - 1);
-						while (path.EndsWith('/'))
-							path = path.Left(path.Length - 1);
-						return (Path: path, info.Type);
-					})
-					.Where(info => !Handler.Handlers.ContainsKey(info.Path))
-					.ForEach(info =>
+						var type = AssemblyLoader.GetType(info.Type);
+						if (type != null && type.CreateInstance() is Services.FileHandler)
+							Handler.Handlers[info.Path] = type;
+					}
+					catch (Exception ex)
 					{
-						try
-						{
-							var type = AssemblyLoader.GetType(info.Type);
-							if (type != null && type.CreateInstance() is Services.FileHandler)
-								Handler.Handlers[info.Path] = type;
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Cannot load a file handler ({info.Type}) => {ex.Message}", ex);
-						}
-					});
+						Global.Logger.LogError($"Cannot load a file handler ({info.Type}) => {ex.Message}", ex);
+					}
+				});
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 

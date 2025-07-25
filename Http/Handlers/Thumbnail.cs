@@ -119,9 +119,6 @@ namespace net.vieapps.Services.Files
 				}
 			}
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(attachment.SystemID);
-
 			// check permission
 			async Task<bool> gotRightsAsync()
 			{
@@ -179,6 +176,8 @@ namespace net.vieapps.Services.Files
 			var generateTask = hasCached ? getAsync() : generateAsync();
 			if (!await gotRightsAsync().ConfigureAwait(false))
 				throw new AccessDeniedException();
+
+			context.SendSessionState(attachment.SystemID);
 
 			// meta headers
 			if (!isThumbnail)
@@ -249,8 +248,7 @@ namespace net.vieapps.Services.Files
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(systemID);
+			context.SendSessionState(systemID);
 
 			// limit size
 			if (!Int32.TryParse(UtilityService.GetAppSetting("Limits:Thumbnail"), out var limitSize))

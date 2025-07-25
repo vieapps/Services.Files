@@ -163,8 +163,7 @@ namespace net.vieapps.Services.Files
 
 			if (File.Exists(filePath))
 			{
-				if (Handler.TrackSessions)
-					requestInfo.SendSessionState(systemID);
+				requestInfo.SendSessionState(systemID);
 				syncFile().Run();
 			}
 			else
@@ -183,8 +182,7 @@ namespace net.vieapps.Services.Files
 			var isTemporary = "true".IsEquals(requestInfo.Header["x-temporary"]);
 			var isAvatar = "true".IsEquals(requestInfo.Header["x-avatar"]);
 
-			if (Handler.TrackSessions)
-				requestInfo.SendSessionState(systemID);
+			requestInfo.SendSessionState(systemID);
 
 			var directory = (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? serviceName : systemID).Trim().ToLower();
 			var path = isAvatar

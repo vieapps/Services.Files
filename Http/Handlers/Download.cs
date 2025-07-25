@@ -53,8 +53,7 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			if (Handler.TrackSessions)
-				context.SendSessionState(attachment.SystemID);
+			context.SendSessionState(attachment.SystemID);
 
 			// check exist
 			var fileInfo = new FileInfo(attachment.GetFilePath());
