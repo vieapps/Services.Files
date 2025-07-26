@@ -787,17 +787,19 @@ namespace net.vieapps.Services.Files
 
 		public static void SendSessionState(this HttpContext context, string systemID = null, bool online = true)
 		{
+			var session = context.GetSession();
 			if (Handler.TrackSessions)
-			{
-				var session = context.GetSession();
 				session.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, true, false, message => message.Data["Crawler"] = session.IsCrawler());
-			}
+			else
+				new RequestInfo(session, $"{Global.ServiceName}.HTTP") { Verb = context.Request.Method, CorrelationID = context.GetCorrelationID() }.TrackStatistics();
 		}
 
 		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool online = true)
 		{
 			if (Handler.TrackSessions)
 				requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, true, false, message => message.Data["Crawler"] = requestInfo.Session.IsCrawler());
+			else
+				requestInfo.TrackStatistics();
 		}
 		#endregion
 
