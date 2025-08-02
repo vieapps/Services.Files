@@ -256,15 +256,42 @@ namespace net.vieapps.Services.Files
 				? UtilityService.NewUUID
 				: session.User.SessionID;
 
-			session.DeviceID = context.TryGetParameter("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID)
-				? deviceID
-				: $"{UtilityService.NewUUID}@vieapps-ngx-portals";
+			if (context.TryGetParameter("x-device-id", out var deviceID))
+				try
+				{
+					session.DeviceID = deviceID.Url64Decode();
+				}
+				catch
+				{
+					session.DeviceID = deviceID;
+				}
+			else if (context.TryGetParameter("x-did", out deviceID))
+				try
+				{
+					session.DeviceID = deviceID.Url64Decode();
+				}
+				catch {	}
+			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
 
 			if (context.TryGetParameter("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName))
-				session.AppName = appName;
+				try
+				{
+					session.AppName = appName.Url64Decode();
+				}
+				catch
+				{
+					session.AppName = appName;
+				}
 
 			if (context.TryGetParameter("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform))
-				session.AppPlatform = appPlatform;
+				try
+				{
+					session.AppPlatform = appPlatform.Url64Decode();
+				}
+				catch
+				{
+					session.AppPlatform = appPlatform;
+				}
 
 			// store the session for further use
 			context.SetItem("Session", session);
