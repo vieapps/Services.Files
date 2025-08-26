@@ -200,14 +200,33 @@ namespace net.vieapps.Services.Files
 			var session = context.GetSession();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
-			// get authenticate token
+			// prepare authenticate token
 			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
-
-			// normalize the Bearer token
-			if (string.IsNullOrWhiteSpace(authenticateToken))
+			if (string.IsNullOrWhiteSpace(authenticateToken) && header.TryGetValue("authorization", out authenticateToken))
 			{
-				authenticateToken = context.GetHeaderParameter("authorization");
-				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
+				header.Remove("authorization");
+				try
+				{
+					var isBasicToken = authenticateToken.IsStartsWith("Basic");
+					authenticateToken = isBasicToken || authenticateToken.IsStartsWith("Bearer") || authenticateToken.IsStartsWith("JWT") ? authenticateToken.ToArray(" ").Last() : null;
+					if (authenticateToken != null)
+					{
+						var response = await new RequestInfo(session, "Users", "Token", "GET")
+						{
+							Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+							Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+							{
+								["x-authorization-token"] = authenticateToken,
+								["x-authorization-mode"] = isBasicToken ? "Basic" : "Bearer",
+								["x-authorization-signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey)
+							},
+							CorrelationID = context.GetCorrelationID()
+						}.CallServiceAsync(Global.CancellationToken).ConfigureAwait(false);
+						header["x-app-token"] = authenticateToken = response.Get<string>("Token");
+						session.Fill(response.Get<JObject>("Session"));
+					}
+				}
+				catch { }
 			}
 
 			// got authenticate token => update the session
