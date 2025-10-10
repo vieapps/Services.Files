@@ -1,12 +1,14 @@
-﻿using net.vieapps.Components.Repository;
+﻿using net.vieapps.Components.Caching;
+using net.vieapps.Components.Utility;
+using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Files
 {
 	public static class Utility
 	{
-		public static Components.Caching.Cache Cache { get; internal set; }
+		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Files", Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:L1")));
 
-		public static Components.Caching.Cache HttpCache { get; internal set; }
+		public static Cache HttpCache { get; } = Cache.CreateInstance("VIEApps-Services-Files-Http", Logger.GetLoggerFactory());
 
 		public static string FilesHttpURI { get; internal set; }
 

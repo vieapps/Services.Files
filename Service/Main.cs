@@ -20,9 +20,9 @@ namespace net.vieapps.Services.Files
 {
 	public class ServiceComponent : ServiceBase
 	{
+		public override string ServiceName => "Files";
 
 		#region Properties
-		public override string ServiceName => "Files";
 
 		bool Sync => "true".IsEquals(UtilityService.GetAppSetting("Files:Sync", "false"));
 
@@ -45,13 +45,42 @@ namespace net.vieapps.Services.Files
 		ConcurrentQueue<JObject> PrepareCacheRequests => [];
 
 		bool IsPreparingCache { get; set; } = false;
+
+		IDisposable CacheCommunicator { get; set; }
 		#endregion
+
+		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.RegisterServiceAsync
+			(
+				args,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this);
+					Utility.HttpCache.AssignSendL1CacheRequest($"{this.ServiceName}.HTTP", this.NodeID);
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
+
+		public override Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.UnregisterServiceAsync
+			(
+				args,
+				available,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = null;
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 			=> base.Start(args, initializeRepository, _ =>
 			{
-				Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
-				Utility.HttpCache = new Cache($"VIEApps-Services-{this.ServiceName}-Http", Components.Utility.Logger.GetLoggerFactory());
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 				while (Utility.FilesHttpURI.EndsWith('/'))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
@@ -793,7 +822,7 @@ namespace net.vieapps.Services.Files
 
 			// get cached
 			JToken json = null;
-			if (!requestInfo.TryGetParameter("x-force-cache", out var _))
+			if (!requestInfo.ContainsKey("x-force-cache"))
 			{
 				if (objectIDs == null)
 				{

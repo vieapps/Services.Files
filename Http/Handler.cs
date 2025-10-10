@@ -412,14 +412,14 @@ namespace net.vieapps.Services.Files
 					}
 
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.files").Subscribe
-					(
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+						"messages.services.files",
 						message => Global.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : Handler.ProcessInterCommunicateMessageAsync(message),
 						exception => Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while fetching an inter-communicate message: {exception.Message}", exception)
 					);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.apigateway").Subscribe
-					(
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+						"messages.services.apigateway",
 						message => Global.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : Handler.ProcessAPIGatewayCommunicateMessageAsync(message),
 						exception => Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception)
 					);
@@ -457,8 +457,6 @@ namespace net.vieapps.Services.Files
 				var ex = task.Exception?.InnerException ?? task.Exception;
 				if (ex != null)
 					Global.Logger.LogError($"Error occurred while unregistering the service => {ex.Message}", ex);
-				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-				Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 				Global.Disconnect();
 			}, TaskContinuationOptions.OnlyOnRanToCompletion).ContinueWith(task =>
 			{

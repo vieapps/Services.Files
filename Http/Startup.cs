@@ -226,14 +226,12 @@ namespace net.vieapps.Services.Files
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 				Global.RSA.Dispose();
+				Handler.Disconnect();
 			});
 
 			// on stopped
 			appLifetime.ApplicationStopped.Register(() =>
 			{
-				Handler.Disconnect();
-				Global.CancellationTokenSource.Cancel();
-				Global.CancellationTokenSource.Dispose();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was stopped");
 			});
 
