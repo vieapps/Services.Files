@@ -25,7 +25,7 @@ namespace net.vieapps.Services.Files
 			this.Filename = "";
 			this.Size = 0;
 			this.ContentType = "";
-			this.Downloads = new CounterInfo();
+			this.Downloads = new();
 			this.IsShared = false;
 			this.IsTracked = false;
 			this.IsTemporary = false;
@@ -174,7 +174,7 @@ namespace net.vieapps.Services.Files
 
 	}
 
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class CounterInfo
 	{
 		public CounterInfo() { }

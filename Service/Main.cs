@@ -1426,25 +1426,22 @@ namespace net.vieapps.Services.Files
 		{
 			var type = requestInfo.ObjectName.IsStartsWith("thumbnail") ? "Thumbnail" : "Attachment";
 			var xlogs = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
-			attachments.ForEach(attachment =>
+			attachments.ForEach(attachment => new CommunicateMessage(this.ServiceName)
 			{
-				new CommunicateMessage(this.ServiceName)
+				Type = "PrepareCache",
+				Data = new JObject
 				{
-					Type = "PrepareCache",
-					Data = new JObject
-					{
-						{ "ID", attachment.ID },
-						{ "ServiceName", attachment.ServiceName },
-						{ "SystemID", attachment.SystemID },
-						{ "ObjectID", attachment.ObjectID },
-						{ "Filename", string.IsNullOrWhiteSpace(attachment.Filename) ? $"{attachment.ObjectID}.jpg" : attachment.Filename },
-						{ "ContentType", string.IsNullOrWhiteSpace(attachment.ContentType) ? "image/jpeg" : attachment.ContentType },
-						{ "X-Type", type },
-						{ "X-Logs", xlogs },
-						{ "X-Correlation-ID", requestInfo.CorrelationID }
-					}
-				}.Send();
-			});
+					{ "ID", attachment.ID },
+					{ "ServiceName", attachment.ServiceName },
+					{ "SystemID", attachment.SystemID },
+					{ "ObjectID", attachment.ObjectID },
+					{ "Filename", string.IsNullOrWhiteSpace(attachment.Filename) ? $"{attachment.ObjectID}.jpg" : attachment.Filename },
+					{ "ContentType", string.IsNullOrWhiteSpace(attachment.ContentType) ? "image/jpeg" : attachment.ContentType },
+					{ "X-Type", type },
+					{ "X-Logs", xlogs },
+					{ "X-Correlation-ID", requestInfo.CorrelationID }
+				}
+			}.Send());
 		}
 
 		async Task PrepareCacheAsync()

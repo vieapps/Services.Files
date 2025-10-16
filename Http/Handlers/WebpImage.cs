@@ -123,8 +123,7 @@ namespace net.vieapps.Services.Files
 					var length = data.Length;
 					data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 				}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (Handler.IsCacheImages)
