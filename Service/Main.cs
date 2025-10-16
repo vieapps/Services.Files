@@ -1526,7 +1526,7 @@ namespace net.vieapps.Services.Files
 
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			var correlationID = message.Data.Get("CorrelationID", UtilityService.NewUUID);
+			var correlationID = message.Data.Get<string>("CorrelationID") ?? message.Data.Get("X-Correlation-ID", UtilityService.NewUUID);
 			if (message.Type.IsEquals("Thumbnail#Rebuild"))
 				try
 				{

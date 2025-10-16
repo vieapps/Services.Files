@@ -341,7 +341,8 @@ namespace net.vieapps.Services.Files
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails();
-						context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, context.GetCorrelationID(), wampDetails.Stack + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+						if (wampDetails.Type != "OperationCanceledException")
+							context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, context.GetCorrelationID(), wampDetails.Stack + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
 					}
 					else
 						context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
