@@ -121,7 +121,7 @@ namespace net.vieapps.Services.Files
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of an image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of an image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{

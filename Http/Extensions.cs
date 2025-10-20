@@ -25,7 +25,7 @@ namespace net.vieapps.Services.Files
 			=> Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 		public static bool IsBypassCache(this HttpContext context)
-			=> context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || (context.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"));
+			=> context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache");
 
 		static bool IsReadable(this string mimeType)
 			=> mimeType.IsStartsWith("image/") || mimeType.IsStartsWith("text/")
@@ -689,8 +689,8 @@ namespace net.vieapps.Services.Files
 
 			await Task.WhenAll
 			(
-				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
-				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+				Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
 			).ConfigureAwait(false);
 
 			if (format != ImageFormat.Webp)
@@ -709,8 +709,8 @@ namespace net.vieapps.Services.Files
 
 				await Task.WhenAll
 				(
-					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+					Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
 				).ConfigureAwait(false);
 
 				if (attachment.IsThumbnail && width < 1 && Handler.PrepareCache)
@@ -729,8 +729,8 @@ namespace net.vieapps.Services.Files
 						cacheKey = attachment.GetCacheKey(index, ImageFormat.Webp, variant, 0, asBig);
 						await Task.WhenAll
 						(
-							Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, 0, Global.CancellationToken),
-							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+							Global.Cache.SetAsFragmentsAsync(cacheKey, thumbnail, Global.CancellationToken),
+							Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
 						).ConfigureAwait(false);
 					}, true, false).ConfigureAwait(false);
 				}
@@ -769,8 +769,8 @@ namespace net.vieapps.Services.Files
 				cacheKeys = [.. cacheKeys, cacheKey, $"{cacheKey}:time"];
 				await Task.WhenAll
 				(
-					Global.Cache.SetAsFragmentsAsync(cacheKey, data, 0, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, Global.CancellationToken)
+					Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
 				).ConfigureAwait(false);
 			}
 

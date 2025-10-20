@@ -112,14 +112,14 @@ namespace net.vieapps.Services.Files
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{
-				var stepwatch = Stopwatch.StartNew();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				if (!attachment.IsWebP())
 				{
+					var stepwatch = Stopwatch.StartNew();
 					var length = data.Length;
 					data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();

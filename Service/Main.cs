@@ -10,10 +10,10 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
 using net.vieapps.Components.Caching;
+using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -23,26 +23,25 @@ namespace net.vieapps.Services.Files
 		public override string ServiceName => "Files";
 
 		#region Properties
+		bool Sync { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Sync", "false"));
 
-		bool Sync => "true".IsEquals(UtilityService.GetAppSetting("Files:Sync", "false"));
+		int SyncMinutes { get; } = UtilityService.GetAppSetting("Files:Sync:Minutes", "13").As<int>();
 
-		int SyncMinutes => UtilityService.GetAppSetting("Files:Sync:Minutes", "13").As<int>();
+		int SyncHours { get; } = UtilityService.GetAppSetting("Files:Sync:Hours", "24").As<int>();
 
-		int SyncHours => UtilityService.GetAppSetting("Files:Sync:Hours", "24").As<int>();
+		int SyncThreads { get; } = UtilityService.GetAppSetting("Files:Sync:Threads", "100").As<int>();
 
-		int SyncThreads => UtilityService.GetAppSetting("Files:Sync:Threads", "100").As<int>();
+		bool SyncInParallels { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Sync:Parallels", "false"));
 
-		bool SyncInParallels => "true".IsEquals(UtilityService.GetAppSetting("Files:Sync:Parallels", "false"));
+		string AttachmentsDirectory { get; } = UtilityService.GetAppSetting("Files:Sync:Directory:Attachments", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "attachments"));
 
-		string AttachmentsDirectory => UtilityService.GetAppSetting("Files:Sync:Directory:Attachments", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "attachments"));
+		string AvatarsDirectory { get; } = UtilityService.GetAppSetting("Files:Sync:Directory:Avatars", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "user-avatars"));
 
-		string AvatarsDirectory => UtilityService.GetAppSetting("Files:Sync:Directory:Avatars", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "user-avatars"));
+		bool PrepareCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "true"));
 
-		bool PrepareCache => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "true"));
+		bool IsPrepareCacheRequester { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Requester", "true"));
 
-		bool IsPrepareCacheRequester => "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Requester", "true"));
-
-		ConcurrentQueue<JObject> PrepareCacheRequests => [];
+		ConcurrentQueue<JObject> PrepareCacheRequests { get; } = [];
 
 		bool IsPreparingCache { get; set; } = false;
 
@@ -1425,7 +1424,7 @@ namespace net.vieapps.Services.Files
 		void SendPrepareCacheRequests(RequestInfo requestInfo, IEnumerable<IAttachment> attachments)
 		{
 			var type = requestInfo.ObjectName.IsStartsWith("thumbnail") ? "Thumbnail" : "Attachment";
-			var xlogs = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
+			var writeLogs = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
 			attachments.ForEach(attachment => new CommunicateMessage(this.ServiceName)
 			{
 				Type = "PrepareCache",
@@ -1438,17 +1437,19 @@ namespace net.vieapps.Services.Files
 					{ "Filename", string.IsNullOrWhiteSpace(attachment.Filename) ? $"{attachment.ObjectID}.jpg" : attachment.Filename },
 					{ "ContentType", string.IsNullOrWhiteSpace(attachment.ContentType) ? "image/jpeg" : attachment.ContentType },
 					{ "X-Type", type },
-					{ "X-Logs", xlogs },
+					{ "X-Logs", writeLogs },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				}
 			}.Send());
 		}
 
-		async Task PrepareCacheAsync()
+		async Task PrepareCacheAsync(string correlationID)
 		{
+			correlationID ??= UtilityService.NewUUID;
 			while (this.PrepareCacheRequests.TryDequeue(out var data))
 				try
 				{
+					var stopwatch = Stopwatch.StartNew();
 					var request = new JObject
 					{
 						{ "ID", data.Get<string>("ID") },
@@ -1459,9 +1460,16 @@ namespace net.vieapps.Services.Files
 						{ "ContentType", data.Get<string>("ContentType") },
 						{ "Type", data.Get("X-Type", "Thumbnail") }
 					}.ToString(Formatting.None);
-					await new Uri($"{Utility.FilesHttpURI}/prepare?x-correlation-id={data.Get("X-Correlation-ID", UtilityService.NewUUID)}&x-node={this.NodeID}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(this.IsDebugResultsEnabled || data.Get("X-Logs", false) ? "&x-logs=true" : "")}").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
+					var writeLogs = this.IsDebugResultsEnabled || data.Get("X-Logs", false);
+					var uri = $"{Utility.FilesHttpURI}/prepare?x-correlation-id={correlationID}&x-node={this.NodeID}&x-signature={request.GetHMACSHA256(this.ValidationKey)}&x-request={request.Url64Encode()}{(writeLogs ? "&x-logs" : "")}";
+					await new Uri(uri).FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await this.WriteLogsAsync(correlationID, $"Send a request to prepare cache successful - Execution times: {stopwatch.GetElapsedTimes()}\r\nURI: {uri}\r\nRequest: {request}", null, this.ServiceName, "Caches").ConfigureAwait(false);
 				}
-				catch { }
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(correlationID, $"Error occurred while sending a request to prepare cache => {ex.Message}", ex, this.ServiceName, "Caches").ConfigureAwait(false);
+				}
 		}
 		#endregion
 
@@ -1527,6 +1535,7 @@ namespace net.vieapps.Services.Files
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			var correlationID = message.Data.Get<string>("CorrelationID") ?? message.Data.Get("X-Correlation-ID", UtilityService.NewUUID);
+			var writeLogs = this.IsDebugResultsEnabled || message.Data.Get("X-Logs", false);
 			if (message.Type.IsEquals("Thumbnail#Rebuild"))
 				try
 				{
@@ -1568,14 +1577,22 @@ namespace net.vieapps.Services.Files
 					await this.WriteLogsAsync(correlationID, $"Error occurred while clear cache [{message.Data.Get<string>("ObjectID")}] => {ex.Message}", ex, this.ServiceName).ConfigureAwait(false);
 				}
 
-			else if (message.Type.IsEquals("PrepareCache") && this.IsPrepareCacheRequester)
+			else if (message.Type.IsEquals("PrepareCache"))
 			{
-				this.PrepareCacheRequests.Enqueue(message.Data as JObject);
-				if (!this.IsPreparingCache)
+				if (this.IsPrepareCacheRequester)
 				{
-					this.IsPreparingCache = true;
-					await this.PrepareCacheAsync().ConfigureAwait(false);
-					this.IsPreparingCache = false;
+					this.PrepareCacheRequests.Enqueue(message.Data as JObject);
+					var numberOfMessagesInQueue = this.PrepareCacheRequests.Count;
+					if (!this.IsPreparingCache)
+					{
+						this.IsPreparingCache = true;
+						if (writeLogs)
+							await this.WriteLogsAsync(correlationID, $"Send {numberOfMessagesInQueue} request(s) to prepare cache", null, this.ServiceName, "Caches").ConfigureAwait(false);
+						await this.PrepareCacheAsync(correlationID).ConfigureAwait(false);
+						this.IsPreparingCache = false;
+					}
+					else if (writeLogs)
+						await this.WriteLogsAsync(correlationID, $"Update message to prepare cache successful [{numberOfMessagesInQueue}] => {message.Data}", null, this.ServiceName, "Caches").ConfigureAwait(false);
 				}
 			}
 

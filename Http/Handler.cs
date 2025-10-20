@@ -357,6 +357,7 @@ namespace net.vieapps.Services.Files
 				var request = context.Request.Method.IsEquals("GET") ? context.GetQueryParameter("x-request")?.Url64Decode() : null;
 				if ((request ?? "nothing").GetHMACSHA256(Global.ValidationKey).IsEquals(context.Request.Method.IsEquals("GET") ? context.GetQueryParameter("x-signature") : "nothing"))
 				{
+					var stopwatch = Stopwatch.StartNew();
 					var json = request.ToJson();
 					var attachment = new AttachmentInfo { IsThumbnail = "Thumbnail".IsEquals(json.Get<string>("Type")) }.Fill(json);
 					var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
@@ -365,19 +366,19 @@ namespace net.vieapps.Services.Files
 					{
 						var keys = await attachment.PrepareCacheAsync().ConfigureAwait(false);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of a thumbnail\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
+							await context.WriteLogsAsync(Global.Logger, "Caches", $"Prepare cache of a thumbnail successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
 					}
 					else if (!attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
 					{
 						var keys = await attachment.PrepareCacheAsync(attachment.IsWebP()).ConfigureAwait(false);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Prepare cache of an attachment\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
+							await context.WriteLogsAsync(Global.Logger, "Caches", $"Prepare cache of an attachment successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
 					}
 				}
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync(Global.Logger, $"Prepares", $"Error occurred while preparing cache of an image\r\n- URI: {context.GetRequestUri()}\r\n- Error: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync(Global.Logger, "Caches", $"Error occurred while preparing cache of an image\r\n- URI: {context.GetRequestUri()}\r\n- Error: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 			}
 			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
 		}
