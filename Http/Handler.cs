@@ -123,7 +123,7 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Handlers:\r\n\t{Handler.Handlers.Select(kvp => $"{kvp.Key} => {kvp.Value.GetTypeName()}").ToString("\r\n\t")}");
 		}
 
-		public async Task Invoke(HttpContext context)
+		public Task Invoke(HttpContext context)
 		{
 			// CORS: allow origin
 			context.Response.Headers.AccessControlAllowOrigin = "*";
@@ -139,15 +139,15 @@ namespace net.vieapps.Services.Files
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 					headers["Access-Control-Allow-Headers"] = requestHeaders;
 				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+				return Task.CompletedTask;
 			}
 
 			// health check
-			else if (context.Request.Path.Value.IsEquals(this.LoadBalancerHealthCheckURL))
-				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
+			if (context.Request.Path.Value.IsEquals(this.LoadBalancerHealthCheckURL))
+				return context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken);
 
-			// requests of files
-			else
-				await this.ProcessRequestAsync(context).ConfigureAwait(false);
+			// requests of the service
+			return this.ProcessRequestAsync(context);
 		}
 
 		async Task ProcessRequestAsync(HttpContext context)
@@ -156,10 +156,10 @@ namespace net.vieapps.Services.Files
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
 
-			var requestPath = context.GetRequestPathSegments(true).First();
-
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+
+			var requestPath = context.GetRequestPathSegments(true).First();
 
 			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico"))
