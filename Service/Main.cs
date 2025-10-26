@@ -297,7 +297,7 @@ namespace net.vieapps.Services.Files
 								thumbnailJSON["URIs"] = new JObject { ["Direct"] = thumbnail.GetURI(title) };
 						});
 					});
-
+					
 					await (json as JObject).ForEachAsync(kvp => Utility.Cache.SetAsync($"{kvp.Key}:thumbnails", kvp.Value.ToString(Formatting.None), cancellationToken)).ConfigureAwait(false);
 				}
 				if (isDebugLogEnabled)
@@ -309,10 +309,10 @@ namespace net.vieapps.Services.Files
 			// thumbnails of one object
 			if (json is JArray)
 				this.NormalizeURIs(requestInfo, json as JArray);
-
+				
 			// thumbnails of multiple objects
 			else
-				(json as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray));
+				(json as JObject).ForEach(child => this.NormalizeURIs(requestInfo, child as JArray), cancellationToken);
 
 			// send update mesage
 			if (objectID != null)

@@ -8,7 +8,7 @@ namespace net.vieapps.Services.Files
 	{
 		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Files", Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:L1")));
 
-		public static Cache HttpCache { get; } = Cache.CreateInstance("VIEApps-Services-Files-Http", Logger.GetLoggerFactory());
+		public static Cache HttpCache { get; } = Cache.CreateInstance("VIEApps-Services-Files-Http", Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Files:Http:Cache:L1")));
 
 		public static string FilesHttpURI { get; internal set; }
 
