@@ -370,7 +370,7 @@ namespace net.vieapps.Services.Files
 					}
 					else if (!attachment.IsThumbnail && (forceCache || !await Global.Cache.ExistsAsync(attachment.GetCacheKey("file"), Global.CancellationToken).ConfigureAwait(false)))
 					{
-						var keys = await attachment.PrepareCacheAsync(attachment.IsWebP()).ConfigureAwait(false);
+						var keys = await attachment.PrepareCacheAsync(attachment.IsWebP(), null, null, 0, context.ContainsKey("x-only-webp")).ConfigureAwait(false);
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync(Global.Logger, "Caches", $"Prepare cache of an attachment successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n- File: {attachment.GetFilePath()}\r\n- Keys: {keys.Where(key => !key.IsEndsWith(":time")).Join(", ")}").ConfigureAwait(false);
 					}

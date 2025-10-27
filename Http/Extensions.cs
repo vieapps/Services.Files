@@ -745,7 +745,7 @@ namespace net.vieapps.Services.Files
 		public static Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment)
 			=> attachment.PrepareCacheAsync(-1, null, null, 0, 0, 0, true);
 
-		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string prefix = "file", byte[] data = null, long lastModified = 0)
+		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string prefix = "file", byte[] data = null, long lastModified = 0, bool onlyWebP = false)
 		{
 			if (data == null || data.Length < 1 || lastModified < 1)
 			{
@@ -756,11 +756,12 @@ namespace net.vieapps.Services.Files
 
 			var cacheKey = attachment.GetCacheKey(prefix ?? (isWebP ? "webp" : "file"));
 			var cacheKeys = new List<string> { cacheKey, $"{cacheKey}:time" };
-			await Task.WhenAll
-			(
-				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
-				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
-			).ConfigureAwait(false);
+			if (isWebP || !onlyWebP)
+				await Task.WhenAll
+				(
+					Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
+					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
+				).ConfigureAwait(false);
 
 			if (!isWebP && cacheKey.IsStartsWith("file#"))
 			{
