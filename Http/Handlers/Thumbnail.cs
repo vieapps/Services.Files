@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Files
 					}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (!isNoThumbnailImage && Handler.IsCacheThumbnails)
-					attachment.PrepareCacheAsync(index, format, original, lastModified, width, height, asBig).Run();
+					attachment.PrepareCacheAsync(index, format, original, lastModified, width, height, asBig).Execute();
 				return thumbnail;
 			}
 

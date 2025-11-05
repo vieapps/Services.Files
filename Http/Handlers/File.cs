@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Files
 			{
 				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.GetContentDisposition(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (useCache)
-					attachment.PrepareCacheAsync(attachment.IsWebP()).Run();
+					attachment.PrepareCacheAsync(attachment.IsWebP()).Execute();
 			}
 
 			// update counter & logs

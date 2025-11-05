@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Files
 					? Path.Combine(Handler.TempFilesPath, filename)
 					: Path.Combine(Handler.AttachmentFilesPath, directory, filename);
 
-			async Task syncFile()
+			async Task syncFileAsync()
 			{
 				try
 				{
@@ -164,7 +164,7 @@ namespace net.vieapps.Services.Files
 			if (File.Exists(filePath))
 			{
 				requestInfo.SendSessionState(systemID);
-				syncFile().Run();
+				syncFileAsync().Execute();
 			}
 			else
 				throw new FileNotFoundException();
@@ -258,6 +258,6 @@ namespace net.vieapps.Services.Files
 		}
 
 		public void Dispose()
-			=> this.DisposeAsync().Run(true);
+			=> this.DisposeAsync().Execute(true);
 	}
 }

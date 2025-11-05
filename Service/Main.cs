@@ -98,7 +98,7 @@ namespace net.vieapps.Services.Files
 					{
 						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute > 10 && DateTime.Now.Minute < 20)
 						{
-							this.PrepareCachesAsync().Run();
+							this.PrepareCachesAsync().Execute();
 							time = time.AddDays(7);
 						}
 					}, 60 * 13);
@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Files
 					case "preparecache":
 					case "preparecaches":
 						if (await this.IsSystemAdministratorAsync(requestInfo, cts.Token).ConfigureAwait(false))
-							this.PrepareCachesAsync(requestInfo.CorrelationID).Run();
+							this.PrepareCachesAsync(requestInfo.CorrelationID).Execute();
 						json = new JObject();
 						break;
 
@@ -1651,7 +1651,7 @@ namespace net.vieapps.Services.Files
 					var directory = message.Data.Get<string>("Directory");
 					var filename = message.Data.Get<string>("Filename");
 					if (directory.IsValidUUID() ? Directory.Exists(this.AttachmentsDirectory) : Directory.Exists(this.AvatarsDirectory))
-						this.SendSyncRequestAsync(node, directory, filename, correlationID).Run();
+						this.SendSyncRequestAsync(node, directory, filename, correlationID).Execute();
 				}
 			}
 		}
@@ -1717,7 +1717,7 @@ namespace net.vieapps.Services.Files
 					: null;
 				var nodeID = args?.FirstOrDefault(arg => arg.IsStartsWith("/node:"))?[6..].Trim();
 				var syncTask = this.SendSyncRequestsAsync(directories, lastWriteTime, isAvatars, message => this.Logger.LogInformation(message), nodeID);
-				syncTask.Run(true);
+				syncTask.Execute(true);
 				this.Logger.LogInformation($"============================\r\n{syncTask.Result:###,###,###,###,##0} files were synced\r\n============================");
 			}
 		}

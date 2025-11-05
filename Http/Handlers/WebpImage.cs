@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Files
 				}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (Handler.IsCacheImages)
-					attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified).Run();
+					attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified).Execute();
 			}
 
 			// meta headers

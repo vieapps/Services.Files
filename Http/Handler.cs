@@ -450,24 +450,28 @@ namespace net.vieapps.Services.Files
 		}
 
 		internal static void Disconnect()
-			=> Handler.UnregisterSynchronizerAsync().ContinueWith(async task =>
+			=> Handler.UnregisterSynchronizerAsync()
+			.ContinueWith(async task =>
 			{
 				var ex = task.Exception?.InnerException ?? task.Exception;
 				if (ex != null)
 					Global.Logger.LogError($"Error occurred while unregistering the synchronizer => {ex.Message}", ex);
 				await Global.UnregisterServiceAsync().ConfigureAwait(false);
-			}, TaskContinuationOptions.OnlyOnRanToCompletion).ContinueWith(task =>
+			}, TaskContinuationOptions.OnlyOnRanToCompletion)
+			.ContinueWith(task =>
 			{
 				var ex = task.Exception?.InnerException ?? task.Exception;
 				if (ex != null)
 					Global.Logger.LogError($"Error occurred while unregistering the service => {ex.Message}", ex);
 				Global.Disconnect();
-			}, TaskContinuationOptions.OnlyOnRanToCompletion).ContinueWith(task =>
+			}, TaskContinuationOptions.OnlyOnRanToCompletion)
+			.ContinueWith(task =>
 			{
 				var ex = task.Exception?.InnerException ?? task.Exception;
 				if (ex != null)
 					Global.Logger.LogError($"Error occurred while disconnecting from API Gateway Router => {ex.Message}", ex);
-			}, TaskContinuationOptions.OnlyOnRanToCompletion).Run(true);
+			}, TaskContinuationOptions.OnlyOnRanToCompletion)
+			.Execute(true);
 
 		static IAsyncDisposable SynchronizerInstance { get; set; }
 
@@ -602,7 +606,7 @@ namespace net.vieapps.Services.Files
 			{
 				var node = message.Data.Get<string>("Node");
 				if (!Global.NodeID.IsEquals(node))
-					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Run(UtilityService.GetRandomNumber(123, 234));
+					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Execute(false, _ => { }, UtilityService.GetRandomNumber(123, 234));
 			}
 		}
 
