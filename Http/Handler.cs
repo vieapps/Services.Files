@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Files
 
 		internal static string NoThumbnailImageFilePath { get; } = UtilityService.GetAppSetting("Path:NoThumbnailImage", Path.Combine(Handler.AttachmentFilesPath, "@no-image.png"));
 
-		internal static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true")) && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Files", "true"));
+		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true")) && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Files", "true"));
 
 		internal static IEnumerable<(string Handler, string MIMEType)> MIMEs { get; } =
 		[
@@ -608,6 +608,11 @@ namespace net.vieapps.Services.Files
 				if (!Global.NodeID.IsEquals(node))
 					Handler.Synchronizer.SendSyncRequestAsync(node, message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"), message.Data.Get<string>("Filename"), "true".IsEquals(message.Data.Get<string>("IsTemporary")), "true".IsEquals(message.Data.Get<string>("IsAvatar")), message.Data.Get<string>("CorrelationID")).Execute(false, _ => { }, UtilityService.GetRandomNumber(123, 234));
 			}
+
+			else if (message.Type.IsEquals("Sessions#Track#Disable"))
+				Handler.TrackSessions = false;
+			else if (message.Type.IsEquals("Sessions#Track#Enable"))
+				Handler.TrackSessions = true;
 		}
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
