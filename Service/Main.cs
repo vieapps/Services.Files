@@ -55,9 +55,11 @@ namespace net.vieapps.Services.Files
 				_ =>
 				{
 					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this);
-					Utility.HttpCache.AssignSendL1CacheRequest($"{this.ServiceName}.HTTP", this.NodeID);
+					this.CacheCommunicator = Router.GotBackupRouter()
+						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+					Utility.HttpCache.AssignSendL1CacheRequest($"{this.ServiceName}.HTTP", this.NodeID, Router.GotBackupRouter());
 					onSuccess?.Invoke(this);
 				},
 				onError
@@ -1133,7 +1135,7 @@ namespace net.vieapps.Services.Files
 							{ "Directory", asAvatars ? "avatars" : path.Right(32).ToLower() },
 							{ "Filename", file.Name }
 						}
-					}.SendAsync(this.CancellationToken, UtilityService.GetRandomNumber(13, 31)), true, this.SyncInParallels, false, this.SyncThreads).ConfigureAwait(false);
+					}.SendAsync(this.CancellationToken, false, UtilityService.GetRandomNumber(13, 31)), true, this.SyncInParallels, false, this.SyncThreads).ConfigureAwait(false);
 					tracker?.Invoke($"{syncFiles.Count:###,##0} sync requests were sent [{DateTime.Now.ToDTString()}]");
 
 					await Task.Delay(UtilityService.GetRandomNumber(789, 1234), this.CancellationToken).ConfigureAwait(false);
