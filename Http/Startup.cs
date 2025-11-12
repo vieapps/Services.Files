@@ -22,7 +22,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Files
 {
-	public class Startup
+	public class Startup(IConfiguration configuration)
 	{
 		public static void Main(string[] args)
 			=> WebApplication.CreateBuilder(args).Run
@@ -33,10 +33,7 @@ namespace net.vieapps.Services.Files
 				(startup, app) => startup.Configure(app, app.Lifetime, app.Environment)
 			);
 
-		public Startup(IConfiguration configuration)
-			=> this.Configuration = configuration;
-
-		public IConfiguration Configuration { get; }
+		public IConfiguration Configuration { get; } = configuration;
 
 		public LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).TryToEnum(out LogLevel logLevel) ? logLevel : LogLevel.Information;
 
