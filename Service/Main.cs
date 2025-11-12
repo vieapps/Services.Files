@@ -48,18 +48,24 @@ namespace net.vieapps.Services.Files
 		IDisposable CacheCommunicator { get; set; }
 		#endregion
 
+		#region Register & Start the service
+		void RegisterCacheCommunicator()
+		{
+			this.CacheCommunicator?.Dispose();
+			this.CacheCommunicator = Router.GotBackupRouter()
+				? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+				: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+			Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+			Utility.HttpCache.AssignSendL1CacheRequest($"{this.ServiceName}.HTTP", this.NodeID, Router.GotBackupRouter());
+		}
+
 		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.RegisterServiceAsync
 			(
 				args,
 				_ =>
 				{
-					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.GotBackupRouter()
-						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
-						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
-					Utility.HttpCache.AssignSendL1CacheRequest($"{this.ServiceName}.HTTP", this.NodeID, Router.GotBackupRouter());
+					this.RegisterCacheCommunicator();
 					onSuccess?.Invoke(this);
 				},
 				onError
@@ -79,8 +85,8 @@ namespace net.vieapps.Services.Files
 				onError
 			);
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
-			=> base.Start(args, initializeRepository, _ =>
+		public override Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
+			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, _ =>
 			{
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 				while (Utility.FilesHttpURI.EndsWith('/'))
@@ -89,7 +95,6 @@ namespace net.vieapps.Services.Files
 				if (this.Sync)
 					this.StartTimer(this.SyncFilesAsync, 60 * this.SyncMinutes);
 
-				// reload all to rebuild cache (3 AM at every Monday)
 				if (this.IsPrepareCacheRequester)
 				{
 					var time = DateTime.Now.GetFirstDayOfWeek();
@@ -106,8 +111,10 @@ namespace net.vieapps.Services.Files
 					}, 60 * 13);
 				}
 
+				// last action
 				next?.Invoke(this);
 			});
+		#endregion
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{

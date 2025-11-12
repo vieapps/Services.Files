@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
-using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.DataProtection;
@@ -26,7 +25,13 @@ namespace net.vieapps.Services.Files
 	public class Startup
 	{
 		public static void Main(string[] args)
-			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args);
+			=> WebApplication.CreateBuilder(args).Run
+			(
+				args,
+				configuration => new Startup(configuration),
+				(startup, services) => startup.ConfigureServices(services),
+				(startup, app) => startup.Configure(app, app.Lifetime, app.Environment)
+			);
 
 		public Startup(IConfiguration configuration)
 			=> this.Configuration = configuration;

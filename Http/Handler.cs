@@ -389,30 +389,16 @@ namespace net.vieapps.Services.Files
 			Global.Logger.LogInformation($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect
 			(
-				async (sender, arguments) =>
+				(sender, arguments) =>
 				{
-					onIncomingConnectionEstablished?.ForEach(action =>
+					onIncomingConnectionEstablished?.ForEach(action => action.Invoke(sender, arguments));
+					Handler.RegisterSynchronizerAsync().ContinueWith(task =>
 					{
-						try
-						{
-							action?.Invoke(sender, arguments);
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Error occurred while calling on-incoming action => {ex.Message}", ex);
-						}
-					});
-
-					try
-					{
-						await Handler.RegisterSynchronizerAsync().ConfigureAwait(false);
-						Global.Logger.LogInformation("The synchronizer is registered successful");
-					}
-					catch (Exception ex)
-					{
-						Global.Logger.LogError($"Cannot register the synchronizer => {ex.Message}", ex);
-					}
-
+						if (task.Exception == null)
+							Global.Logger.LogInformation("The synchronizer was registered successful");
+						else
+							Global.Logger.LogError($"Cannot register the synchronizer => {task.Exception.Message}", task.Exception);
+					}).Execute();
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
 					(
@@ -428,20 +414,10 @@ namespace net.vieapps.Services.Files
 						exception => Global.WriteLogsAsync(Global.Logger, null, $"Error occurred while fetching an inter-communicate message of API Gateway: {exception.Message}", exception)
 					);
 				},
-				async (sender, arguments) =>
+				(sender, arguments) =>
 				{
-					onOutgoingConnectionEstablished?.ForEach(action =>
-					{
-						try
-						{
-							action?.Invoke(sender, arguments);
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Error occurred while calling on-outgoing action => {ex.Message}", ex);
-						}
-					});
-					await Global.RegisterServiceAsync().ConfigureAwait(false);
+					onOutgoingConnectionEstablished?.ForEach(action => action.Invoke(sender, arguments));
+					Global.RegisterServiceAsync().Execute();
 				},
 				waitingTimes,
 				exception => Global.Logger.LogError($"Cannot connect to API Gateway Router in a period of times => {exception.Message}", exception),
