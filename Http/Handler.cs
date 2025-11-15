@@ -10,8 +10,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Configuration;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
@@ -134,7 +132,7 @@ namespace net.vieapps.Services.Files
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
 					["X-Node"] = Global.NodeID,
-					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
+					["Access-Control-Allow-Methods"] = "GET,POST"
 				};
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 					headers["Access-Control-Allow-Headers"] = requestHeaders;
@@ -194,126 +192,6 @@ namespace net.vieapps.Services.Files
 				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
 				return;
 			}
-
-			var header = context.Request.Headers.ToDictionary();
-			var query = context.ParseQuery();
-			var session = context.GetSession();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
-
-			// prepare authenticate token
-			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
-			if (string.IsNullOrWhiteSpace(authenticateToken) && header.TryGetValue("authorization", out authenticateToken))
-			{
-				header.Remove("authorization");
-				try
-				{
-					var isBasicToken = authenticateToken.IsStartsWith("Basic");
-					authenticateToken = isBasicToken || authenticateToken.IsStartsWith("Bearer") || authenticateToken.IsStartsWith("JWT") ? authenticateToken.ToArray(" ").Last() : null;
-					if (authenticateToken != null)
-					{
-						var response = await new RequestInfo(session, "Users", "Token", "GET")
-						{
-							Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-							Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-							{
-								["x-authorization-token"] = authenticateToken,
-								["x-authorization-mode"] = isBasicToken ? "Basic" : "Bearer",
-								["x-authorization-signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey)
-							},
-							CorrelationID = context.GetCorrelationID()
-						}.CallServiceAsync(Global.CancellationToken).ConfigureAwait(false);
-						header["x-app-token"] = authenticateToken = response.Get<string>("Token");
-						session.Fill(response.Get<JObject>("Session"));
-					}
-				}
-				catch { }
-			}
-
-			// got authenticate token => update the session
-			var performSignIn = context.ContainsKey("x-authenticate");
-			if (!string.IsNullOrWhiteSpace(authenticateToken))
-				try
-				{
-					// authenticate
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.TokenExpiresAfter, null, null, null, Global.Logger, "Authentications", context.GetCorrelationID()).ConfigureAwait(false);
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with token {session.ToJson().ToString(Newtonsoft.Json.Formatting.Indented)}");
-
-					// perform sign-in (to create authenticate ticket cookie)
-					if (performSignIn)
-					{
-						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
-						if ("json".IsEquals(context.GetParameter("x-response")))
-						{
-							await context.WriteAsync(new JObject { ["Status"] = "OK" }, new Dictionary<string, string> { ["X-Correlation-ID"] = context.GetCorrelationID(), ["X-Node"] = Global.NodeID }, Global.CancellationToken).ConfigureAwait(false);
-							return;
-						}
-					}
-
-					// just assign user information
-					else
-						context.User = new UserPrincipal(session.User);
-				}
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					if (performSignIn)
-					{
-						context.WriteError(ex);
-						return;
-					}
-				}
-
-			// no authenticate token => update user of the session if already signed-in
-			else if (context.IsAuthenticated())
-				session.User = context.GetUser();
-
-			// update session
-			session.SessionID = session.User.SessionID = string.IsNullOrWhiteSpace(session.User.SessionID)
-				? UtilityService.NewUUID
-				: session.User.SessionID;
-
-			if (context.TryGetParameter("x-device-id", out var deviceID))
-				try
-				{
-					session.DeviceID = deviceID.Url64Decode();
-				}
-				catch
-				{
-					session.DeviceID = deviceID;
-				}
-			else if (context.TryGetParameter("x-did", out deviceID))
-				try
-				{
-					session.DeviceID = deviceID.Url64Decode();
-				}
-				catch {	}
-			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
-
-			if (context.TryGetParameter("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName))
-				try
-				{
-					session.AppName = appName.Url64Decode();
-				}
-				catch
-				{
-					session.AppName = appName;
-				}
-
-			if (context.TryGetParameter("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform))
-				try
-				{
-					session.AppPlatform = appPlatform.Url64Decode();
-				}
-				catch
-				{
-					session.AppPlatform = appPlatform;
-				}
-
-			// store the session for further use
-			context.SetItem("Session", session);
 
 			// process the request
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);

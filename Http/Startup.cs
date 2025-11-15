@@ -191,7 +191,7 @@ namespace net.vieapps.Services.Files
 				});
 
 			// setup the handler for all requests
-			appBuilder.UseMiddleware<Handler>();
+			appBuilder.UseMiddleware<Authenticator>().UseMiddleware<Handler>();
 
 			// connect to API Gateway Router
 			Handler.Connect(onIncomingConnectionEstablished, onOutgoingConnectionEstablished);
