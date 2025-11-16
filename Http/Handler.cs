@@ -27,8 +27,6 @@ namespace net.vieapps.Services.Files
 		#region Properties
 		string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
-		internal static int TokenExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("APIs:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 900;
-
 		internal static bool IsCacheImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
 
 		internal static bool IsCacheThumbnails { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
@@ -152,7 +150,6 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
