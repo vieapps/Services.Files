@@ -60,6 +60,8 @@ namespace net.vieapps.Services.Files
 			}
 
 			context.SendSessionState(attachment.SystemID);
+			if (isDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a WebP image => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// prepare entity tag and headers
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
@@ -127,7 +129,11 @@ namespace net.vieapps.Services.Files
 				}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (Handler.IsCacheImages)
-					attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified).Execute();
+					Task.WhenAll
+					(
+						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of a WebP image => {requestURI}") : Task.CompletedTask,
+						attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified)
+					).Execute();
 			}
 
 			// meta headers
@@ -148,7 +154,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, "Direct", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a WebP image file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a WebP image file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}\r\nInfo: {attachment.ToJson()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 	}

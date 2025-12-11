@@ -27,11 +27,11 @@ namespace net.vieapps.Services.Files
 		#region Properties
 		string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
-		internal static bool IsCacheImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true")) && Global.Cache != null;
+		internal static bool IsCacheImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Images", "true"));
 
-		internal static bool IsCacheThumbnails { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true")) && Global.Cache != null;
+		internal static bool IsCacheThumbnails { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Thumbnails", "true"));
 
-		internal static bool PrepareCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false")) && Global.Cache != null;
+		internal static bool PrepareCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Files:Cache:Prepare", "false"));
 
 		internal static string UserAvatarFilesPath { get; } = UtilityService.GetAppSetting("Path:UserAvatars", Path.Combine(Global.RootPath, "data-files", "user-avatars"));
 
@@ -220,7 +220,7 @@ namespace net.vieapps.Services.Files
 							context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, context.GetCorrelationID(), wampDetails.Stack + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
 					}
 					else
-						context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+						context.ShowError(ex, Global.IsDebugLogEnabled);
 				}
 			}
 		}

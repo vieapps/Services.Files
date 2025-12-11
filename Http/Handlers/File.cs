@@ -1,19 +1,17 @@
 ﻿#region Related component
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.WebUtilities;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Utility;
-using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.Mail;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-
+using System.Diagnostics;
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
+using Newtonsoft.Json.Linq;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -60,6 +58,8 @@ namespace net.vieapps.Services.Files
 			context.SendSessionState(attachment.SystemID);
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = !context.IsBypassCache();
+			if (isDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a file => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// check "If-Modified-Since" request to reduce traffic
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -127,7 +127,11 @@ namespace net.vieapps.Services.Files
 			{
 				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.GetContentDisposition(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (useCache)
-					attachment.PrepareCacheAsync(attachment.IsWebP()).Execute();
+					Task.WhenAll
+					(
+						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of an image => {requestURI}") : Task.CompletedTask,
+						attachment.PrepareCacheAsync(attachment.IsWebP())
+					).Execute();
 			}
 
 			// update counter & logs
@@ -135,7 +139,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, hasCached || attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}\r\nInfo: {attachment.ToJson()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
