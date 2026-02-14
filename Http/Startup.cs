@@ -226,6 +226,7 @@ namespace net.vieapps.Services.Files
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 				Global.RSA.Dispose();
 				Handler.Disconnect();
+				Extensions.ShutdownLogsAsync().Execute(true);
 			});
 
 			// on stopped

@@ -124,21 +124,23 @@ namespace net.vieapps.Services.Files
 		public static AttachmentInfo CopyFile(this AttachmentInfo attachment, ILogger logger = null, string objectName = null, string tempFilesPath = null)
 		{
 			var source = attachment.GetFilePath(true, tempFilesPath);
+			var destination = attachment.PrepareDirectories().GetFilePath();
+
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachment.PrepareDirectories().GetFilePath();
 					fileInfo.CopyTo(destination, true);
 					if (Global.IsDebugLogEnabled)
 						Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Successfully copy a file [{source} => {destination}]");
 				}
 				catch (Exception ex)
 				{
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Error occurred while copying a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Error occurred while copying a file\r\nFile: {source} => {destination}\r\nError: {ex.Message}", ex, Global.ServiceName, LogLevel.Error);
 				}
 			else if (Global.IsDebugLogEnabled)
 				Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Synchronizers", $"Cannot copy a doesn't existing file of a legacy system [{source}]");
+
 			return attachment;
 		}
 
@@ -162,11 +164,11 @@ namespace net.vieapps.Services.Files
 		public static AttachmentInfo MoveFile(this AttachmentInfo attachment, ILogger logger = null, string objectName = null, string correlationID = null, bool moveDestinationIntoTrashIfExists = false)
 		{
 			var source = attachment.GetFilePath(true);
+			var destination = attachment.GetFilePath();
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachment.GetFilePath();
 					if (moveDestinationIntoTrashIfExists && File.Exists(destination))
 						attachment.MoveFileIntoTrash(logger, objectName);
 					fileInfo.MoveTo(destination);
@@ -175,7 +177,7 @@ namespace net.vieapps.Services.Files
 				}
 				catch (Exception ex)
 				{
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file\r\nFile: {source} => {destination}\r\nError: {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
 				}
 			return attachment;
 		}
@@ -186,13 +188,19 @@ namespace net.vieapps.Services.Files
 				return attachment;
 
 			var source = attachment.GetFilePath();
+			var destination = attachment.GetTrashFilePath();
+
 			var fileInfo = new FileInfo(source);
 			if (fileInfo.Exists)
 				try
 				{
-					var destination = attachment.GetTrashFilePath();
+					var trashDirectory = Path.Combine(attachment.GetDirectoryPath(), "trash");
+					if (!Directory.Exists(trashDirectory))
+						Directory.CreateDirectory(trashDirectory);
+
 					if (File.Exists(destination))
 						File.Delete(destination);
+
 					fileInfo.MoveTo(destination);
 					File.SetLastAccessTime(destination, DateTime.Now);
 					if (Global.IsDebugLogEnabled)
@@ -200,10 +208,11 @@ namespace net.vieapps.Services.Files
 				}
 				catch (Exception ex)
 				{
-					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file into trash => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
+					Global.WriteLogs(logger ?? Global.Logger, objectName ?? "Uploads", $"Error occurred while moving a file into trash\r\nFile: {source} => {destination}\r\nError: {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID);
 					if (deleteOnUnsucces)
 						return attachment.DeleteFile(false, logger, objectName);
 				}
+
 			return attachment;
 		}
 
@@ -665,6 +674,9 @@ namespace net.vieapps.Services.Files
 		public static string GetCacheKey(this AttachmentInfo attachment, int index = -1, ImageFormat format = null, int width = 0, int height = 0, bool asBig = true)
 			=> (attachment.IsThumbnail ? attachment.ObjectID : attachment.ID, attachment.IsThumbnail ? index < 0 ? attachment.Filename.Length == 36 ? 0 : attachment.Filename.Right(5).Replace(".jpg", "").As<int>() : index : 0, format ?? ImageFormat.Jpeg, width, height, asBig).GetCacheKey();
 
+		public static bool IsCacheableImage(this AttachmentInfo attachment, bool allowTemporary = false)
+			=> (allowTemporary || !attachment.IsTemporary) && !string.IsNullOrWhiteSpace(attachment.ContentType) && attachment.ContentType.IsStartsWith("image/") && !attachment.ContentType.IsContains("icon") && !attachment.ContentType.IsContains("svg");
+
 		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, int index, ImageFormat format, byte[] original, long lastModified, int width = 0, int height = 0, bool asBig = true)
 		{
 			if (original == null || original.Length < 1 || lastModified < 1)
@@ -781,16 +793,11 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Session state
-		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
-
-		static bool IsCrawler(this Session session)
-			=> CrawlerDetector.IsCrawler(session.AppAgent) || "Generic OS".IsEquals(session.AppAgent.GetOSInfo());
-
 		public static void SendSessionState(this HttpContext context, string systemID = null, bool online = true)
 		{
 			var session = context.GetSession();
 			if (Handler.TrackSessions)
-				session.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, true, false, message => message.Data["Crawler"] = session.IsCrawler());
+				session.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, true, false, message => message.Data["Crawler"] = context.IsCrawlerbot());
 			else
 				new RequestInfo(session, $"{Global.ServiceName}.HTTP") { Verb = context.Request.Method, CorrelationID = context.GetCorrelationID() }.TrackStatistics();
 		}
@@ -798,7 +805,7 @@ namespace net.vieapps.Services.Files
 		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool online = true)
 		{
 			if (Handler.TrackSessions)
-				requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, true, false, message => message.Data["Crawler"] = requestInfo.Session.IsCrawler());
+				requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, true, false, message => message.Data["Crawler"] = requestInfo.IsCrawlerbot());
 			else
 				requestInfo.TrackStatistics();
 		}

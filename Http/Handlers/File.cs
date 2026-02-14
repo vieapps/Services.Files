@@ -126,7 +126,7 @@ namespace net.vieapps.Services.Files
 			else
 			{
 				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.GetContentDisposition(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				if (useCache)
+				if (useCache && attachment.IsCacheableImage())
 					Task.WhenAll
 					(
 						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of an image => {requestURI}") : Task.CompletedTask,
@@ -210,8 +210,8 @@ namespace net.vieapps.Services.Files
 				// update cache
 				await Task.WhenAll
 				(
-					Handler.IsCacheImages ? attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask,
-					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => !attachment.IsTemporary && attachment.ContentType.IsStartsWith("image/")).Select(attachment => attachment.GetCacheKey(attachment.ContentType.IsEndsWith("/webp") ? "webp" : "file")).Join(", ")})") : Task.CompletedTask
+					Handler.IsCacheImages ? attachments.Where(attachment => attachment.IsCacheableImage()).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask,
+					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => attachment.IsCacheableImage()).Select(attachment => attachment.GetCacheKey(attachment.ContentType.IsEndsWith("/webp") ? "webp" : "file")).Join(", ")})") : Task.CompletedTask
 				).ConfigureAwait(false);
 
 				// sync
