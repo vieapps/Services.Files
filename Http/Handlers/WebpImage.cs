@@ -26,6 +26,7 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
+			var stepwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
@@ -60,10 +61,12 @@ namespace net.vieapps.Services.Files
 			}
 
 			context.SendSessionState(attachment.SystemID);
+			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a WebP image => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// prepare entity tag and headers
+			stepwatch.Restart();
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
 			var eTag = $"vieapps#{(attachment.IsWebP() ? cacheKey.Replace("file#", "") : cacheKey.GenerateUUID())}";
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -79,6 +82,7 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
 				headers["X-Cache"] = "HTTP-304";
+				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
@@ -90,7 +94,8 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// check existed
+			// check cache
+			stepwatch.Restart();
 			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			byte[] data;
 			long lastModified;
@@ -113,19 +118,23 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = "HTTP-200";
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
+				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
 			else
 			{
+				stepwatch.Restart();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+				context.UpdateServerTiming("ngxRead", stepwatch.ElapsedMilliseconds);
 				if (!attachment.IsWebP())
 				{
-					var stepwatch = Stopwatch.StartNew();
+					stepwatch.Restart();
 					var length = data.Length;
 					data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Prepare a WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+					context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 				}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (Handler.IsCacheImages)

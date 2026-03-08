@@ -29,6 +29,7 @@ namespace net.vieapps.Services.Files
 		{
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
+			var stepwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
@@ -56,6 +57,9 @@ namespace net.vieapps.Services.Files
 			}
 
 			context.SendSessionState(attachment.SystemID);
+			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
+			stepwatch.Restart();
+
 			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
 			var processCache = !context.IsBypassCache();
 			if (isDebugLogEnabled)
@@ -76,6 +80,7 @@ namespace net.vieapps.Services.Files
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
 				headers["X-Cache"] = "HTTP-304";
+				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
@@ -87,7 +92,7 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// check existed
+			// check cache
 			FileInfo fileInfo = null;
 			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
@@ -119,6 +124,7 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = "HTTP-200";
 				var data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
+				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of an image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
