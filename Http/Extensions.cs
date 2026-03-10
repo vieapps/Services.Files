@@ -795,18 +795,17 @@ namespace net.vieapps.Services.Files
 		#region Session state
 		public static void SendSessionState(this HttpContext context, string systemID = null, bool online = true)
 		{
-			var session = context.GetSession();
 			if (Handler.TrackSessions)
-				session.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, true, false, message => message.Data["Crawler"] = context.IsCrawlerbot());
-			else
-				new RequestInfo(session, $"{Global.ServiceName}.HTTP") { Verb = context.Request.Method, CorrelationID = context.GetCorrelationID() }.TrackStatistics();
+				context.GetSession().SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {context.GetRequestUrl()}", systemID, online, Handler.TrackStatistics, false, message => message.Data["Crawler"] = context.IsCrawlerbot(), null, context.GetCorrelationID());
+			else if (Handler.TrackStatistics)
+				context.GetSession().TrackStatistics(context.GetCorrelationID());
 		}
 
 		public static void SendSessionState(this RequestInfo requestInfo, string systemID = null, bool online = true)
 		{
 			if (Handler.TrackSessions)
-				requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, true, false, message => message.Data["Crawler"] = requestInfo.IsCrawlerbot());
-			else
+				requestInfo.Session.SendSessionState($"{Global.ServiceName}.HTTP", $"{requestInfo.Verb} {requestInfo.GetURI()}", systemID, online, Handler.TrackStatistics, false, message => message.Data["Crawler"] = requestInfo.IsCrawlerbot(), null, requestInfo.CorrelationID);
+			else if (Handler.TrackStatistics)
 				requestInfo.TrackStatistics();
 		}
 		#endregion
