@@ -70,7 +70,7 @@ namespace net.vieapps.Services.Files
 					["X-Meta-Object"] = attachment.ObjectID?.ToLower(),
 					["X-Node"] = Global.NodeID
 				};
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					context.UpdateAsync(attachment, "Download", cancellationToken),

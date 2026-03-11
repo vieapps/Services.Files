@@ -757,37 +757,24 @@ namespace net.vieapps.Services.Files
 		public static Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment)
 			=> attachment.PrepareCacheAsync(-1, null, null, 0, 0, 0, true);
 
-		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, bool isWebP, string prefix = "file", byte[] data = null, long lastModified = 0, bool onlyWebP = false)
+		public static async Task<List<string>> PrepareCacheAsync(this AttachmentInfo attachment, byte[] data, long lastModified = 0)
 		{
-			if (data == null || data.Length < 1 || lastModified < 1)
+			if (data == null || data.Length < 1 || lastModified <= 0)
 			{
 				var fileInfo = new FileInfo(attachment.GetFilePath());
 				data = await fileInfo.ReadAsBinaryAsync(Global.CancellationToken).ConfigureAwait(false);
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-			}
-
-			var cacheKey = attachment.GetCacheKey(prefix ?? (isWebP ? "webp" : "file"));
-			var cacheKeys = new List<string> { cacheKey, $"{cacheKey}:time" };
-			if (isWebP || !onlyWebP)
-				await Task.WhenAll
-				(
-					Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
-				).ConfigureAwait(false);
-
-			if (!isWebP && cacheKey.IsStartsWith("file#"))
-			{
 				data = await data.ConvertAsync(ImageFormat.Webp, Global.CancellationToken).ConfigureAwait(false);
-				cacheKey = attachment.GetCacheKey("webp");
-				cacheKeys = [.. cacheKeys, cacheKey, $"{cacheKey}:time"];
-				await Task.WhenAll
-				(
-					Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
-					Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken)
-				).ConfigureAwait(false);
+				lastModified = lastModified > 0 ? lastModified : fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
 			}
 
-			await Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:images", cacheKeys, Global.CancellationToken).ConfigureAwait(false);
+			var cacheKey = attachment.GetCacheKey("webp");
+			var cacheKeys = new List<string> { cacheKey, $"{cacheKey}:time" };
+			await Task.WhenAll
+			(
+				Global.Cache.SetAsFragmentsAsync(cacheKey, data, Global.CancellationToken),
+				Global.Cache.SetAsync($"{cacheKey}:time", lastModified, Global.CancellationToken),
+				Global.Cache.AddSetMembersAsync($"{attachment.ObjectID}:images", cacheKeys, Global.CancellationToken)
+			).ConfigureAwait(false);
 			return cacheKeys;
 		}
 		#endregion

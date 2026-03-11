@@ -136,12 +136,12 @@ namespace net.vieapps.Services.Files
 					context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 				}
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
-				if (Handler.IsCacheImages)
+				lastModified = fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
+				if (Handler.IsCacheImages && !attachment.IsWebP())
 					Task.WhenAll
 					(
 						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of a WebP image => {requestURI}") : Task.CompletedTask,
-						attachment.PrepareCacheAsync(true, attachment.IsWebP() ? "file" : "webp", data, lastModified)
+						attachment.PrepareCacheAsync(data, lastModified)
 					).Execute();
 			}
 
@@ -156,7 +156,7 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// flush the file to output stream
-			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// update counter & logs
 			stopwatch.Stop();

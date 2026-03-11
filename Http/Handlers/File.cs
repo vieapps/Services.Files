@@ -59,21 +59,19 @@ namespace net.vieapps.Services.Files
 			context.SendSessionState(attachment.SystemID);
 			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
 			stepwatch.Restart();
-
-			var useCache = attachment.ContentType.IsStartsWith("image/") && Handler.IsCacheImages;
-			var processCache = !context.IsBypassCache();
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a file => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// check "If-Modified-Since" request to reduce traffic
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
-				["X-Cache"] = "None",
+				["X-Cache"] = "HTTP-200",
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
 			var cacheKey = attachment.GetCacheKey("file");
 			var eTag = cacheKey.Replace("file", "vieapps");
+			var processCache = !context.IsBypassCache();
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 
@@ -92,20 +90,14 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			// check cache
-			FileInfo fileInfo = null;
-			var hasCached = useCache && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-
-			if (!hasCached)
+			// check file
+			var fileInfo = new FileInfo(attachment.GetFilePath());
+			if (!fileInfo.Exists)
 			{
-				fileInfo = new FileInfo(attachment.GetFilePath());
-				if (!fileInfo.Exists)
-				{
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Downloads", $"Not found: [{requestURI}] => [{fileInfo.FullName}]").ConfigureAwait(false);
-					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
-					return;
-				}
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Not found: [{requestURI}] => [{fileInfo.FullName}]").ConfigureAwait(false);
+				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+				return;
 			}
 
 			// meta headers
@@ -118,33 +110,20 @@ namespace net.vieapps.Services.Files
 			else
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
-			// flush the file to output stream
-			if (hasCached)
-			{
-				headers["X-Cache"] = "HTTP-200";
-				var data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
-				var lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
-				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-				await context.WriteAsync(data, attachment.ContentType, attachment.GetContentDisposition(), eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of an image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
-			}
-			else
-			{
-				await context.WriteAsync(fileInfo, attachment.ContentType, attachment.GetContentDisposition(), eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
-				if (useCache && attachment.IsCacheableImage())
-					Task.WhenAll
-					(
-						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of an image => {requestURI}") : Task.CompletedTask,
-						attachment.PrepareCacheAsync(attachment.IsWebP())
-					).Execute();
-			}
+			// send the file to output stream
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP())
+				Task.WhenAll
+				(
+					isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of an image => {requestURI}") : Task.CompletedTask,
+					attachment.PrepareCacheAsync(null)
+				).Execute();
 
 			// update counter & logs
 			stopwatch.Stop();
 			await Task.WhenAll
 			(
-				context.UpdateAsync(attachment, hasCached || attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
+				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
 				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}\r\nInfo: {attachment.ToJson()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -216,8 +195,8 @@ namespace net.vieapps.Services.Files
 				// update cache
 				await Task.WhenAll
 				(
-					Handler.IsCacheImages ? attachments.Where(attachment => attachment.IsCacheableImage()).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(attachment.ContentType.IsEndsWith("/webp"))) : Task.CompletedTask,
-					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => attachment.IsCacheableImage()).Select(attachment => attachment.GetCacheKey(attachment.ContentType.IsEndsWith("/webp") ? "webp" : "file")).Join(", ")})") : Task.CompletedTask
+					Handler.IsCacheImages ? attachments.Where(attachment => attachment.IsCacheableImage() && !attachment.IsWebP()).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(null)) : Task.CompletedTask,
+					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => attachment.IsCacheableImage() && !attachment.IsWebP()).Select(attachment => attachment.GetCacheKey("webp")).Join(", ")})") : Task.CompletedTask
 				).ConfigureAwait(false);
 
 				// sync

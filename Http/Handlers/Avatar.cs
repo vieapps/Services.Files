@@ -84,7 +84,7 @@ namespace net.vieapps.Services.Files
 			}
 
 			// response
-			await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, fileInfo.LastWriteTime.ToUnixTimestamp(), "public", TimeSpan.FromDays(366), new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, null, eTag, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, correlationID, cancellationToken).ConfigureAwait(false);
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Avatars", $"Successfully show an avatar image [{requestUri} => {fileInfo.FullName} - {fileInfo.Length:###,##0} bytes]").ConfigureAwait(false);
 		}
