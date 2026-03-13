@@ -193,14 +193,11 @@ namespace net.vieapps.Services.Files
 				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment => attachment.PrepareDirectories().MoveFile(this.Logger, "Uploads"));
 
 				// update cache
-				await Task.WhenAll
-				(
-					Handler.IsCacheImages ? attachments.Where(attachment => attachment.IsCacheableImage() && !attachment.IsWebP()).ToList().ForEachAsync(attachment => attachment.PrepareCacheAsync(null)) : Task.CompletedTask,
-					Handler.IsCacheImages && isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of images successful ({attachments.Where(attachment => attachment.IsCacheableImage() && !attachment.IsWebP()).Select(attachment => attachment.GetCacheKey("webp")).Join(", ")})") : Task.CompletedTask
-				).ConfigureAwait(false);
+				if (Handler.IsCacheImages)
+					attachments.Where(attachment => attachment.IsCacheableImage() && !attachment.IsWebP()).ForEach(attachment => attachment.PrepareCacheAsync(null).Execute());
 
 				// sync
-				await attachments.Where(attachment => !attachment.IsTemporary).ForEachAsync(async attachment =>
+				attachments.Where(attachment => !attachment.IsTemporary).ForEach(attachment =>
 				{
 					new CommunicateMessage(Global.ServiceName)
 					{
@@ -217,8 +214,8 @@ namespace net.vieapps.Services.Files
 						}
 					}.Send();
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({attachment.GetFilePath()})").ConfigureAwait(false);
-				}).ConfigureAwait(false);
+						context.WriteLogsAsync(this.Logger, "Synchronizers", $"Send an inter-communicate message to sync an attachment file ({attachment.GetFilePath()})").Execute();
+				});
 
 				// response as a single image/file
 				if (segment.IsEquals("one.image") || segment.IsEquals("one.file") || segment.IsEquals("temp.file"))

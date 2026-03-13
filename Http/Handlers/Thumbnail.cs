@@ -346,11 +346,11 @@ namespace net.vieapps.Services.Files
 
 				// update cache
 				if (Handler.IsCacheThumbnails)
-				{
-					await thumbnails.ForEachAsync((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()) : Task.CompletedTask, true, false).ConfigureAwait(false);
-					if (isDebugLogEnabled)
-						await context.WriteLogsAsync(this.Logger, "Uploads", $"Prepare cache of thumbnail images successful ({thumbnails.Select((thumbnail, index) => thumbnail.Data != null ? thumbnail.Info.GetCacheKey(index, ImageFormat.Jpeg) : null).Where(key => key != null).Join(", ")})").ConfigureAwait(false);
-				}
+					thumbnails.ForEach((thumbnail, index) =>
+					{
+						if (thumbnail.Data != null)
+							thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()).Execute();
+					});
 
 				// sync
 				await thumbnails.Where(thumbnail => thumbnail.Data != null).ForEachAsync(async thumbnail =>
