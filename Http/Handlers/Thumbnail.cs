@@ -74,7 +74,6 @@ namespace net.vieapps.Services.Files
 
 			// check "If-Modified-Since" request to reduce traffict
 			var cacheControl = "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
-			var expires = TimeSpan.FromDays(366);
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : 0;
@@ -188,6 +187,7 @@ namespace net.vieapps.Services.Files
 
 			// track
 			context.SendSessionState(attachment.SystemID);
+			context.UpdateServerTiming("ngxPrepare", stopwatch.ElapsedMilliseconds);
 
 			// meta headers
 			if (!isThumbnail)
@@ -206,7 +206,7 @@ namespace net.vieapps.Services.Files
 			var asReplacement = false;
 			try
 			{
-				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			catch (SixLabors.ImageSharp.UnknownImageFormatException ex)
 			{
@@ -223,7 +223,7 @@ namespace net.vieapps.Services.Files
 			if (asReplacement)
 			{
 				fileInfo = new FileInfo(Handler.NoThumbnailImageFilePath);
-				await context.SendFileAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.SendFileAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 
 			// update counter & logs

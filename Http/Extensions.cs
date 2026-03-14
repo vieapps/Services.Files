@@ -2,16 +2,19 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
-using SixLabors.ImageSharp.Formats;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Memory;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -311,7 +314,22 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with images
-		static IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
+		static ServiceExtensions()
+		{
+			SixLabors.ImageSharp.Configuration.Default.MemoryAllocator = MemoryAllocator.Create(new MemoryAllocatorOptions
+			{
+				MaximumPoolSizeMegabytes = 128
+			});
+		}
+
+		static IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
+		{
+			FileFormat = SixLabors.ImageSharp.Formats.Webp.WebpFileFormatType.Lossy,
+			Method = Enum.TryParse<SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod>(UtilityService.GetAppSetting("Files:WebP:Method", "Default"), out var method)
+				? method
+				: SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod.Default,
+			Quality = 70
+		};
 
 		static IImageEncoder BmpEncoder { get; } = new SixLabors.ImageSharp.Formats.Bmp.BmpEncoder();
 
@@ -322,9 +340,33 @@ namespace net.vieapps.Services.Files
 		public static async Task<MemoryStream> ConvertAsync(this MemoryStream imageStream, ImageFormat format, CancellationToken cancellationToken)
 		{
 			imageStream.Seek(0, SeekOrigin.Begin);
-			using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
+			using var image = await (format == ImageFormat.Webp
+				? SixLabors.ImageSharp.Image.LoadAsync(new DecoderOptions	{ TargetSize = new SixLabors.ImageSharp.Size(1920, 0) }, imageStream, cancellationToken)
+				:	SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken)).ConfigureAwait(false);
+			image.Metadata.ExifProfile = null;
+			image.Metadata.IccProfile = null;
+			image.Metadata.XmpProfile = null;
+			image.Metadata.IptcProfile = null;
+			if (format == ImageFormat.Webp && image.Width > 1920)
+				image.Mutate(op =>
+				{
+					op.AutoOrient();
+					op.Resize(new ResizeOptions
+					{
+						Mode = ResizeMode.Max,
+						Size = new SixLabors.ImageSharp.Size(1920, 0),
+						Sampler = KnownResamplers.Lanczos3
+					});
+				});
 			var outputStream = UtilityService.CreateMemoryStream();
-			await image.SaveAsync(outputStream, format == ImageFormat.Webp ? ServiceExtensions.WebpEncoder : format == ImageFormat.Bmp ? ServiceExtensions.BmpEncoder : format == ImageFormat.Png ? ServiceExtensions.PngEncoder : ServiceExtensions.JpegEncoder, cancellationToken).ConfigureAwait(false);
+			var encoder = format == ImageFormat.Webp ? ServiceExtensions.WebpEncoder : format == ImageFormat.Bmp ? ServiceExtensions.BmpEncoder : format == ImageFormat.Png ? ServiceExtensions.PngEncoder : ServiceExtensions.JpegEncoder;
+			if (image.PixelType.BitsPerPixel != 24)
+			{
+				using var rgbImage = image.CloneAs<Rgb24>();
+				await rgbImage.SaveAsync(outputStream, encoder, cancellationToken).ConfigureAwait(false);
+			}
+			else
+				await image.SaveAsync(outputStream, encoder, cancellationToken).ConfigureAwait(false);
 			outputStream.Seek(0, SeekOrigin.Begin);
 			return outputStream;
 		}

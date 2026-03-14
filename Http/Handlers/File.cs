@@ -112,7 +112,8 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// send the file to output stream
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
+			await context.SendFileAsync(fileInfo, null, attachment.GetContentDisposition(), eTag, 0, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// prepare WebP image cache
 			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP())

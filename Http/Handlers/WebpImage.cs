@@ -60,10 +60,8 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 			}
 
+			// track
 			context.SendSessionState(attachment.SystemID);
-			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
-			if (isDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a WebP image => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// prepare entity tag and headers
 			stepwatch.Restart();
@@ -75,6 +73,7 @@ namespace net.vieapps.Services.Files
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
+			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
 
 			// check "If-Modified-Since" request to reduce traffict
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
@@ -83,7 +82,7 @@ namespace net.vieapps.Services.Files
 			{
 				headers["X-Cache"] = "HTTP-304";
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), cacheControl, correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
 				return;
@@ -94,11 +93,16 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
+			// track
+			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
+			if (isDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a WebP image => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
+
 			// check cache
 			stepwatch.Restart();
-			var hasCached = Handler.IsCacheImages && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-			byte[] data;
-			long lastModified;
+			var hasCached = Handler.IsCacheImages && processCache && !attachment.IsWebP() && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			byte[] data = null;
+			long lastModified = 0;
 
 			if (!hasCached)
 			{
@@ -122,7 +126,7 @@ namespace net.vieapps.Services.Files
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
-			else
+			else if (!attachment.IsWebP())
 			{
 				stepwatch.Restart();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
@@ -156,9 +160,13 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// flush the file to output stream
-			var cacheControl = "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
-			var expires = TimeSpan.FromDays(366);
-			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			if (attachment.IsWebP())
+			{
+				headers["X-Cache"] = "SFILE-200";
+				await context.SendFileAsync(fileInfo, "image/webp", null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			}
+			else
+				await context.WriteAsync(data, "image/webp", null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// update counter & logs
 			stopwatch.Stop();
