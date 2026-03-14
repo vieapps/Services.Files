@@ -26,14 +26,11 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
-			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			if (isDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
-
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
 				throw new InvalidRequestException();
 
 			// check "If-Modified-Since" request to reduce traffict
+			var isDebugLogEnabled = context.IsDebugLogEnabled();
 			var identifier = pathSegments[1].ToLower();
 			var eTag = $"vieapps#{identifier}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
@@ -53,30 +50,33 @@ namespace net.vieapps.Services.Files
 			if (!await context.CanDownloadAsync(attachment, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
-			context.SendSessionState(attachment.SystemID);
-
 			// check exist
 			var fileInfo = new FileInfo(attachment.GetFilePath());
 			if (!fileInfo.Exists)
+			{
 				context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
+				return;
+			}
 
 			// flush the file to output stream, update counter & logs
-			else
+			context.SendSessionState(attachment.SystemID);
+			if (isDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
+
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["X-Meta-System"] = attachment.SystemID?.ToLower(),
-					["X-Meta-Entity"] = attachment.EntityInfo?.ToLower(),
-					["X-Meta-Object"] = attachment.ObjectID?.ToLower(),
-					["X-Node"] = Global.NodeID
-				};
-				await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					context.UpdateAsync(attachment, "Download", cancellationToken),
-					isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file (as download) [{requestURI} => {fileInfo.FullName}]") : Task.CompletedTask
-				).ConfigureAwait(false);
-			}
+				["X-Meta-System"] = attachment.SystemID?.ToLower(),
+				["X-Meta-Entity"] = attachment.EntityInfo?.ToLower(),
+				["X-Meta-Object"] = attachment.ObjectID?.ToLower(),
+				["X-Node"] = Global.NodeID
+			};
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
+
+			await Task.WhenAll
+			(
+				context.UpdateAsync(attachment, "Download", cancellationToken),
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file (as download) [{requestURI} => {fileInfo.FullName}]") : Task.CompletedTask
+			).ConfigureAwait(false);
 		}
 	}
 }

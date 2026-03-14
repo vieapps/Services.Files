@@ -156,7 +156,9 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// flush the file to output stream
-			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+			var cacheControl = "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
+			var expires = TimeSpan.FromDays(366);
+			await context.WriteAsync(data, "image/webp", null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// update counter & logs
 			stopwatch.Stop();

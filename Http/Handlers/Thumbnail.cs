@@ -73,13 +73,15 @@ namespace net.vieapps.Services.Files
 			};
 
 			// check "If-Modified-Since" request to reduce traffict
+			var cacheControl = "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
+			var expires = TimeSpan.FromDays(366);
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : 0;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
 			{
 				headers["X-Cache"] = "HTTP-304";
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, cacheControl, correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return;
@@ -133,14 +135,15 @@ namespace net.vieapps.Services.Files
 			// generate
 			async Task<byte[]> getAsync()
 			{
+				var stepwatch = Stopwatch.StartNew();
 				headers["X-Cache"] = "HTTP-200";
 				var thumbnail = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				if (lastModified < 1)
 				{
-					fileInfo ??= new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
 					lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 					await Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, cancellationToken).ConfigureAwait(false);
 				}
+				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Cached of a thumbnail image was found [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return thumbnail;
@@ -150,21 +153,27 @@ namespace net.vieapps.Services.Files
 			{
 				var stepwatch = Stopwatch.StartNew();
 				var original = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+				context.UpdateServerTiming("ngxRead", stepwatch.ElapsedMilliseconds);
+
 				byte[] thumbnail;
 				if (isNoThumbnailImage)
 					thumbnail = original;
 				else
 					try
 					{
+						stepwatch.Restart();
 						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken).ConfigureAwait(false);
 						stepwatch.Stop();
+						context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes");
 					}
 					catch (Exception ex)
 					{
 						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
+						stepwatch.Restart();
 						thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+						context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
 					}
 				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				if (!isNoThumbnailImage && Handler.IsCacheThumbnails)
@@ -177,6 +186,7 @@ namespace net.vieapps.Services.Files
 			if (!await gotRightsAsync().ConfigureAwait(false))
 				throw new AccessDeniedException();
 
+			// track
 			context.SendSessionState(attachment.SystemID);
 
 			// meta headers
@@ -196,7 +206,7 @@ namespace net.vieapps.Services.Files
 			var asReplacement = false;
 			try
 			{
-				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			catch (SixLabors.ImageSharp.UnknownImageFormatException ex)
 			{
@@ -213,7 +223,7 @@ namespace net.vieapps.Services.Files
 			if (asReplacement)
 			{
 				fileInfo = new FileInfo(Handler.NoThumbnailImageFilePath);
-				await context.WriteAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, "public", TimeSpan.FromDays(366), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.SendFileAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, cacheControl, expires, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 
 			// update counter & logs

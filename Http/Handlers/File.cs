@@ -59,13 +59,11 @@ namespace net.vieapps.Services.Files
 			context.SendSessionState(attachment.SystemID);
 			context.UpdateServerTiming("ngxPrepare", stepwatch.ElapsedMilliseconds);
 			stepwatch.Restart();
-			if (isDebugLogEnabled)
-				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a file => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
 
 			// check "If-Modified-Since" request to reduce traffic
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
-				["X-Cache"] = "HTTP-200",
+				["X-Cache"] = "SFILE-200",
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
@@ -100,6 +98,9 @@ namespace net.vieapps.Services.Files
 				return;
 			}
 
+			if (isDebugLogEnabled)
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start flush a file => {requestURI}\r\nInfo: {attachment.ToJson()}").ConfigureAwait(false);
+
 			// meta headers
 			headers["X-Meta-Service"] = attachment.ServiceName;
 			headers["X-Meta-Object"] = attachment.ObjectName;
@@ -112,10 +113,12 @@ namespace net.vieapps.Services.Files
 
 			// send the file to output stream
 			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
+
+			// prepare WebP image cache
 			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP())
 				Task.WhenAll
 				(
-					isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of an image => {requestURI}") : Task.CompletedTask,
+					isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare WebP image cache => {requestURI}") : Task.CompletedTask,
 					attachment.PrepareCacheAsync(null)
 				).Execute();
 
