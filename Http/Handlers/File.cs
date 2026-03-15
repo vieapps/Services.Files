@@ -63,7 +63,7 @@ namespace net.vieapps.Services.Files
 			// check "If-Modified-Since" request to reduce traffic
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
-				["X-Cache"] = "SFILE-200",
+				["X-Cache"] = "SEND-FILE",
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Files
 
 			// send the file to output stream
 			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
-			await context.SendFileAsync(fileInfo, null, attachment.GetContentDisposition(), eTag, 0, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// prepare WebP image cache
 			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP())

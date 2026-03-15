@@ -1,14 +1,17 @@
 ﻿#region Related component
+using Microsoft.AspNetCore.Http;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
-using System.Net;
 using System.Linq;
+using System.Net;
+using System.Reactive.Concurrency;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Http;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
+
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -23,6 +26,7 @@ namespace net.vieapps.Services.Files
 		async Task DownloadAsync(HttpContext context, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var pathSegments = requestURI.GetRequestPathSegments();
@@ -60,6 +64,7 @@ namespace net.vieapps.Services.Files
 
 			// flush the file to output stream, update counter & logs
 			context.SendSessionState(attachment.SystemID);
+			context.UpdateServerTiming("ngxPrepare", stopwatch.ElapsedMilliseconds);
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Downloads", $"Start to download a file ({pathSegments.Join(" / ")})").ConfigureAwait(false);
 
@@ -68,9 +73,11 @@ namespace net.vieapps.Services.Files
 				["X-Meta-System"] = attachment.SystemID?.ToLower(),
 				["X-Meta-Entity"] = attachment.EntityInfo?.ToLower(),
 				["X-Meta-Object"] = attachment.ObjectID?.ToLower(),
+				["X-Cache"] = "SEND-FILE",
 				["X-Node"] = Global.NodeID
 			};
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			await Task.WhenAll
 			(

@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Files
 					code = "I-n-valid";
 				}
 
-				using var inputStream = code.Generate(isSmall);
+				using var inputStream = code.Generate(isSmall, context.GetParameter("x-generator"));
 				using var outputStream = await inputStream.ConvertAsync(System.Drawing.Imaging.ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new System.Collections.Generic.Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}

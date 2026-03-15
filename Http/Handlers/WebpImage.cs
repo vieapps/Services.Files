@@ -1,16 +1,16 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Net;
 using System.Linq;
+using System.Net;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Collections.Generic;
+using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -135,7 +135,9 @@ namespace net.vieapps.Services.Files
 				{
 					stepwatch.Restart();
 					var length = data.Length;
-					data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+					using var inputStream = data.ToMemoryStream();
+					using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ServiceExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
+					data = outputStream.ToBytes();
 					stepwatch.Stop();
 					context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
@@ -162,8 +164,8 @@ namespace net.vieapps.Services.Files
 			// flush the file to output stream
 			if (attachment.IsWebP())
 			{
-				headers["X-Cache"] = "SFILE-200";
-				await context.SendFileAsync(fileInfo, "image/webp", null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				headers["X-Cache"] = "SEND-FILE";
+				await context.SendFileAsync(fileInfo, null, eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
 				await context.WriteAsync(data, "image/webp", null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
