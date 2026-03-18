@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -33,8 +34,10 @@ namespace net.vieapps.Services.Files
 			if (pathSegments.Length < 2 || !pathSegments[1].IsValidUUID())
 				throw new InvalidRequestException();
 
-			// check "If-Modified-Since" request to reduce traffict
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
+			var isForceCacheRequested = context.ContainsKey("x-force-cache");
+
+			// check "If-Modified-Since" request to reduce traffict
 			var identifier = pathSegments[1].ToLower();
 			var eTag = $"vieapps#{identifier}";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
@@ -76,9 +79,13 @@ namespace net.vieapps.Services.Files
 				["X-Cache"] = "SEND-FILE",
 				["X-Node"] = Global.NodeID
 			};
-			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
+			// send request to purge cache of CDN
+			if (isForceCacheRequested)
+				attachment.SendPurgeCacheRequest(requestURI);
+
+			// update counter & logs
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, "Download", cancellationToken),

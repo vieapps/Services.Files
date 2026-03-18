@@ -33,6 +33,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
+			var isForceCacheRequested = context.IsBypassCache();
+			var processCache = !isForceCacheRequested;
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
@@ -69,7 +71,6 @@ namespace net.vieapps.Services.Files
 			};
 			var cacheKey = attachment.GetCacheKey("file");
 			var eTag = cacheKey.Replace("file", "vieapps");
-			var processCache = !context.IsBypassCache();
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 
@@ -112,16 +113,19 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// send the file to output stream
-			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// prepare WebP image cache
-			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP())
+			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP() && !await Global.Cache.ExistsAsync(attachment.GetCacheKey("webp"), cancellationToken).ConfigureAwait(false))
 				Task.WhenAll
 				(
 					isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare WebP image cache => {requestURI}") : Task.CompletedTask,
 					attachment.PrepareCacheAsync(null)
 				).Execute();
+
+			// send request to purge cache of CDN
+			if (isForceCacheRequested)
+				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs
 			stopwatch.Stop();

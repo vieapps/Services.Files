@@ -31,7 +31,8 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var processCache = !context.IsBypassCache();
+			var isForceCacheRequested = context.IsBypassCache();
+			var processCache = !isForceCacheRequested;
 
 			var requestURI = context.GetRequestUri();
 			var requestURL = $"{requestURI}";
@@ -65,22 +66,24 @@ namespace net.vieapps.Services.Files
 			// prepare entity tag and headers
 			var cacheKey = (identifier, index, format, width, height, asBig).GetCacheKey();
 			var eTag = cacheKey.Replace("thumbnail", "vieapps");
+
+			var generator = context.GetQueryParameter("x-generator");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID,
+				["X-Generator-Engine"] = generator ?? ServiceExtensions.Generator,
 				["X-Correlation-ID"] = correlationID
 			};
 
 			// check "If-Modified-Since" request to reduce traffict
-			var cacheControl = "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : 0;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
 			{
 				headers["X-Cache"] = "HTTP-304";
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, cacheControl, correlationID, headers);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return;
@@ -161,7 +164,7 @@ namespace net.vieapps.Services.Files
 					try
 					{
 						stepwatch.Restart();
-						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken).ConfigureAwait(false);
+						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken, generator).ConfigureAwait(false);
 						stepwatch.Stop();
 						context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
 						if (isDebugLogEnabled)
@@ -174,7 +177,7 @@ namespace net.vieapps.Services.Files
 						thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 						context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
 					}
-				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
+				lastModified = fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
 				if (!isNoThumbnailImage && Handler.IsCacheThumbnails)
 					attachment.PrepareCacheAsync(index, format, original, lastModified, width, height, asBig).Execute();
 				return thumbnail;
@@ -204,6 +207,7 @@ namespace net.vieapps.Services.Files
 
 			// flush the thumbnail image to output stream
 			var asReplacement = false;
+			var cacheControl = context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested);
 			try
 			{
 				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -225,6 +229,10 @@ namespace net.vieapps.Services.Files
 				fileInfo = new FileInfo(Handler.NoThumbnailImageFilePath);
 				await context.SendFileAsync(fileInfo, fileInfo.GetMimeType(), null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
+
+			// send request to purge cache of CDN
+			if (isForceCacheRequested)
+				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs
 			stopwatch.Stop();
@@ -352,7 +360,7 @@ namespace net.vieapps.Services.Files
 				}, true, false).ConfigureAwait(false);
 
 				// move files from temporary directory to official directory
-				thumbnails.Where(thumbnail => thumbnail.Data != null).ForEach(thumbnail => thumbnail.Info.PrepareDirectories().MoveFile(this.Logger, "Uploads", context.GetCorrelationID(), true));
+				thumbnails.Where(thumbnail => thumbnail.Data != null).ForEach(thumbnail => thumbnail.Info.PrepareDirectories().MoveFile(this.Logger, "Uploads", context.GetCorrelationID()));
 
 				// update cache
 				if (Handler.IsCacheThumbnails)

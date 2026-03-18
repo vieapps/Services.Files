@@ -393,7 +393,7 @@ namespace net.vieapps.Services.Files
 			return stream;
 		}
 
-		public static string Generator { get; } = UtilityService.GetAppSetting("Files:Generator");
+		public static string Generator { get; } = UtilityService.GetAppSetting("Files:Generator", "System.Drawing");
 
 		public static MemoryStream Generate(this Image image, int width, int height, bool asBig, string generator = null)
 			=> "ImageSharp".IsEquals(generator ?? ServiceExtensions.Generator)
@@ -456,14 +456,14 @@ namespace net.vieapps.Services.Files
 			return outputStream;
 		}
 
-		public static async Task<byte[]> GenerateAsync(this byte[] bytes, ImageFormat format, int width, int height, bool asBig, bool isWebP, CancellationToken cancellationToken)
+		public static async Task<byte[]> GenerateAsync(this byte[] bytes, ImageFormat format, int width, int height, bool asBig, bool isWebP, CancellationToken cancellationToken, string generator = null)
 		{
 			if (width > 0 || height > 0)
 			{
 				using var inputStream = bytes.ToMemoryStream();
 				using var imageStream = await inputStream.ConvertAsync(ImageFormat.Bmp, cancellationToken).ConfigureAwait(false);
 				using var image = Image.FromStream(imageStream);
-				using var thumbnailStream = image.Generate(width, height, asBig);
+				using var thumbnailStream = image.Generate(width, height, asBig, generator);
 				using var outputStream = await thumbnailStream.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
 				return outputStream.ToBytes();
 			}
@@ -583,9 +583,18 @@ namespace net.vieapps.Services.Files
 			var fonts = new[] { "Verdana", "Arial", "Times New Roman", "Courier", "Courier New" };
 			var brushs = new[]
 			{
-				new System.Drawing.SolidBrush(Color.Black), new System.Drawing.SolidBrush(Color.Blue), new System.Drawing.SolidBrush(Color.DarkBlue), new System.Drawing.SolidBrush(Color.DarkGreen),
-				new System.Drawing.SolidBrush(Color.Magenta), new System.Drawing.SolidBrush(Color.Red), new System.Drawing.SolidBrush(Color.DarkRed), new System.Drawing.SolidBrush(Color.Black),
-				new System.Drawing.SolidBrush(Color.Firebrick), new System.Drawing.SolidBrush(Color.DarkGreen), new System.Drawing.SolidBrush(Color.Green), new System.Drawing.SolidBrush(Color.DarkViolet)
+				new System.Drawing.SolidBrush(Color.Black),
+				new System.Drawing.SolidBrush(Color.Blue),
+				new System.Drawing.SolidBrush(Color.DarkBlue),
+				new System.Drawing.SolidBrush(Color.DarkGreen),
+				new System.Drawing.SolidBrush(Color.Magenta),
+				new System.Drawing.SolidBrush(Color.Red),
+				new System.Drawing.SolidBrush(Color.DarkRed),
+				new System.Drawing.SolidBrush(Color.Black),
+				new System.Drawing.SolidBrush(Color.Firebrick),
+				new System.Drawing.SolidBrush(Color.DarkGreen),
+				new System.Drawing.SolidBrush(Color.Green),
+				new System.Drawing.SolidBrush(Color.DarkViolet)
 			};
 
 			if (isSmall)
@@ -768,7 +777,22 @@ namespace net.vieapps.Services.Files
 
 			var backgroundColors = isSmall
 				? new[] { SixLabors.ImageSharp.Color.Orange, SixLabors.ImageSharp.Color.Thistle, SixLabors.ImageSharp.Color.LightSeaGreen, SixLabors.ImageSharp.Color.Yellow, SixLabors.ImageSharp.Color.YellowGreen, SixLabors.ImageSharp.Color.NavajoWhite, SixLabors.ImageSharp.Color.White }
-				: new[]	{ SixLabors.ImageSharp.Color.Orange, SixLabors.ImageSharp.Color.Thistle, SixLabors.ImageSharp.Color.LightSeaGreen, SixLabors.ImageSharp.Color.Violet, SixLabors.ImageSharp.Color.Yellow, SixLabors.ImageSharp.Color.YellowGreen, SixLabors.ImageSharp.Color.NavajoWhite, SixLabors.ImageSharp.Color.LightGray, SixLabors.ImageSharp.Color.Tomato, SixLabors.ImageSharp.Color.LightGreen, SixLabors.ImageSharp.Color.White };
+				: [SixLabors.ImageSharp.Color.Orange, SixLabors.ImageSharp.Color.Thistle, SixLabors.ImageSharp.Color.LightSeaGreen, SixLabors.ImageSharp.Color.Violet, SixLabors.ImageSharp.Color.Yellow, SixLabors.ImageSharp.Color.YellowGreen, SixLabors.ImageSharp.Color.NavajoWhite, SixLabors.ImageSharp.Color.LightGray, SixLabors.ImageSharp.Color.Tomato, SixLabors.ImageSharp.Color.LightGreen, SixLabors.ImageSharp.Color.White];
+
+			var fontColors = new[]
+			{
+				SixLabors.ImageSharp.Color.Black,
+				SixLabors.ImageSharp.Color.Blue,
+				SixLabors.ImageSharp.Color.DarkBlue,
+				SixLabors.ImageSharp.Color.DarkGreen,
+				SixLabors.ImageSharp.Color.Magenta,
+				SixLabors.ImageSharp.Color.Red,
+				SixLabors.ImageSharp.Color.DarkRed,
+				SixLabors.ImageSharp.Color.Black,
+				SixLabors.ImageSharp.Color.Firebrick,
+				SixLabors.ImageSharp.Color.DarkGreen,
+				SixLabors.ImageSharp.Color.DarkViolet
+			};
 
 			using var securityBitmap = ServiceExtensions.CreateCaptchaBackroundByImageSharp(width, height,
 			[
@@ -780,13 +804,11 @@ namespace net.vieapps.Services.Files
 
 			// noise lines (small)
 			if (isSmall)
-			{
 				securityBitmap.Mutate(context =>
 				{
 					for (int i = 0; i < 6; i++)
 						context.DrawLine(SixLabors.ImageSharp.Color.Gray, UtilityService.GetRandomNumber(1, 2), new SixLabors.ImageSharp.PointF[] { new(UtilityService.GetRandomNumber(0, width), UtilityService.GetRandomNumber(0, height)), new(UtilityService.GetRandomNumber(0, width), UtilityService.GetRandomNumber(0, height)) });
 				});
-			}
 
 			// captcha characters
 			var fontNames = new[] { "Verdana", "Arial", "Times New Roman", "Courier", "Courier New" };
@@ -807,7 +829,7 @@ namespace net.vieapps.Services.Files
 
 				float x = (index * 7) + step + UtilityService.GetRandomNumber(-1, 9);
 				float y = UtilityService.GetRandomNumber(-2, 2);
-				var color = backgroundColors[UtilityService.GetRandomNumber(0, backgroundColors.Length)];
+				var color = fontColors[UtilityService.GetRandomNumber(0, fontColors.Length)];
 
 				var writtenCode = code.Substring(index, 1);
 				if (writtenCode.Equals("I") || (UtilityService.GetRandomNumber() % 2 == 1 && !writtenCode.Equals("L")))
@@ -839,18 +861,16 @@ namespace net.vieapps.Services.Files
 
 			var distorted = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
 			for (int y = 0; y < height; y++)
-			{
 				for (int x = 0; x < width; x++)
 				{
-					int newX = (int)(x + distortion * System.Math.Sin(System.Math.PI * y / divideTo));
-					int newY = (int)(y + distortion * System.Math.Cos(System.Math.PI * x / divideTo));
+					int newX = (int)(x + distortion * Math.Sin(Math.PI * y / divideTo));
+					int newY = (int)(y + distortion * Math.Cos(Math.PI * x / divideTo));
 
 					if (newX < 0 || newX >= width) newX = 0;
 					if (newY < 0 || newY >= height) newY = 0;
 
 					distorted[x, y] = securityBitmap[newX, newY];
 				}
-			}
 
 			var stream = UtilityService.CreateMemoryStream();
 			distorted.Save(stream, ServiceExtensions.JpegEncoder);
@@ -1007,6 +1027,17 @@ namespace net.vieapps.Services.Files
 			).ConfigureAwait(false);
 			return cacheKeys;
 		}
+
+		public static void SendPurgeCacheRequest(this AttachmentInfo attachment, Uri requestURI)
+			=> new CommunicateMessage("APIGateway")
+			{
+				Type = "PurgeCache",
+				Data = new JObject
+				{
+					["SystemID"] = attachment.SystemID,
+					["URLs"] = new[] { requestURI.GetUrl() }.ToJArray()
+				}
+			}.Send();
 		#endregion
 
 		#region Session state

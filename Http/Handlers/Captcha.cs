@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -56,9 +57,15 @@ namespace net.vieapps.Services.Files
 					code = "I-n-valid";
 				}
 
-				using var inputStream = code.Generate(isSmall, context.GetParameter("x-generator"));
+				var generator = context.GetQueryParameter("x-generator");
+				var headers = new Dictionary<string, string>
+				{
+					["X-Node"] = Global.NodeID,
+					["X-Generator-Engine"] = generator ?? ServiceExtensions.Generator
+				};
+				using var inputStream = code.Generate(isSmall, generator);
 				using var outputStream = await inputStream.ConvertAsync(System.Drawing.Imaging.ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
-				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, new System.Collections.Generic.Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, headers, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}
 			else
 				throw new MethodNotAllowedException(context.Request.Method);

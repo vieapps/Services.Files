@@ -30,7 +30,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var processCache = !context.IsBypassCache();
+			var isForceCacheRequested = context.ContainsKey("x-force-cache");
+			var processCache = !isForceCacheRequested && !context.IsBypassCache();
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
@@ -73,7 +74,6 @@ namespace net.vieapps.Services.Files
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
-			var cacheControl = context.IsAuthenticated() ? "private, no-cache, no-store" : "public, max-age=31622400, s-maxage=31622400, immutable, stale-while-revalidate=60, stale-if-error=86400";
 
 			// check "If-Modified-Since" request to reduce traffict
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Files
 			{
 				headers["X-Cache"] = "HTTP-304";
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), cacheControl, correlationID, headers);
+				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
 				return;
@@ -130,20 +130,16 @@ namespace net.vieapps.Services.Files
 			{
 				stepwatch.Restart();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
+				var length = data.Length;
 				context.UpdateServerTiming("ngxRead", stepwatch.ElapsedMilliseconds);
-				if (!attachment.IsWebP())
-				{
-					stepwatch.Restart();
-					var length = data.Length;
-					using var inputStream = data.ToMemoryStream();
-					using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ServiceExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
-					data = outputStream.ToBytes();
-					stepwatch.Stop();
-					context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
-				}
+				stepwatch.Restart();
+				using var inputStream = data.ToMemoryStream();
+				using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ServiceExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
+				data = outputStream.ToBytes();
+				await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 				lastModified = fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
-				if (Handler.IsCacheImages && !attachment.IsWebP())
+				context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
+				if (Handler.IsCacheImages)
 					Task.WhenAll
 					(
 						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of a WebP image => {requestURI}") : Task.CompletedTask,
@@ -165,10 +161,14 @@ namespace net.vieapps.Services.Files
 			if (attachment.IsWebP())
 			{
 				headers["X-Cache"] = "SEND-FILE";
-				await context.SendFileAsync(fileInfo, null, eTag, cacheControl, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.SendFileAsync(fileInfo, null, eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
-				await context.WriteAsync(data, "image/webp", null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(data, "image/webp", null, eTag, lastModified, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+
+			// send request to purge cache of CDN
+			if (isForceCacheRequested)
+				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs
 			stopwatch.Stop();
