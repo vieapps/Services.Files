@@ -1,13 +1,14 @@
 ﻿#region Related component
 using System;
 using System.IO;
-using System.Linq;
 using System.Net;
+using System.Linq;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Drawing.Imaging;
+using System.Threading;
+using System.Threading.Tasks;
+using SixLabors.ImageSharp;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -103,6 +104,7 @@ namespace net.vieapps.Services.Files
 			var hasCached = Handler.IsCacheImages && processCache && !attachment.IsWebP() && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			byte[] data = null;
 			long lastModified = 0;
+			var contentType = "image/webp";
 
 			if (!hasCached)
 			{
@@ -129,22 +131,35 @@ namespace net.vieapps.Services.Files
 			else if (!attachment.IsWebP())
 			{
 				stepwatch.Restart();
+				lastModified = fileInfo.LastWriteTime.ToUnixTimestamp();
 				data = await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 				var length = data.Length;
 				context.UpdateServerTiming("ngxRead", stepwatch.ElapsedMilliseconds);
-				stepwatch.Restart();
-				using var inputStream = data.ToMemoryStream();
-				using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ServiceExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
-				data = outputStream.ToBytes();
-				await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
-				lastModified = fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
-				context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
-				if (Handler.IsCacheImages)
-					Task.WhenAll
-					(
-						isDebugLogEnabled ? context.WriteLogsAsync("Caches", $"Prepare cache of a WebP image => {requestURI}") : Task.CompletedTask,
-						attachment.PrepareCacheAsync(data, lastModified)
-					).Execute();
+
+				try
+				{
+					stepwatch.Restart();
+					using var inputStream = data.ToMemoryStream();
+					using var outputStream = await inputStream.ConvertAsync(ImageFormat.Webp, !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ServiceExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
+					data = outputStream.ToBytes();
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
+					context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
+					if (Handler.IsCacheImages)
+						Task.WhenAll
+						(
+							isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Caches", $"Prepare cache of a WebP image => {requestURI}") : Task.CompletedTask,
+							attachment.PrepareCacheAsync(data, lastModified)
+						).Execute();
+				}
+				catch (InvalidImageContentException ex)
+				{
+					contentType = fileInfo.GetMimeType();
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Error occurred while generating WebP image  => {ex.Message}", ex).ConfigureAwait(false);
+				}
+				catch (Exception)
+				{
+					throw;
+				}
 			}
 
 			// meta headers
@@ -164,7 +179,7 @@ namespace net.vieapps.Services.Files
 				await context.SendFileAsync(fileInfo, null, eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
-				await context.WriteAsync(data, "image/webp", null, eTag, lastModified, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(data, contentType, null, eTag, lastModified, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// send request to purge cache of CDN
 			if (isForceCacheRequested)
