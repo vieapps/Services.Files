@@ -469,9 +469,29 @@ namespace net.vieapps.Services.Files
 		}
 
 		static Task ProcessAPIGatewayCommunicateMessageAsync(CommunicateMessage message)
-			=> message.Type.IsEquals("Service#RequestInfo")
-				? Global.SendServiceInfoAsync("Communicates")
-				: Task.CompletedTask;
+		{
+			if (message.Type.IsEquals("Service#RequestInfo"))
+				Global.SendServiceInfoAsync("Communicates");
+
+			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start"))
+			{
+				var logPath = UtilityService.GetAppSetting("Path:Logs");
+				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
+				{
+					Global.Monitor = true;
+					Global.StartMonitor(logPath);
+				}
+			}
+
+			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop"))
+			{
+				Global.StopMonitor();
+				if (message.Type.IsEquals("Monitor#Disable"))
+					Global.Monitor = false;
+			}
+
+			return Task.CompletedTask;
+		}
 		#endregion
 
 	}

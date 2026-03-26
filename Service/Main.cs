@@ -372,7 +372,7 @@ namespace net.vieapps.Services.Files
 			// prepare
 			var request = requestInfo.GetBodyExpando();
 			var isCreateNew = false;
-			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var thumbnail = await Thumbnail.GetAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (thumbnail != null)
 			{
 				thumbnail.CopyFrom(request, "ID,Title,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
@@ -425,7 +425,7 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> DeleteThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var thumbnail = await Thumbnail.GetAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (thumbnail == null)
 			{
 				var data = new JObject
@@ -448,7 +448,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// delete & clear cache
-			await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Thumbnail.DeleteAsync(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			var httpKeys = (await Utility.HttpCache.GetSetMembersAsync($"{thumbnail.ObjectID}:images", cancellationToken).ConfigureAwait(false) ?? []).Concat([$"{thumbnail.ObjectID}:images"]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
@@ -664,7 +664,7 @@ namespace net.vieapps.Services.Files
 				: requestInfo.GetParameter("x-object-id") ?? requestInfo.GetParameter("object-id") ?? requestInfo.GetParameter("attachment-id") ?? requestInfo.GetQueryParameter("id");
 
 			// get object
-			var attachment = await Attachment.GetAsync<Attachment>(objectID, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var attachment = await Attachment.GetAsync(objectID, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 
 			// update counters
 			if ("counters".IsEquals(objectIdentity))
@@ -722,7 +722,7 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> UpdateAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var attachment = await Attachment.GetAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			var request = requestInfo.GetBodyExpando();
 			attachment.CopyFrom(requestInfo.GetBodyExpando(), "ID,ServiceName,ObjectName,SystemID,EntityInfo,ObjectID,Filename,Size,ContentType,DownloadTimes,IsTemporary,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
@@ -748,7 +748,7 @@ namespace net.vieapps.Services.Files
 
 		async Task<JToken> DeleteAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var attachment = await Attachment.GetAsync<Attachment>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var attachment = await Attachment.GetAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 
 			if (attachment == null)
 				throw new InformationNotFoundException();
@@ -757,7 +757,7 @@ namespace net.vieapps.Services.Files
 				throw new AccessDeniedException();
 
 			// delete
-			await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Attachment.DeleteAsync(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync($"{attachment.ObjectID}:attachments", cancellationToken).ConfigureAwait(false);
 			if (attachment.ContentType.IsStartsWith("image/"))
 			{
@@ -1028,7 +1028,7 @@ namespace net.vieapps.Services.Files
 			.ContinueWith(async task => await task.Result.ForEachAsync(async thumbnail =>
 			{
 				// delete
-				await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+				await Thumbnail.DeleteAsync(thumbnail.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 				// send update message to other nodes to update and sync
 				var json = thumbnail.ToJson(false, null);
@@ -1054,7 +1054,7 @@ namespace net.vieapps.Services.Files
 			.ContinueWith(async task => await task.Result.ForEachAsync(async attachment =>
 			{
 				// delete
-				await Attachment.DeleteAsync<Attachment>(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+				await Attachment.DeleteAsync(attachment.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 				// send update message to other nodes to update and sync files
 				var json = attachment.ToJson();
@@ -1390,7 +1390,7 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> SyncAttachmentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var data = requestInfo.GetBodyExpando();
-			var attachment = await Attachment.GetAsync<Attachment>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var attachment = await Attachment.GetAsync(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			if (attachment == null)
 			{
 				attachment = Attachment.CreateInstance(data);
@@ -1421,7 +1421,7 @@ namespace net.vieapps.Services.Files
 		async Task<JToken> SyncThumbnailAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var data = requestInfo.GetBodyExpando();
-			var thumbnail = await Thumbnail.GetAsync<Thumbnail>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var thumbnail = await Thumbnail.GetAsync(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			if (thumbnail == null)
 			{
 				thumbnail = Thumbnail.CreateInstance(data);
@@ -1596,9 +1596,9 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					var objectID = message.Data.Get<string>("ObjectID");
-					var thumbnail = "Not-Existed".IsEquals(message.Data.Get<string>("Filename")) ? await Thumbnail.GetAsync<Thumbnail>(message.Data.Get<string>("ID"), this.CancellationToken).ConfigureAwait(false) : null;
+					var thumbnail = "Not-Existed".IsEquals(message.Data.Get<string>("Filename")) ? await Thumbnail.GetAsync(message.Data.Get<string>("ID"), this.CancellationToken).ConfigureAwait(false) : null;
 					if (thumbnail != null)
-						await Thumbnail.DeleteAsync<Thumbnail>(thumbnail.ID, null, this.CancellationToken).ConfigureAwait(false);
+						await Thumbnail.DeleteAsync(thumbnail.ID, null, this.CancellationToken).ConfigureAwait(false);
 					else
 					{
 						var thumbnails = await Thumbnail.FindAsync(Filters<Thumbnail>.Equals("ObjectID", objectID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);

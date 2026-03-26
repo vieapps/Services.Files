@@ -39,6 +39,9 @@ namespace net.vieapps.Services.Files
 
 		public void ConfigureServices(IServiceCollection services)
 		{
+			// assign the service name
+			Global.ServiceName = "Files";
+
 			// mandatory services
 			services
 				.AddHttpContextAccessor()
@@ -98,7 +101,6 @@ namespace net.vieapps.Services.Files
 			// environments
 			var stopwatch = Stopwatch.StartNew();
 			Console.OutputEncoding = Encoding.UTF8;
-			Global.ServiceName = "Files";
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
@@ -218,6 +220,8 @@ namespace net.vieapps.Services.Files
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Environment.ProcessId} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
+
+				Global.StartMonitor(logPath);
 			});
 
 			// on stopping
