@@ -228,6 +228,7 @@ namespace net.vieapps.Services.Files
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
+				Global.StopMonitor();
 				Global.RSA.Dispose();
 				Handler.Disconnect();
 				Extensions.ShutdownLogsAsync().Execute(true);
