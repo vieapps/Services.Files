@@ -109,11 +109,11 @@ namespace net.vieapps.Services.Files
 		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
 			=> attachment.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
 
-		public static Task WriteAsync(this HttpContext context, JToken json, Dictionary<string, string> headers, CancellationToken cancellationToken)
-			=> context.WriteAsync(json.ToString(Newtonsoft.Json.Formatting.None), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
+		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
+			=> context.WriteAsync(json.ToString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
 
-		public static Task WriteAsync(this HttpContext context, JToken json, CancellationToken cancellationToken)
-			=> context.WriteAsync(json, null, cancellationToken);
+		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, CancellationToken cancellationToken)
+			=> context.WriteAsync(json, format, null, cancellationToken);
 
 		#region Working with files & directories
 		public static string GetFileName(this AttachmentInfo attachment)

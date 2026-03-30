@@ -170,7 +170,7 @@ namespace net.vieapps.Services.Files
 			await context.WriteAsync(new JObject
 			{
 				{ "URI", $"{context.GetHostUrl()}/avatars/{$"{UtilityService.GetRandomNumber()}|{filename}".Encrypt(Global.EncryptionKey).ToBase64Url(true)}/{DateTime.Now:HHmmssfff}/{profile.Get("Name", "vieapps-ngx").GetANSIUri()}.webp" }
-			}, cancellationToken).ConfigureAwait(false);
+			}, Newtonsoft.Json.Formatting.None, cancellationToken).ConfigureAwait(false);
 			if (isDebugLogEnabled)
 				await context.WriteLogsAsync(this.Logger, "Uploads", $"New avatar of {profile.Get<string>("Name")} ({profile.Get<string>("ID")}) has been uploaded ({content.Length:###,##0} bytes)").ConfigureAwait(false);
 		}

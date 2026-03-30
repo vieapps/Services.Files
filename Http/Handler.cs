@@ -257,7 +257,7 @@ namespace net.vieapps.Services.Files
 			{
 				await context.WriteLogsAsync(Global.Logger, "Caches", $"Error occurred while preparing cache of an image\r\n- URI: {context.GetRequestUri()}\r\n- Error: {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 			}
-			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Global.CancellationToken).ConfigureAwait(false);
+			await context.WriteAsync(new JObject { ["ID"] = context.GetCorrelationID() }, Newtonsoft.Json.Formatting.None, Global.CancellationToken).ConfigureAwait(false);
 		}
 
 		#region API Gateway Router

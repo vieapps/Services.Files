@@ -395,7 +395,7 @@ namespace net.vieapps.Services.Files
 				stopwatch.Stop();
 				await Task.WhenAll
 				(
-					context.WriteAsync(response, new Dictionary<string, string>
+					context.WriteAsync(response, Newtonsoft.Json.Formatting.None, new Dictionary<string, string>
 					{
 						["X-Node"] = Global.NodeID,
 						["X-Execution-Times"] = stopwatch.GetElapsedTimes(),
