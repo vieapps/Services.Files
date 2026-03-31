@@ -413,6 +413,18 @@ namespace net.vieapps.Services.Files
 					json["ObjectName"] = thumbnail.ObjectName.GetCapitalizedFirstLetter();
 				}
 			});
+			new CommunicateMessage("APIGateway")
+			{
+				Type = "Cache#Purge",
+				Data = new JObject
+				{
+					["ServiceName"] = thumbnail.ServiceName,
+					["ObjectName"] = thumbnail.ObjectName,
+					["SystemID"] = thumbnail.SystemID,
+					["EntityInfo"] = thumbnail.EntityInfo,
+					["ObjectID"] = thumbnail.ObjectID
+				}
+			}.Send();
 			new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#Thumbnail#{(isCreateNew ? "Create" : "Update")}",
