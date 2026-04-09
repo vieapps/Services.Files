@@ -32,8 +32,8 @@
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
 		<PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
 		<PackageReference Include="System.Drawing.Common" Version="10.0.*" />
-		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.10.2604.1" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2604.1" />
+		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.10.2604.2" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2604.2" />
 	</ItemGroup>
 
 </Project>

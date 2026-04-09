@@ -422,7 +422,8 @@ namespace net.vieapps.Services.Files
 					["ObjectName"] = thumbnail.ObjectName,
 					["SystemID"] = thumbnail.SystemID,
 					["EntityInfo"] = thumbnail.EntityInfo,
-					["ObjectID"] = thumbnail.ObjectID
+					["ObjectID"] = thumbnail.ObjectID,
+					["Correlation-ID"] = requestInfo.CorrelationID
 				}
 			}.Send();
 			new UpdateMessage

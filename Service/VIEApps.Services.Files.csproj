@@ -21,7 +21,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Services.Base" Version="10.10.2604.1" />
+		<PackageReference Include="VIEApps.Services.Base" Version="10.10.2604.2" />
 	</ItemGroup>
 
 </Project>
