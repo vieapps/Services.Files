@@ -151,6 +151,7 @@ namespace net.vieapps.Services.Files
 		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// prepare
+			Global.Statistics.IncreaseRequest();
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 
 			if (Global.IsVisitLogEnabled)
@@ -178,6 +179,7 @@ namespace net.vieapps.Services.Files
 			else
 				await this.HandleRequestAsync(context).ConfigureAwait(false);
 
+			Global.Statistics.DecreaseRequest();
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
@@ -195,9 +197,20 @@ namespace net.vieapps.Services.Files
 			// process the request
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var handler = type.CreateInstance<Services.FileHandler>();
+			RouterRpcGate.Releaser? ticket = null;
 			try
 			{
-				await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
+				ticket = await Global.RpcGate.TryEnterAsync(cts.Token).ConfigureAwait(false);
+				if (ticket == null)
+				{
+					Global.Statistics.RpcRejected();
+					throw new SystemBusyException();
+				}
+				Global.Statistics.RpcEntered();
+				using (ticket.Value)
+				{
+					await handler.ProcessRequestAsync(context, cts.Token).ConfigureAwait(false);
+				}
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -224,6 +237,11 @@ namespace net.vieapps.Services.Files
 					else
 						context.ShowError(ex, Global.IsDebugLogEnabled);
 				}
+			}
+			finally
+			{
+				if (ticket != null)
+					Global.Statistics.RpcCompleted();
 			}
 		}
 
