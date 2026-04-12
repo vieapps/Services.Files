@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Files
 			=> Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 		public static bool IsBypassCache(this HttpContext context)
-			=> context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache");
+			=> context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-force-cache");
 
 		static bool IsReadable(this string mimeType)
 			=> mimeType.IsStartsWith("image/") || mimeType.IsStartsWith("text/")

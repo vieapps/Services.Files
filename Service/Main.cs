@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Files
 			);
 
 		public override Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
-			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, _ =>
+			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, Utility.Cache, _ =>
 			{
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net");
 				while (Utility.FilesHttpURI.EndsWith('/'))

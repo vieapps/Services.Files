@@ -31,8 +31,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isForceCacheRequested = context.ContainsKey("x-force-cache");
-			var processCache = !isForceCacheRequested && !context.IsBypassCache();
+			var isBypassCacheRequested = context.IsBypassCache();
+			var processCache = !isBypassCacheRequested;
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
@@ -84,6 +84,13 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = "HTTP-304";
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
+				if (Global.Cache.UseL1Cache)
+					Global.Statistics.L1Hit304();
+				else
+				{
+					Global.Statistics.L1Miss();
+					Global.Statistics.L2Hit304();
+				}
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Downloads", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURI}]").ConfigureAwait(false);
 				return;
@@ -116,6 +123,9 @@ namespace net.vieapps.Services.Files
 					context.ShowError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", correlationID);
 					return;
 				}
+				if (Global.Cache.UseL1Cache)
+					Global.Statistics.L1Miss();
+				Global.Statistics.L2Miss();
 			}
 
 			// prepare
@@ -125,6 +135,13 @@ namespace net.vieapps.Services.Files
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
+				if (Global.Cache.UseL1Cache && Global.Cache.ExistsInL1Cache(cacheKey))
+					Global.Statistics.L1Hit200();
+				else
+				{
+					Global.Statistics.L1Miss();
+					Global.Statistics.L2Hit200();
+				}
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Caches", $"Cached of a WebP image was found [{cacheKey} => {requestURI}]").ConfigureAwait(false);
 			}
@@ -176,13 +193,13 @@ namespace net.vieapps.Services.Files
 			if (attachment.IsWebP())
 			{
 				headers["X-Cache"] = "SEND-FILE";
-				await context.SendFileAsync(fileInfo, null, eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.SendFileAsync(fileInfo, null, eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isBypassCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 			}
 			else
-				await context.WriteAsync(data, contentType, null, eTag, lastModified, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), default, headers, correlationID, cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(data, contentType, null, eTag, lastModified, context.GetHttpCacheControl(context.IsAuthenticated() || isBypassCacheRequested), default, headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// send request to purge cache of CDN
-			if (isForceCacheRequested)
+			if (isBypassCacheRequested)
 				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs

@@ -31,8 +31,8 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isForceCacheRequested = context.IsBypassCache();
-			var processCache = !isForceCacheRequested;
+			var isBypassCacheRequested = context.IsBypassCache();
+			var processCache = !isBypassCacheRequested;
 
 			var requestURI = context.GetRequestUri();
 			var requestURL = $"{requestURI}";
@@ -79,9 +79,16 @@ namespace net.vieapps.Services.Files
 			// check "If-Modified-Since" request to reduce traffict
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) ? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : 0;
+			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
+				? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
+				: 0;
+			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
 			{
+				if (isInL1Cache)
+					Global.Statistics.L1Hit304();
+				else
+					Global.Statistics.L2Hit304();
 				headers["X-Cache"] = "HTTP-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
 				if (isDebugLogEnabled)
@@ -146,6 +153,14 @@ namespace net.vieapps.Services.Files
 					await Global.Cache.SetAsync($"{cacheKey}:time", lastModified, 0, cancellationToken).ConfigureAwait(false);
 				}
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
+				if (isInL1Cache)
+					Global.Statistics.L1Hit200();
+				else
+				{
+					if (Global.Cache.UseL1Cache)
+						Global.Statistics.L1Miss();
+					Global.Statistics.L2Hit200();
+				}
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Cached of a thumbnail image was found [{eTag} => {requestURL}]").ConfigureAwait(false);
 				return thumbnail;
@@ -207,7 +222,7 @@ namespace net.vieapps.Services.Files
 
 			// flush the thumbnail image to output stream
 			var asReplacement = false;
-			var cacheControl = context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested);
+			var cacheControl = context.GetHttpCacheControl(context.IsAuthenticated() || isBypassCacheRequested);
 			try
 			{
 				await context.WriteAsync(await generateTask.ConfigureAwait(false), isNoThumbnailImage ? fileInfo.GetMimeType() : $"image/{format}".ToLower(), null, eTag, lastModified, cacheControl, default, headers, correlationID, cancellationToken).ConfigureAwait(false);
@@ -231,10 +246,16 @@ namespace net.vieapps.Services.Files
 			}
 
 			// send request to purge cache of CDN
-			if (isForceCacheRequested)
+			if (isBypassCacheRequested)
 				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs
+			if (!hasCached)
+			{
+				if (Global.Cache.UseL1Cache)
+					Global.Statistics.L1Miss();
+				Global.Statistics.L2Miss();
+			}
 			stopwatch.Stop();
 			if (!asReplacement)
 				await Task.WhenAll

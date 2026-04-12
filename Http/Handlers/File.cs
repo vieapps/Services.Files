@@ -33,8 +33,8 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isForceCacheRequested = context.IsBypassCache();
-			var processCache = !isForceCacheRequested;
+			var isBypassCacheRequested = context.IsBypassCache();
+			var processCache = !isBypassCacheRequested;
 
 			var pathSegments = requestURI.GetRequestPathSegments();
 			pathSegments = pathSegments.Length > 2 && pathSegments[1].IsEquals(pathSegments[2]) ? pathSegments.Take(0, 1).Concat(pathSegments.Skip(2)).ToArray() : pathSegments;
@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Files
 				headers["X-Meta-Entity"] = attachment.EntityInfo;
 
 			// send the file to output stream
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isBypassCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// prepare WebP image cache
 			if (Handler.IsCacheImages && attachment.IsCacheableImage() && !attachment.IsWebP() && !await Global.Cache.ExistsAsync(attachment.GetCacheKey("webp"), cancellationToken).ConfigureAwait(false))
@@ -124,7 +124,7 @@ namespace net.vieapps.Services.Files
 				).Execute();
 
 			// send request to purge cache of CDN
-			if (isForceCacheRequested)
+			if (isBypassCacheRequested)
 				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs
