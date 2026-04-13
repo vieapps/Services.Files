@@ -69,6 +69,7 @@ namespace net.vieapps.Services.Files
 			stepwatch.Restart();
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
 			var eTag = $"vieapps#{(attachment.IsWebP() ? cacheKey.Replace("file#", "") : cacheKey.GenerateUUID())}";
+			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
@@ -81,7 +82,7 @@ namespace net.vieapps.Services.Files
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null)
 			{
-				headers["X-Cache"] = "HTTP-304";
+				headers["X-Cache"] = (isInL1Cache ? "L1-" : "") + "HTTP-304";
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
 				if (Global.Cache.UseL1Cache)
@@ -131,7 +132,7 @@ namespace net.vieapps.Services.Files
 			// prepare
 			if (hasCached)
 			{
-				headers["X-Cache"] = "HTTP-200";
+				headers["X-Cache"] = (isInL1Cache ? "L1-" : "") + "HTTP-200";
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);

@@ -66,6 +66,7 @@ namespace net.vieapps.Services.Files
 			// prepare entity tag and headers
 			var cacheKey = (identifier, index, format, width, height, asBig).GetCacheKey();
 			var eTag = cacheKey.Replace("thumbnail", "vieapps");
+			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
 
 			var generator = context.GetQueryParameter("x-generator");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -82,14 +83,13 @@ namespace net.vieapps.Services.Files
 			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
 				? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
 				: 0;
-			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
 			{
 				if (isInL1Cache)
 					Global.Statistics.L1Hit304();
 				else
 					Global.Statistics.L2Hit304();
-				headers["X-Cache"] = "HTTP-304";
+				headers["X-Cache"] = (isInL1Cache ? "L1-" : "") + "HTTP-304";
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, lastModified, "public", correlationID, headers);
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Response to request with status code 304 to reduce traffic [{eTag} => {requestURL}]").ConfigureAwait(false);
@@ -145,7 +145,7 @@ namespace net.vieapps.Services.Files
 			async Task<byte[]> getAsync()
 			{
 				var stepwatch = Stopwatch.StartNew();
-				headers["X-Cache"] = "HTTP-200";
+				headers["X-Cache"] = (isInL1Cache ? "L1-" : "") + "HTTP-200";
 				var thumbnail = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				if (lastModified < 1)
 				{

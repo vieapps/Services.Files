@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
@@ -234,13 +235,36 @@ namespace net.vieapps.Services.Files
 		#endregion
 
 		#region Working with meta info
-		public static Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
-			=> context.CallServiceAsync(context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
+		public static async Task<JToken> CreateAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
+		{
+			var ticket = await Global.RpcGate.TryEnterAsync(cancellationToken).ConfigureAwait(false);
+			if (ticket == null)
 			{
-				{ "object-identity", attachment.ID },
-				{ "x-object-title", attachment.Title }
-			}, attachment.ToString(null)), cancellationToken, Global.Logger, "Uploads");
-
+				Global.Statistics.RpcRejected();
+				throw new SystemBusyException();
+			}
+			Global.Statistics.RpcEntered();
+			var stopwatch = Stopwatch.StartNew();
+			try
+			{
+				using (ticket.Value)
+				{
+					return await context.CallServiceAsync(context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
+					{
+						{ "object-identity", attachment.ID },
+						{ "x-object-title", attachment.Title }
+					}, attachment.ToString(null)), cancellationToken, Global.Logger, "Uploads").ConfigureAwait(false);
+				}
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+			finally
+			{
+				Global.Statistics.RpcCompleted(stopwatch);
+			}
+		}
 		public static async Task<AttachmentInfo> GetAsync(this HttpContext context, string id, CancellationToken cancellationToken = default)
 			=> new AttachmentInfo
 			{
@@ -250,42 +274,91 @@ namespace net.vieapps.Services.Files
 				{ "object-identity", id }
 			}), cancellationToken, Global.Logger, "Downloads").ConfigureAwait(false));
 
-		public static Task UpdateAsync(this HttpContext context, AttachmentInfo attachment, string type, CancellationToken cancellationToken = default)
-			=> attachment.IsThumbnail || attachment.IsTemporary || string.IsNullOrWhiteSpace(attachment.ID)
-				? Task.CompletedTask
-				: Task.WhenAll
-				(
-					context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
+		public static async Task UpdateAsync(this HttpContext context, AttachmentInfo attachment, string type, CancellationToken cancellationToken = default)
+		{
+			if (!attachment.IsThumbnail && !attachment.IsTemporary && !string.IsNullOrWhiteSpace(attachment.ID))
+			{
+				var ticket = await Global.RpcGate.TryEnterAsync(cancellationToken).ConfigureAwait(false);
+				if (ticket == null)
+				{
+					Global.Statistics.RpcRejected();
+					throw new SystemBusyException();
+				}
+				Global.Statistics.RpcEntered();
+				var stopwatch = Stopwatch.StartNew();
+				try
+				{
+					using (ticket.Value)
 					{
-						{ "object-identity", "counters" },
-						{ "x-object-id", attachment.ID },
-						{ "x-user-id", context.User.Identity.Name }
-					}), cancellationToken, Global.Logger, "Downloads"),
-					attachment.IsTracked
-						? context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
-							{
-								{ "object-identity", "trackers" },
+						await Task.WhenAll
+						(
+							context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
+								{
+								{ "object-identity", "counters" },
 								{ "x-object-id", attachment.ID },
-								{ "x-user-id", context.User.Identity.Name },
-								{ "x-refer", context.GetReferUrl() },
-								{ "x-origin", context.GetOriginUri()?.ToString() }
-							}), cancellationToken, Global.Logger, "Downloads")
-						: Task.CompletedTask,
-					new CommunicateMessage(attachment.ServiceName)
-					{
-						Type = $"File#{type}",
-						Data = new JObject
-						{
-							{ "x-object-id", attachment.ID },
-							{ "x-user-id", context.User.Identity.Name },
-							{ "x-refer", context.GetReferUrl() },
-							{ "x-origin", context.GetOriginUri()?.ToString() }
-						}
-					}.PublishAsync(Global.Logger, "Downloads")
-				);
+								{ "x-user-id", context.User.Identity.Name }
+							}), cancellationToken, Global.Logger, "Downloads"),
+							attachment.IsTracked
+								? context.CallServiceAsync(context.GetRequestInfo("Attachment", "GET", new Dictionary<string, string>
+									{
+										{ "object-identity", "trackers" },
+										{ "x-object-id", attachment.ID },
+										{ "x-user-id", context.User.Identity.Name },
+										{ "x-refer", context.GetReferUrl() },
+										{ "x-origin", context.GetOriginUri()?.ToString() }
+									}), cancellationToken, Global.Logger, "Downloads")
+								: Task.CompletedTask,
+								new CommunicateMessage(attachment.ServiceName)
+								{
+									Type = $"File#{type}",
+									Data = new JObject
+									{
+										{ "x-object-id", attachment.ID },
+										{ "x-user-id", context.User.Identity.Name },
+										{ "x-refer", context.GetReferUrl() },
+										{ "x-origin", context.GetOriginUri()?.ToString() }
+									}
+							}.PublishAsync(Global.Logger, "Downloads")
+						).ConfigureAwait(false);
+					}
+				}
+				catch (Exception)
+				{
+					throw;
+				}
+				finally
+				{
+					Global.Statistics.RpcCompleted(stopwatch);
+				}
+			}
+		}
 
-		public static Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken = default)
-			=> context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.EntityInfo, attachment.ObjectID, cancellationToken);
+		public static async Task<bool> CanDownloadAsync(this HttpContext context, AttachmentInfo attachment, CancellationToken cancellationToken)
+		{
+			var ticket = await Global.RpcGate.TryEnterAsync(cancellationToken).ConfigureAwait(false);
+			if (ticket == null)
+			{
+				Global.Statistics.RpcRejected();
+				throw new SystemBusyException();
+			}
+			Global.Statistics.RpcEntered();
+			var stopwatch = Stopwatch.StartNew();
+			try
+			{
+				using (ticket.Value)
+				{
+					return await context.CanDownloadAsync(attachment.ServiceName, attachment.ObjectName, attachment.SystemID, attachment.EntityInfo, attachment.ObjectID, cancellationToken).ConfigureAwait(false);
+				}
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+			finally
+			{
+				Global.Statistics.RpcCompleted(stopwatch);
+			}
+		}
 
 		static RequestInfo GetRequestInfo(this HttpContext context, string objectName, string verb, Dictionary<string, string> query = null, string body = null)
 		{
