@@ -132,7 +132,7 @@ namespace net.vieapps.Services.Files
 			await Task.WhenAll
 			(
 				context.UpdateAsync(attachment, attachment.IsReadable() ? "Direct" : "Download", cancellationToken),
-				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file ({requestURI}) - Execution times: {stopwatch.GetElapsedTimes()}\r\nInfo: {attachment.ToJson()}") : Task.CompletedTask
+				isDebugLogEnabled ? context.WriteLogsAsync(this.Logger, "Downloads", $"Successfully flush a file - Execution times: {stopwatch.GetElapsedTimes()}\r\nURL: {requestURI}\r\nOriginal file-path: {attachment.GetFilePath()}\r\nInfo JSON: {attachment.ToJson()}") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
