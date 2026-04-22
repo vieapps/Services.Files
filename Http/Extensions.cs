@@ -108,10 +108,10 @@ namespace net.vieapps.Services.Files
 		}
 
 		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
-			=> attachment.ToJson(onCompleted).ToString(Newtonsoft.Json.Formatting.None);
+			=> attachment.ToJson(onCompleted).AsString();
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
-			=> context.WriteAsync(json.ToString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
+			=> context.WriteAsync(json.AsString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, CancellationToken cancellationToken)
 			=> context.WriteAsync(json, format, null, cancellationToken);
