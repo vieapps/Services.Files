@@ -107,11 +107,8 @@ namespace net.vieapps.Services.Files
 			return json;
 		}
 
-		public static string ToString(this AttachmentInfo attachment, Action<JObject> onCompleted)
-			=> attachment.ToJson(onCompleted).AsString();
-
 		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
-			=> context.WriteAsync(json.AsString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
+			=> context.WriteAsync(json.ToBytes(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Newtonsoft.Json.Formatting format, CancellationToken cancellationToken)
 			=> context.WriteAsync(json, format, null, cancellationToken);
@@ -249,11 +246,12 @@ namespace net.vieapps.Services.Files
 			{
 				using (ticket.Value)
 				{
-					return await context.CallServiceAsync(context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
+					var requestInfo = context.GetRequestInfo(attachment.IsThumbnail ? "Thumbnail" : "Attachment", "POST", new Dictionary<string, string>
 					{
 						{ "object-identity", attachment.ID },
 						{ "x-object-title", attachment.Title }
-					}, attachment.ToString(null)), cancellationToken, Global.Logger, "Uploads").ConfigureAwait(false);
+					}, attachment.ToJson().AsString());
+					return await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Uploads").ConfigureAwait(false);
 				}
 			}
 			catch (Exception)
