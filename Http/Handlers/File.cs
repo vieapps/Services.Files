@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isBypassCacheRequested = context.IsBypassCache();
+			var isBypassCacheRequested = context.IsBypassCacheRequested();
 			var processCache = !isBypassCacheRequested;
 
 			var pathSegments = requestURI.GetRequestPathSegments();
@@ -69,8 +69,7 @@ namespace net.vieapps.Services.Files
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
-			var cacheKey = attachment.GetCacheKey("file");
-			var eTag = cacheKey.Replace("file", "vieapps");
+			var eTag = attachment.GetCacheKey("file").Replace("file", "vieapps");
 			var noneMatch = processCache ? context.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since") : null;
 

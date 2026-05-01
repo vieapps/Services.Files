@@ -31,11 +31,10 @@ namespace net.vieapps.Services.Files
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isBypassCacheRequested = context.IsBypassCache();
-			var processCache = !isBypassCacheRequested;
+			var isBypassCacheRequested = context.IsBypassCacheRequested();
 
 			var requestURI = context.GetRequestUri();
-			var requestURL = $"{requestURI}";
+			var requestURL = requestURI.AbsoluteUri;
 			var pathSegments = requestURI.GetRequestPathSegments();
 
 			var handlerName = pathSegments[0];
@@ -80,7 +79,7 @@ namespace net.vieapps.Services.Files
 			// check "If-Modified-Since" request to reduce traffict
 			var noneMatch = context.GetHeaderParameter("If-None-Match");
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-			var lastModified = Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
+			var lastModified = Handler.IsCacheThumbnails && !isBypassCacheRequested && await Global.Cache.ExistsAsync($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
 				? await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
 				: 0;
 			if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified > 0 && modifiedSince.FromHttpDateTime().ToUnixTimestamp() >= lastModified)
@@ -110,7 +109,7 @@ namespace net.vieapps.Services.Files
 
 			// check existed
 			var fileInfo = new FileInfo(isNoThumbnailImage ? Handler.NoThumbnailImageFilePath : attachment.GetFilePath());
-			var hasCached = !isNoThumbnailImage && Handler.IsCacheThumbnails && processCache && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+			var hasCached = !isNoThumbnailImage && Handler.IsCacheThumbnails && !isBypassCacheRequested && await Global.Cache.ExistsAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!hasCached)
 			{
 				if (!isThumbnail && !isNoThumbnailImage && attachment.Filename.IsEndsWith(".webp"))

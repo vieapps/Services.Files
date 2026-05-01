@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Files
 			var correlationID = context.GetCorrelationID();
 			var requestURI = context.GetRequestUri();
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isBypassCacheRequested = context.IsBypassCache();
+			var isBypassCacheRequested = context.IsBypassCacheRequested();
 			var processCache = !isBypassCacheRequested;
 
 			var pathSegments = requestURI.GetRequestPathSegments();
@@ -85,7 +85,7 @@ namespace net.vieapps.Services.Files
 				headers["X-Cache"] = (isInL1Cache ? "L1-" : "") + "HTTP-304";
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 				context.SetResponseHeaders((int)HttpStatusCode.NotModified, eTag, modifiedSince.FromHttpDateTime().ToUnixTimestamp(), "public", correlationID, headers);
-				if (Global.Cache.UseL1Cache)
+				if (isInL1Cache)
 					Global.Statistics.L1Hit304();
 				else
 				{
@@ -136,7 +136,7 @@ namespace net.vieapps.Services.Files
 				data = await Global.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				lastModified = await Global.Cache.GetAsync<long>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false);
 				context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-				if (Global.Cache.UseL1Cache && Global.Cache.ExistsInL1Cache(cacheKey))
+				if (isInL1Cache)
 					Global.Statistics.L1Hit200();
 				else
 				{
