@@ -118,8 +118,9 @@ namespace net.vieapps.Services.Files
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
+			this.Statistics.RpcEntered();
+			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			try
 			{
 				// verify the request
@@ -203,6 +204,10 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
+			finally
+			{
+				this.Statistics.RpcCompleted(stopwatch);
 			}
 		}
 
