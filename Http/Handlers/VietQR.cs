@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Files
 				var accountName = isBase64Url ? base64Url.Get<string>("accountName") : segments[4].Replace("--", " ");
 				using var vietQR = await new Uri($"https://img.vietqr.io/image/{id}-{accountNumber}-print.png?amount={amount}&addInfo={description}&accountName={accountName}").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await vietQR.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+				data = await data.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate VietQR successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);

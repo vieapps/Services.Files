@@ -6,7 +6,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
@@ -53,10 +52,10 @@ namespace net.vieapps.Services.Files
 				index = tindex;
 			var asBig = !handlerName.IsStartsWith("thumbnailsmall");
 			var format = handlerName.IsEndsWith("webps") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".webp"))
-				? ImageFormat.Webp
+				? "WebP"
 				: handlerName.IsEndsWith("pngs") || (isNoThumbnailImage && Handler.NoThumbnailImageFilePath.IsEndsWith(".png")) || context.GetQueryParameter("asPng") != null || context.GetQueryParameter("transparent") != null
-					? ImageFormat.Png
-					: ImageFormat.Jpeg;
+					? "Png"
+					: "Jpeg";
 
 			// validate the request
 			if (!isNoThumbnailImage && (string.IsNullOrWhiteSpace(identifier) || (string.IsNullOrWhiteSpace(serviceName) && string.IsNullOrWhiteSpace(systemID))))
@@ -67,12 +66,12 @@ namespace net.vieapps.Services.Files
 			var eTag = cacheKey.Replace("thumbnail", "vieapps");
 			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
 
-			var generator = context.GetQueryParameter("x-generator");
+			var generator = context.GetQueryParameter("x-generator-engine");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID,
-				["X-Generator-Engine"] = generator ?? ServiceExtensions.Generator,
+				["X-Generator-Engine"] = generator ?? ImageExtensions.Generator,
 				["X-Correlation-ID"] = correlationID
 			};
 
@@ -182,7 +181,7 @@ namespace net.vieapps.Services.Files
 						stepwatch.Stop();
 						context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes");
+							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes\r\n- Generator engine: {generator ?? ImageExtensions.Generator}");
 					}
 					catch (Exception ex)
 					{
@@ -306,7 +305,7 @@ namespace net.vieapps.Services.Files
 							var thumbnailInfo = data.Value.ToString().ToArray();
 							var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 							var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-							thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
+							thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false);
 							thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 						}
 						catch { }
@@ -317,7 +316,7 @@ namespace net.vieapps.Services.Files
 						var thumbnailInfo = data.Value.ToString().ToArray();
 						var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 						var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false);
+						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false);
 						thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 					}
 					catch { }
@@ -336,7 +335,7 @@ namespace net.vieapps.Services.Files
 							using var thumbnailStream = file.OpenReadStream();
 							var thumbnailData = new byte[file.Length];
 							await thumbnailStream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
-							thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync(ImageFormat.Jpeg, cancellationToken).ConfigureAwait(false), new AttachmentInfo());
+							thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false), new AttachmentInfo());
 						}
 						catch { }
 					}, true, false).ConfigureAwait(false);
@@ -387,7 +386,7 @@ namespace net.vieapps.Services.Files
 					thumbnails.ForEach((thumbnail, index) =>
 					{
 						if (thumbnail.Data != null)
-							thumbnail.Info.PrepareCacheAsync(index, ImageFormat.Jpeg, thumbnail.Data, DateTime.Now.ToUnixTimestamp()).Execute();
+							thumbnail.Info.PrepareCacheAsync(index, "Jpeg", thumbnail.Data, DateTime.Now.ToUnixTimestamp()).Execute();
 					});
 
 				// sync

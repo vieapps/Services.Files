@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Files
 				throw new InvalidRequestException();
 
 			var isDebugLogEnabled = context.IsDebugLogEnabled();
-			var isForceCacheRequested = context.ContainsKey("x-force-cache");
+			var isBypassCacheRequested = context.IsBypassCacheRequested();
 
 			// check "If-Modified-Since" request to reduce traffict
 			var identifier = pathSegments[1].ToLower();
@@ -79,10 +79,10 @@ namespace net.vieapps.Services.Files
 				["X-Cache"] = "SEND-FILE",
 				["X-Node"] = Global.NodeID
 			};
-			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isForceCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
+			await context.SendFileAsync(fileInfo, attachment.GetContentDisposition(pathSegments.Length > 2 && pathSegments[2].Equals("1")), eTag, context.GetHttpCacheControl(context.IsAuthenticated() || isBypassCacheRequested), headers, correlationID, cancellationToken).ConfigureAwait(false);
 
 			// send request to purge cache of CDN
-			if (isForceCacheRequested)
+			if (isBypassCacheRequested)
 				attachment.SendPurgeCacheRequest(requestURI);
 
 			// update counter & logs

@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>net10.0</TargetFrameworks>
 		<WarningLevel>3</WarningLevel>
-		<NoWarn>1573,1591,IDE0054,CA1416,CA1822,NU1605</NoWarn>
+		<NoWarn>1573,1591,IDE0054,CA1416,CA1822,NU1605,NU1902,NU1903</NoWarn>
 		<OutputType>Exe</OutputType>
 		<InvariantGlobalization>true</InvariantGlobalization>
 		<AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
@@ -29,11 +29,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-		<PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
-		<PackageReference Include="System.Drawing.Common" Version="10.0.*" />
-		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.10.2606.1" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2606.1" />
+		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.10.2610.1" />
+		<PackageReference Include="VIEApps.Components.Utility.Image" Version="10.10.2610.1" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2610.1" />
 	</ItemGroup>
 
 </Project>

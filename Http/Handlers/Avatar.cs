@@ -1,17 +1,14 @@
 ﻿#region Related component
-using Microsoft.AspNetCore.Http;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Utility;
-using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Net;
-using System.Net.Mail;
 using System.Threading;
 using System.Threading.Tasks;
-
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json.Linq;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Files
@@ -109,7 +106,7 @@ namespace net.vieapps.Services.Files
 			if (asBase64)
 			{
 				content = (await context.ReadTextAsync(cancellationToken).ConfigureAwait(false)).ToJson().Get<string>("Data").ToArray().Last().Base64ToBytes();
-				content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+				content = await content.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
 				if (content.Length > limitSize * 1024)
 				{
 					await context.WriteLogsAsync(this.Logger, "Uploads", $"Limit size exceeded (base64) - Max allowed size: ${limitSize * 1024:###,###,###,##0} bytes - Actual size: ${content.Length:###,###,###,##0} bytes").ConfigureAwait(false);
@@ -136,7 +133,7 @@ namespace net.vieapps.Services.Files
 				using var stream = file.OpenReadStream();
 				content = new byte[file.Length];
 				await stream.ReadAsync(content, cancellationToken).ConfigureAwait(false);
-				content = await content.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+				content = await content.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
 			}
 
 			// write into file of temporary directory

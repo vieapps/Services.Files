@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -48,7 +47,7 @@ namespace net.vieapps.Services.Files
 				context.SendSessionState();
 				using var chart = await new Uri($"https://quickchart.io/qr?text={value.UrlEncode()}&size={size}&ecLevel={ecLevel}{(string.IsNullOrWhiteSpace(image) ? "" : $"&centerImageUrl={image.UrlEncode()}")}&margin=1").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-				data = await data.ConvertAsync(ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+				data = await data.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);

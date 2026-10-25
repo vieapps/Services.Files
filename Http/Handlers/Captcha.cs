@@ -61,10 +61,10 @@ namespace net.vieapps.Services.Files
 				var headers = new Dictionary<string, string>
 				{
 					["X-Node"] = Global.NodeID,
-					["X-Generator-Engine"] = generator ?? ServiceExtensions.Generator
+					["X-Generator-Engine"] = generator ?? ImageExtensions.Generator
 				};
 				using var inputStream = code.Generate(isSmall, generator);
-				using var outputStream = await inputStream.ConvertAsync(System.Drawing.Imaging.ImageFormat.Webp, cancellationToken).ConfigureAwait(false);
+				using var outputStream = await inputStream.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
 				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, headers, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}
 			else
