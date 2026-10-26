@@ -65,13 +65,10 @@ namespace net.vieapps.Services.Files
 			var cacheKey = (identifier, index, format, width, height, asBig).GetCacheKey();
 			var eTag = cacheKey.Replace("thumbnail", "vieapps");
 			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
-
-			var generator = context.GetQueryParameter("x-generator-engine");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID,
-				["X-Generator-Engine"] = generator ?? ImageExtensions.Generator,
 				["X-Correlation-ID"] = correlationID
 			};
 
@@ -177,17 +174,17 @@ namespace net.vieapps.Services.Files
 					try
 					{
 						stepwatch.Restart();
-						thumbnail = await original.GenerateAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken, generator).ConfigureAwait(false);
+						thumbnail = await original.GenerateImageAsync(format, width, height, asBig, fileInfo.Extension.IsEquals(".webp"), cancellationToken).ConfigureAwait(false);
 						stepwatch.Stop();
 						context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes\r\n- Generator engine: {generator ?? ImageExtensions.Generator}");
+							await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Generate a thumbnail image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {eTag} => {requestURL}\r\n- Original length: {original.Length:###,###,##0} bytes\r\n- Thumbnail length: {thumbnail.Length:###,###,##0} bytes");
 					}
 					catch (Exception ex)
 					{
 						await context.WriteLogsAsync(this.Logger, "Thumbnails", $"Error occurred while generating a thumbnail image\r\n- Path: {fileInfo.FullName}\r\n- URL: {requestURL}\r\n- ETag: {eTag}", ex).ConfigureAwait(false);
 						stepwatch.Restart();
-						thumbnail = await original.ConvertAsync(format, cancellationToken).ConfigureAwait(false);
+						thumbnail = await original.ConvertImageAsync(format, cancellationToken).ConfigureAwait(false);
 						context.UpdateServerTiming("ngxConvert", stepwatch.ElapsedMilliseconds);
 					}
 				lastModified = fileInfo.LastWriteTimeUtc.ToUnixTimestamp();
@@ -305,7 +302,7 @@ namespace net.vieapps.Services.Files
 							var thumbnailInfo = data.Value.ToString().ToArray();
 							var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 							var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-							thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false);
+							thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertImageAsync("Jpeg", cancellationToken).ConfigureAwait(false);
 							thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 						}
 						catch { }
@@ -316,7 +313,7 @@ namespace net.vieapps.Services.Files
 						var thumbnailInfo = data.Value.ToString().ToArray();
 						var thumbnailData = thumbnailInfo.Last().Base64ToBytes();
 						var thumbnailContentType = thumbnailInfo.First().ToArray(";").First();
-						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false);
+						thumbnailData = thumbnailContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertImageAsync("Jpeg", cancellationToken).ConfigureAwait(false);
 						thumbnails.Add((thumbnailData.Length <= limitSize * 1024 ? thumbnailData : null, new AttachmentInfo()));
 					}
 					catch { }
@@ -335,7 +332,7 @@ namespace net.vieapps.Services.Files
 							using var thumbnailStream = file.OpenReadStream();
 							var thumbnailData = new byte[file.Length];
 							await thumbnailStream.ReadAsync(thumbnailData, cancellationToken).ConfigureAwait(false);
-							thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertAsync("Jpeg", cancellationToken).ConfigureAwait(false), new AttachmentInfo());
+							thumbnails[index] = (file.ContentType.IsThumbnail() ? thumbnailData : await thumbnailData.ConvertImageAsync("Jpeg", cancellationToken).ConfigureAwait(false), new AttachmentInfo());
 						}
 						catch { }
 					}, true, false).ConfigureAwait(false);

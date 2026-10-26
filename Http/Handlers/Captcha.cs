@@ -57,15 +57,12 @@ namespace net.vieapps.Services.Files
 					code = "I-n-valid";
 				}
 
-				var generator = context.GetQueryParameter("x-generator");
 				var headers = new Dictionary<string, string>
 				{
-					["X-Node"] = Global.NodeID,
-					["X-Generator-Engine"] = generator ?? ImageExtensions.Generator
+					["X-Node"] = Global.NodeID
 				};
-				using var inputStream = code.Generate(isSmall, generator);
-				using var outputStream = await inputStream.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
-				await context.WriteAsync(outputStream, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, headers, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
+				var image = await code.GenerateImageAsync(isSmall, "WebP", cancellationToken).ConfigureAwait(false);
+				await context.WriteAsync(image, "image/webp", null, null, 0, "private, no-store, no-cache", TimeSpan.Zero, headers, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);
 			}
 			else
 				throw new MethodNotAllowedException(context.Request.Method);

@@ -68,13 +68,10 @@ namespace net.vieapps.Services.Files
 			var cacheKey = attachment.GetCacheKey(attachment.IsWebP() ? "file" : "webp");
 			var eTag = $"vieapps#{(attachment.IsWebP() ? cacheKey.Replace("file#", "") : cacheKey.GenerateUUID())}";
 			var isInL1Cache = Global.Cache.UseL1Cache & Global.Cache.ExistsInL1Cache(cacheKey);
-
-			var converter = context.GetParameter("x-converter-engine");
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "None",
 				["X-Node"] = Global.NodeID,
-				["X-Converter-Engine"] = converter ?? ImageExtensions.Converter,
 				["X-Correlation-ID"] = correlationID
 			};
 
@@ -158,10 +155,8 @@ namespace net.vieapps.Services.Files
 				try
 				{
 					stepwatch.Restart();
-					using var inputStream = data.ToMemoryStream();
-					using var outputStream = await inputStream.ConvertAsync("WebP", !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ImageExtensions.ResizeBigWebpImage, cancellationToken, converter).ConfigureAwait(false);
-					data = outputStream.ToBytes();
-					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes\r\n- Converter engine: {converter ?? ImageExtensions.Converter}").ConfigureAwait(false);
+					data = await data.ConvertImageAsync("WebP", !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && !context.ContainsKey("x-no-resize") && ImageExtensions.ResizeBigWebpImage, cancellationToken).ConfigureAwait(false);
+					await context.WriteLogsAsync(this.Logger, "Downloads", $"Convert to WebP image successful - Execution times: {stepwatch.GetElapsedTimes()}\r\n- Info: {requestURI} => {fileInfo.Name}\r\n- Original length: {length:###,###,###,##0} bytes\r\n- WebP length: {data.Length:###,###,###,##0} bytes").ConfigureAwait(false);
 					context.UpdateServerTiming("ngxGenerate", stepwatch.ElapsedMilliseconds);
 					if (Handler.IsCacheImages)
 						Task.WhenAll

@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
@@ -39,7 +38,7 @@ namespace net.vieapps.Services.Files
 				var accountName = isBase64Url ? base64Url.Get<string>("accountName") : segments[4].Replace("--", " ");
 				using var vietQR = await new Uri($"https://img.vietqr.io/image/{id}-{accountNumber}-print.png?amount={amount}&addInfo={description}&accountName={accountName}").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await vietQR.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-				data = await data.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
+				data = await data.ConvertImageAsync("WebP", cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate VietQR successful - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -47,7 +46,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the VietQR: {ex.Message}", ex).ConfigureAwait(false);
-				data = await ex.GenerateAsync(540, 540, cancellationToken).ConfigureAwait(false);
+				data = await ex.GenerateImageAsync(540, 540, "WebP", cancellationToken).ConfigureAwait(false);
 				cacheControl = "private, no-store, no-cache";
 			}
 			await context.WriteAsync(data, "image/webp", null, null, 0, cacheControl, TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);

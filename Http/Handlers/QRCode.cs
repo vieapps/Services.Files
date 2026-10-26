@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Files
 				context.SendSessionState();
 				using var chart = await new Uri($"https://quickchart.io/qr?text={value.UrlEncode()}&size={size}&ecLevel={ecLevel}{(string.IsNullOrWhiteSpace(image) ? "" : $"&centerImageUrl={image.UrlEncode()}")}&margin=1").SendHttpRequestAsync(cancellationToken).ConfigureAwait(false);
 				data = await chart.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-				data = await data.ConvertAsync("WebP", cancellationToken).ConfigureAwait(false);
+				data = await data.ConvertImageAsync("WebP", cancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (context.IsDebugLogEnabled())
 					await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Generate QR Code successful: {value} - [Size: {size} - EC Level: {ecLevel}] - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -55,7 +55,7 @@ namespace net.vieapps.Services.Files
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync(this.Logger, "QRCodes", $"Error occurred while generating the QR Code: {ex.Message}", ex).ConfigureAwait(false);
-				data = await ex.GenerateAsync(size, size, cancellationToken).ConfigureAwait(false);
+				data = await ex.GenerateImageAsync(size, size, "WebP", cancellationToken).ConfigureAwait(false);
 				cacheControl = "private, no-store, no-cache";
 			}
 			await context.WriteAsync(data, "image/webp", null, null, 0, cacheControl, TimeSpan.Zero, new Dictionary<string, string> { ["X-Node"] = Global.NodeID }, context.GetCorrelationID(), cancellationToken).ConfigureAwait(false);

@@ -409,11 +409,11 @@ namespace net.vieapps.Services.Files
 			byte[] thumbnail;
 			try
 			{
-				thumbnail = await original.GenerateAsync(format, width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
+				thumbnail = await original.GenerateImageAsync(format, width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
 			}
 			catch
 			{
-				thumbnail = await original.ConvertAsync(format, Global.CancellationToken).ConfigureAwait(false);
+				thumbnail = await original.ConvertImageAsync(format, Global.CancellationToken).ConfigureAwait(false);
 			}
 
 			var cacheKey = attachment.GetCacheKey(index, format, width, height, asBig);
@@ -429,11 +429,11 @@ namespace net.vieapps.Services.Files
 			{
 				try
 				{
-					thumbnail = await original.GenerateAsync("WebP", width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
+					thumbnail = await original.GenerateImageAsync("WebP", width, height, asBig, attachment.IsWebP(), Global.CancellationToken).ConfigureAwait(false);
 				}
 				catch
 				{
-					thumbnail = await original.ConvertAsync("WebP", Global.CancellationToken).ConfigureAwait(false);
+					thumbnail = await original.ConvertImageAsync("WebP", Global.CancellationToken).ConfigureAwait(false);
 				}
 
 				cacheKey = attachment.GetCacheKey(index, "WebP", width, height, asBig);
@@ -452,11 +452,11 @@ namespace net.vieapps.Services.Files
 					{
 						try
 						{
-							thumbnail = await original.GenerateAsync("WebP", variant, 0, asBig, false, Global.CancellationToken).ConfigureAwait(false);
+							thumbnail = await original.GenerateImageAsync("WebP", variant, 0, asBig, false, Global.CancellationToken).ConfigureAwait(false);
 						}
 						catch
 						{
-							thumbnail = await original.ConvertAsync("WebP", Global.CancellationToken).ConfigureAwait(false);
+							thumbnail = await original.ConvertImageAsync("WebP", Global.CancellationToken).ConfigureAwait(false);
 						}
 						cacheKey = attachment.GetCacheKey(index, "WebP", variant, 0, asBig);
 						await Task.WhenAll
@@ -482,7 +482,7 @@ namespace net.vieapps.Services.Files
 			if (data == null || data.Length < 1 || lastModified <= 0)
 			{
 				using var fileStream = new FileStream(attachment.GetFilePath(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, TextFileReader.BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
-				using var webpStream = await fileStream.ConvertAsync("WebP", !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && ImageExtensions.ResizeBigWebpImage, Global.CancellationToken).ConfigureAwait(false);
+				using var webpStream = await fileStream.ConvertImageAsync("WebP", !attachment.Filename.IsEndsWith(".png"), !attachment.Filename.IsEndsWith(".png") && ImageExtensions.ResizeBigWebpImage, Global.CancellationToken).ConfigureAwait(false);
 				data = webpStream.ToBytes();
 				lastModified = lastModified > 0 ? lastModified : File.GetLastWriteTimeUtc(attachment.GetFilePath()).ToUnixTimestamp();
 			}
